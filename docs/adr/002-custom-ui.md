@@ -6,7 +6,7 @@ Elcarax uses a custom GPU-first UI architecture rather than basing the core shel
 
 ## Rationale
 
-The product goal is an extremely optimized and beautiful proprietary editor. The UI is a product surface and competitive advantage, not plumbing.
+The product goal is an extremely optimized and beautiful editor shell. The UI is a core product surface, not plumbing, and should stay tailored to Elcarax rather than inherit another toolkit's interaction model.
 
 ## Consequences
 

@@ -24,9 +24,9 @@ members = [
 edition = "2024"
 rust-version = "1.96"
 version = "0.1.0"
-license = "Proprietary"
+license = "Apache-2.0"
 authors = ["Elcaro Digital"]
-repository = "private"
+repository = "https://github.com/9karma1/Elcarax"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
