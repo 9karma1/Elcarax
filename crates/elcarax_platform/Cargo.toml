@@ -8,3 +8,10 @@ authors.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+default = []
+native = ["dep:winit"]
+
+[dependencies]
+winit = { version = "0.30.12", optional = true }
