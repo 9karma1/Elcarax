@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, error::Error, fmt};
 
-use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
+use cosmic_text::{Attrs, Buffer, Color as CosmicColor, Metrics, Shaping, SwashCache};
 
 #[derive(Debug)]
 pub struct FontSystem {
@@ -53,6 +53,15 @@ impl TextColor {
     pub const fn srgb(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
+
+    fn to_cosmic(self) -> CosmicColor {
+        CosmicColor::rgba(
+            channel_to_u8(self.r),
+            channel_to_u8(self.g),
+            channel_to_u8(self.b),
+            channel_to_u8(self.a),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -96,6 +105,21 @@ pub struct TextLayout {
     pub run: TextRun,
     pub metrics: TextMetrics,
     pub glyphs: Vec<GlyphPlacement>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextPixel {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub color: TextColor,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RasterizedText {
+    pub layout: TextLayout,
+    pub pixels: Vec<TextPixel>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,6 +193,50 @@ impl TextLayoutCache {
     }
 }
 
+#[derive(Debug)]
+pub struct TextRasterizer {
+    fonts: FontSystem,
+    swash: SwashCache,
+    layouts: TextLayoutCache,
+}
+
+impl TextRasterizer {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            fonts: FontSystem::new(),
+            swash: SwashCache::new(),
+            layouts: TextLayoutCache::new(),
+        }
+    }
+
+    pub fn rasterize(
+        &mut self,
+        run: &TextRun,
+        max_width: Option<f32>,
+    ) -> Result<RasterizedText, TextError> {
+        let layout = self.layouts.layout(&mut self.fonts, run, max_width)?;
+        let pixels = rasterize_pixels(&mut self.fonts, &mut self.swash, run, max_width)?;
+        Ok(RasterizedText { layout, pixels })
+    }
+
+    #[must_use]
+    pub fn cache_hits(&self) -> u64 {
+        self.layouts.hits()
+    }
+
+    #[must_use]
+    pub fn cache_misses(&self) -> u64 {
+        self.layouts.misses()
+    }
+}
+
+impl Default for TextRasterizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn shape_static_text(
     fonts: &mut FontSystem,
     run: &TextRun,
@@ -212,6 +280,49 @@ pub fn shape_static_text(
         },
         glyphs,
     })
+}
+
+fn rasterize_pixels(
+    fonts: &mut FontSystem,
+    swash: &mut SwashCache,
+    run: &TextRun,
+    max_width: Option<f32>,
+) -> Result<Vec<TextPixel>, TextError> {
+    if !run.size.0.is_finite() || run.size.0 <= 0.0 {
+        return Err(TextError::InvalidFontSize);
+    }
+    let line_height = (run.size.0 * 1.25).ceil();
+    let mut buffer = Buffer::new(&mut fonts.inner, Metrics::new(run.size.0, line_height));
+    let mut borrowed = buffer.borrow_with(&mut fonts.inner);
+    borrowed.set_size(max_width, Some(line_height));
+    borrowed.set_text(&run.content, &Attrs::new(), Shaping::Advanced, None);
+    let mut pixels = Vec::new();
+    borrowed.draw(
+        swash,
+        run.color.to_cosmic(),
+        |x, y, width, height, color| {
+            if width == 0 || height == 0 || color.a() == 0 {
+                return;
+            }
+            pixels.push(TextPixel {
+                x,
+                y,
+                width,
+                height,
+                color: TextColor::srgb(
+                    f32::from(color.r()) / 255.0,
+                    f32::from(color.g()) / 255.0,
+                    f32::from(color.b()) / 255.0,
+                    f32::from(color.a()) / 255.0,
+                ),
+            });
+        },
+    );
+    Ok(pixels)
+}
+
+fn channel_to_u8(value: f32) -> u8 {
+    (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 #[cfg(test)]
@@ -263,5 +374,15 @@ mod tests {
             .layout(&mut fs, &run("Project", 18.0), None)
             .unwrap_or_else(|error| panic!("layout failed: {error}"));
         assert_eq!(c.len(), 2);
+    }
+
+    #[test]
+    fn rasterizer_uses_system_font_pixels() {
+        let mut rasterizer = TextRasterizer::new();
+        let rasterized = rasterizer
+            .rasterize(&run("Elcarax", 16.0), None)
+            .unwrap_or_else(|error| panic!("rasterize failed: {error}"));
+        assert_eq!(rasterized.layout.metrics.glyph_count, 7);
+        assert!(!rasterized.pixels.is_empty());
     }
 }
