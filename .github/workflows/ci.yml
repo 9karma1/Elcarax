@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gates:
+    name: Rust workspace quality gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.96.0
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+
+      - name: Ensure ripgrep is available
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Check workspace
+        run: cargo check --workspace
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Run app scaffold
+        run: cargo run -p elcarax_app
+
+      - name: Guard core crates against engine and GPU dependencies
+        run: |
+          ! rg "\b(bevy|ggez|macroquad|godot|unity|unreal|wgpu|vulkano|ash|glium)\b" \
+            crates/elcarax_core \
+            crates/elcarax_scene_model \
+            crates/elcarax_commands \
+            crates/elcarax_adapter_api
+
+      - name: Guard crates against unfinished shortcuts
+        run: '! rg "unwrap\(|todo!\(" crates -n'
