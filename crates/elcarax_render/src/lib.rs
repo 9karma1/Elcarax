@@ -349,7 +349,10 @@ impl Renderer {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[vertex_layout(), instance_layout()],
             },
-            primitive: wgpu::PrimitiveState::default(),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..wgpu::PrimitiveState::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
@@ -492,7 +495,7 @@ fn primitive_instances(primitive: &RenderPrimitive, size: SurfaceSize) -> Vec<Re
             rect_instance(rect, color, size).into_iter().collect()
         }
         RenderPrimitiveKind::BorderRect { rect, border } => border_instances(rect, border, size),
-        RenderPrimitiveKind::Text(_) => Vec::new(),
+        RenderPrimitiveKind::Text(ref text) => text_instances(text, size),
         RenderPrimitiveKind::Line {
             from,
             to,
@@ -564,6 +567,177 @@ fn line_instance(
             size,
         )
     }
+}
+
+fn text_instances(text: &TextPrimitive, size: SurfaceSize) -> Vec<RectInstance> {
+    let pixel = (text.size / 7.0).max(1.0);
+    let advance = pixel * 6.0;
+    let top = text.position[1] - text.size;
+    let mut instances = Vec::new();
+    for (index, character) in text.content.chars().enumerate() {
+        let x = text.position[0] + index as f32 * advance;
+        append_glyph_instances(&mut instances, character, x, top, pixel, text.color, size);
+    }
+    instances
+}
+
+fn append_glyph_instances(
+    instances: &mut Vec<RectInstance>,
+    character: char,
+    x: f32,
+    y: f32,
+    pixel: f32,
+    color: Color,
+    size: SurfaceSize,
+) {
+    let Some(rows) = glyph_rows(character) else {
+        return;
+    };
+    for (row_index, row) in rows.iter().enumerate() {
+        for column in 0..5 {
+            let mask = 1 << (4 - column);
+            if row & mask == 0 {
+                continue;
+            }
+            if let Some(instance) = rect_instance(
+                Rect::new(
+                    x + column as f32 * pixel,
+                    y + row_index as f32 * pixel,
+                    pixel,
+                    pixel,
+                ),
+                color,
+                size,
+            ) {
+                instances.push(instance);
+            }
+        }
+    }
+}
+
+fn glyph_rows(character: char) -> Option<[u8; 7]> {
+    let upper = character.to_ascii_uppercase();
+    let rows = match upper {
+        ' ' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000,
+        ],
+        ':' => [
+            0b00000, 0b00100, 0b00100, 0b00000, 0b00100, 0b00100, 0b00000,
+        ],
+        '.' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100,
+        ],
+        '0' => [
+            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
+        ],
+        '1' => [
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        '2' => [
+            0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111,
+        ],
+        '3' => [
+            0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        '4' => [
+            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
+        ],
+        '5' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110,
+        ],
+        '6' => [
+            0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110,
+        ],
+        '7' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
+        ],
+        '8' => [
+            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
+        ],
+        '9' => [
+            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110,
+        ],
+        'A' => [
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'B' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+        ],
+        'C' => [
+            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+        ],
+        'D' => [
+            0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110,
+        ],
+        'E' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+        'F' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'G' => [
+            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
+        ],
+        'H' => [
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'I' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111,
+        ],
+        'J' => [
+            0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100,
+        ],
+        'K' => [
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+        'L' => [
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+        'M' => [
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+        'N' => [
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+        'O' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'P' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'Q' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+        'R' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+        'S' => [
+            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        'T' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'U' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'V' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
+        ],
+        'W' => [
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010,
+        ],
+        'X' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+        'Y' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'Z' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
+        ],
+        _ => return None,
+    };
+    Some(rows)
 }
 fn to_ndc_x(x: f32, size: SurfaceSize) -> f32 {
     (x / size.width.max(1) as f32) * 2.0 - 1.0
@@ -762,6 +936,13 @@ mod tests {
         let stats = text_stats(&s);
         assert_eq!(stats.text_primitive_count, 1);
         assert_eq!(stats.glyph_count, 3);
+    }
+
+    #[test]
+    fn text_generates_fallback_rect_instances() {
+        let text = TextPrimitive::new("A", 0.0, 14.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0));
+        let instances = text_instances(&text, SurfaceSize::new(100, 100));
+        assert!(!instances.is_empty());
     }
 
     #[test]

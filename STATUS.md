@@ -8,7 +8,7 @@ Generated: 2026-06-21
 - Engine-neutral scene/property/schema model
 - Command and undo/redo path
 - Adapter API, SDK, host boundary, and mock game adapter
-- UI tree scaffold
+- UI tree and layout foundation for the editor shell
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - Project, asset, text, accessibility, and devtools modules
 - Native shell foundation behind `native-shell`
@@ -18,9 +18,9 @@ Generated: 2026-06-21
 
 ## Not included yet
 
-- Text rendering, icons, images, and full vector paths
-- Full editor UI system
-- Panels, docking, widgets, inspector, viewport, or asset browser
+- Icons, images, and full vector paths
+- Full editor UI system beyond the static shell
+- Docking, drag resizing, tree views, inspector editing, command palette, text input, scroll views, or asset browser behavior
 - Real `cosmic-text` shaping/rasterization
 - Real `AccessKit` adapter integration
 - Real process IPC transport
@@ -41,7 +41,7 @@ Feature-gated native shell:
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell opens an `Elcarax` window, initializes `wgpu`, renders the Milestone 2 primitive demo (dark background, toolbar, sidebars, viewport, inspector, status bar, separators, and sample border), handles resize/DPI/events, and exits cleanly on close.
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, paints it into a render scene, handles resize/DPI/events, and exits cleanly on close.
 
 ## Validation
 
@@ -60,3 +60,11 @@ cargo run -p elcarax_app
 - Added text primitives, text batching metadata, glyph atlas stats, and text/glyph render stats in `elcarax_render`.
 - Updated the demo proof scene to include static labels: Elcarax, Project, Viewport, Inspector, Console, and Status: Renderer online.
 - Documented the current system-font fallback strategy and explicit text editing exclusions in `docs/MILESTONE_3_TEXT_RENDERING.md`.
+
+## Milestone 4: UI Tree and Layout Foundation
+
+- Added retained UI nodes, stable widget identity, tree traversal, layout constraints/results, dirty flags, theme/style resolution, and paint contexts in `elcarax_ui`.
+- Added fixed/fill/content sizing, horizontal/vertical stack layout, padding/insets, and split-style row/column shell composition.
+- Added non-interactive root, panel, label, separator, toolbar, status bar, and viewport placeholder widgets.
+- Replaced app-owned hardcoded shell primitives with UI-generated render scenes in console and native paths.
+- Documented explicit editor feature exclusions in `docs/MILESTONE_4_UI_TREE_LAYOUT.md`.
