@@ -1,0 +1,22 @@
+[package]
+name = "elcarax_app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+elcarax_adapter_api = { path = "../elcarax_adapter_api" }
+elcarax_commands = { path = "../elcarax_commands" }
+elcarax_core = { path = "../elcarax_core" }
+elcarax_devtools = { path = "../elcarax_devtools" }
+elcarax_gpu = { path = "../elcarax_gpu" }
+elcarax_platform = { path = "../elcarax_platform" }
+elcarax_project = { path = "../elcarax_project" }
+elcarax_render = { path = "../elcarax_render" }
+elcarax_scene_model = { path = "../elcarax_scene_model" }
+elcarax_ui = { path = "../elcarax_ui" }

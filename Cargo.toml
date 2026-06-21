@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/elcarax_app",
+    "crates/elcarax_core",
+    "crates/elcarax_platform",
+    "crates/elcarax_gpu",
+    "crates/elcarax_render",
+    "crates/elcarax_ui",
+    "crates/elcarax_text",
+    "crates/elcarax_accessibility",
+    "crates/elcarax_project",
+    "crates/elcarax_assets",
+    "crates/elcarax_scene_model",
+    "crates/elcarax_commands",
+    "crates/elcarax_adapter_api",
+    "crates/elcarax_adapter_host",
+    "crates/elcarax_adapter_sdk",
+    "crates/elcarax_game_adapter",
+    "crates/elcarax_devtools",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.96"
+version = "0.1.0"
+license = "Proprietary"
+authors = ["Elcaro Digital"]
+repository = "private"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+large_enum_variant = "allow"
+module_name_repetitions = "allow"

@@ -1,0 +1,33 @@
+[colors]
+background = "#0E1014"
+surface = "#151922"
+surface_raised = "#1B202B"
+border = "#2A3140"
+text = "#E8EDF7"
+text_muted = "#8F9AAF"
+accent = "#7C5CFF"
+success = "#36D399"
+warning = "#FBBF24"
+danger = "#FB7185"
+
+[spacing]
+xs = 4
+sm = 8
+md = 12
+lg = 16
+xl = 24
+
+[radius]
+sm = 4
+md = 8
+lg = 12
+
+[typography]
+body_size = 13
+title_size = 15
+mono_size = 12
+
+[motion]
+fast_ms = 80
+normal_ms = 140
+slow_ms = 220

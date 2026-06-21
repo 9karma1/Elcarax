@@ -1,0 +1,16 @@
+[package]
+name = "elcarax_game_adapter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+elcarax_adapter_api = { path = "../elcarax_adapter_api" }
+elcarax_adapter_sdk = { path = "../elcarax_adapter_sdk" }
+elcarax_core = { path = "../elcarax_core" }
+elcarax_scene_model = { path = "../elcarax_scene_model" }
