@@ -13,11 +13,13 @@ pub struct DevtoolsSnapshot {
 impl DevtoolsSnapshot {
     pub fn summary(&self) -> String {
         format!(
-            "cpu={:.2}ms gpu={:?} primitives={} batches={} adapter_messages={}",
+            "cpu={:.2}ms gpu={:?} primitives={} batches={} text_primitives={} glyphs={} adapter_messages={}",
             self.frame.cpu_frame_ms,
             self.frame.gpu_frame_ms,
             self.render.primitive_count,
             self.render.batch_count,
+            self.render.text_primitive_count,
+            self.render.glyph_count,
             self.adapter_messages
         )
     }

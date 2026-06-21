@@ -110,7 +110,16 @@ impl UiTree {
                 | WidgetKind::Button(text)
                 | WidgetKind::TreeItem(text)
                 | WidgetKind::InspectorRow(text) => {
-                    let _ = text;
+                    scene.push(
+                        RenderLayer::Chrome,
+                        RenderPrimitive::text(
+                            text.clone(),
+                            node.rect.x,
+                            node.rect.y + 14.0,
+                            14.0,
+                            Color::srgb(0.91, 0.93, 0.97, 1.0),
+                        ),
+                    );
                 }
             }
         }

@@ -127,6 +127,25 @@ impl ClipRect {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct TextPrimitive {
+    pub content: String,
+    pub position: [f32; 2],
+    pub size: f32,
+    pub color: Color,
+}
+impl TextPrimitive {
+    #[must_use]
+    pub fn new(content: impl Into<String>, x: f32, y: f32, size: f32, color: Color) -> Self {
+        Self {
+            content: content.into(),
+            position: [x, y],
+            size,
+            color: color.normalized(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum RenderPrimitiveKind {
     SolidRect {
         rect: Rect,
@@ -141,6 +160,7 @@ pub enum RenderPrimitiveKind {
         rect: Rect,
         border: Border,
     },
+    Text(TextPrimitive),
     Line {
         from: [f32; 2],
         to: [f32; 2],
@@ -174,6 +194,11 @@ impl RenderPrimitive {
             rect: rect.normalized(),
             border,
         })
+    }
+    pub fn text(content: impl Into<String>, x: f32, y: f32, size: f32, color: Color) -> Self {
+        Self::new(RenderPrimitiveKind::Text(TextPrimitive::new(
+            content, x, y, size, color,
+        )))
     }
     pub fn line(from: [f32; 2], to: [f32; 2], width: f32, color: Color) -> Self {
         Self::new(RenderPrimitiveKind::Line {
@@ -238,6 +263,13 @@ pub struct RenderBatch {
 pub struct RenderStats {
     pub primitive_count: usize,
     pub batch_count: usize,
+    pub text_primitive_count: usize,
+    pub glyph_count: usize,
+    pub glyph_atlas_upload_bytes: u64,
+    pub glyph_cache_hits: u64,
+    pub glyph_cache_misses: u64,
+    pub shaped_text_cache_hits: u64,
+    pub shaped_text_cache_misses: u64,
     pub uploaded_bytes: u64,
     pub frame_count: u64,
     pub last_frame_duration: Option<Duration>,
@@ -408,9 +440,17 @@ impl Renderer {
             pass.set_vertex_buffer(1, instance_buffer.slice(..));
             pass.draw(0..4, 0..instances.len() as u32);
         })?;
+        let text_stats = text_stats(scene);
         self.stats = RenderStats {
             primitive_count: scene.primitives.len(),
             batch_count: batches.len(),
+            text_primitive_count: text_stats.text_primitive_count,
+            glyph_count: text_stats.glyph_count,
+            glyph_atlas_upload_bytes: text_stats.glyph_atlas_upload_bytes,
+            glyph_cache_hits: text_stats.glyph_cache_hits,
+            glyph_cache_misses: text_stats.glyph_cache_misses,
+            shaped_text_cache_hits: text_stats.shaped_text_cache_hits,
+            shaped_text_cache_misses: text_stats.shaped_text_cache_misses,
             uploaded_bytes,
             frame_count: self.stats.frame_count.saturating_add(1),
             last_frame_duration: Some(started.elapsed()),
@@ -452,6 +492,7 @@ fn primitive_instances(primitive: &RenderPrimitive, size: SurfaceSize) -> Vec<Re
             rect_instance(rect, color, size).into_iter().collect()
         }
         RenderPrimitiveKind::BorderRect { rect, border } => border_instances(rect, border, size),
+        RenderPrimitiveKind::Text(_) => Vec::new(),
         RenderPrimitiveKind::Line {
             from,
             to,
@@ -548,6 +589,72 @@ fn instance_layout() -> wgpu::VertexBufferLayout<'static> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GlyphAtlasStats {
+    pub glyphs: usize,
+    pub upload_bytes: u64,
+    pub hits: u64,
+    pub misses: u64,
+}
+
+#[derive(Debug, Default)]
+pub struct GlyphAtlas {
+    stats: GlyphAtlasStats,
+}
+impl GlyphAtlas {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn reserve_glyphs(&mut self, glyph_count: usize) {
+        self.stats.misses += glyph_count as u64;
+        self.stats.glyphs += glyph_count;
+        self.stats.upload_bytes += (glyph_count as u64) * 64;
+    }
+    #[must_use]
+    pub fn stats(&self) -> GlyphAtlasStats {
+        self.stats
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextBatch {
+    pub glyph_count: usize,
+    pub layer: RenderLayer,
+    pub clip: Option<ClipRect>,
+}
+
+#[must_use]
+pub fn build_text_batches(scene: &RenderScene) -> Vec<TextBatch> {
+    scene
+        .primitives
+        .iter()
+        .filter_map(|(layer, primitive)| match &primitive.kind {
+            RenderPrimitiveKind::Text(text) if !text.content.is_empty() => Some(TextBatch {
+                glyph_count: text.content.chars().count(),
+                layer: *layer,
+                clip: primitive.clip,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+#[must_use]
+pub fn text_stats(scene: &RenderScene) -> RenderStats {
+    let batches = build_text_batches(scene);
+    let glyph_count = batches.iter().map(|batch| batch.glyph_count).sum();
+    RenderStats {
+        primitive_count: scene.primitives.len(),
+        batch_count: usize::from(!batches.is_empty()),
+        text_primitive_count: batches.len(),
+        glyph_count,
+        glyph_cache_misses: glyph_count as u64,
+        shaped_text_cache_misses: batches.len() as u64,
+        ..RenderStats::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -624,5 +731,59 @@ mod tests {
         )
         .with_clip(ClipRect::new(Rect::new(0.0, 0.0, 10.0, 10.0)));
         assert!(p.clip.is_some());
+    }
+
+    #[test]
+    fn text_primitives_keep_stable_order() {
+        let mut s = RenderScene::new();
+        s.push(
+            RenderLayer::Chrome,
+            RenderPrimitive::text("A", 0.0, 0.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0)),
+        );
+        s.push(
+            RenderLayer::Chrome,
+            RenderPrimitive::solid_rect(
+                Rect::new(0.0, 0.0, 1.0, 1.0),
+                Color::srgb(1.0, 1.0, 1.0, 1.0),
+            ),
+        );
+        assert!(
+            matches!(&s.primitives()[0].1.kind, RenderPrimitiveKind::Text(text) if text.content == "A")
+        );
+    }
+
+    #[test]
+    fn text_contributes_to_stats() {
+        let mut s = RenderScene::new();
+        s.push(
+            RenderLayer::Chrome,
+            RenderPrimitive::text("abc", 0.0, 0.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0)),
+        );
+        let stats = text_stats(&s);
+        assert_eq!(stats.text_primitive_count, 1);
+        assert_eq!(stats.glyph_count, 3);
+    }
+
+    #[test]
+    fn empty_text_has_no_batch() {
+        let mut s = RenderScene::new();
+        s.push(
+            RenderLayer::Chrome,
+            RenderPrimitive::text("", 0.0, 0.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0)),
+        );
+        assert!(build_text_batches(&s).is_empty());
+    }
+
+    #[test]
+    fn text_clipping_metadata_is_preserved() {
+        let clip = ClipRect::new(Rect::new(1.0, 2.0, 3.0, 4.0));
+        let mut s = RenderScene::new();
+        s.push(
+            RenderLayer::Chrome,
+            RenderPrimitive::text("clip", 0.0, 0.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0))
+                .with_clip(clip),
+        );
+        let batches = build_text_batches(&s);
+        assert_eq!(batches.first().and_then(|b| b.clip), Some(clip));
     }
 }

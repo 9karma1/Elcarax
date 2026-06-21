@@ -4,7 +4,9 @@ use elcarax_devtools::DevtoolsSnapshot;
 use elcarax_gpu::FrameStats;
 use elcarax_platform::NativeShellSpec;
 use elcarax_project::ProjectFile;
-use elcarax_render::{Rect, RenderStats, batch_scene};
+use elcarax_render::{
+    Color, Rect, RenderLayer, RenderPrimitive, RenderStats, batch_scene, text_stats,
+};
 use elcarax_scene_model::{
     ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
     SceneSnapshot,
@@ -39,12 +41,13 @@ pub fn run_console_proof() -> Result<()> {
     )?;
     history.undo(&mut context)?;
     let primitives = build_placeholder_ui(&shell);
+    let text_stats = text_stats(&primitives);
     let snapshot = DevtoolsSnapshot {
         frame: FrameStats::empty(),
         render: RenderStats {
             primitive_count: primitives.primitives().len(),
             batch_count: batch_scene(&primitives).len(),
-            ..RenderStats::default()
+            ..text_stats
         },
         adapter_messages: 0,
     };
@@ -83,5 +86,37 @@ fn build_placeholder_ui(shell: &NativeShellSpec) -> elcarax_render::RenderScene 
             },
         ),
     );
-    ui.paint()
+    let mut scene = ui.paint();
+    let color = Color::srgb(0.91, 0.93, 0.97, 1.0);
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Elcarax", 24.0, 38.0, 18.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Project", 32.0, 96.0, 14.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Viewport", 380.0, 96.0, 14.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Inspector", 1180.0, 96.0, 14.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Console", 380.0, shell.height as f32 - 120.0, 14.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text(
+            "Status: Renderer online",
+            24.0,
+            shell.height as f32 - 24.0,
+            13.0,
+            color,
+        ),
+    );
+    scene
 }
