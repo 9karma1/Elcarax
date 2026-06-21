@@ -8,3 +8,8 @@ authors.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+bytemuck = { version = "1.24.0", features = ["derive"] }
+elcarax_gpu = { path = "../elcarax_gpu" }
+wgpu = "29.0.3"

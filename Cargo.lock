@@ -478,6 +478,11 @@ dependencies = [
 [[package]]
 name = "elcarax_render"
 version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "elcarax_gpu",
+ "wgpu",
+]
 
 [[package]]
 name = "elcarax_scene_model"
