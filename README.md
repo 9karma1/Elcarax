@@ -1,56 +1,100 @@
 # Elcarax v0.1
 
-Elcarax is a proprietary Rust editor platform for Elcaro Digital. The first adapter targets a game engine, but the editor core is engine-independent.
+Elcarax is an open source Rust editor platform for building engine-neutral creative tools. The first adapter target is a game workflow, but the editor core is kept independent from any specific engine or game framework.
 
-This repository is the v0.1 foundation scaffold. It includes:
+The project is licensed under Apache-2.0. See [LICENSE](LICENSE).
 
-- engine-neutral core domain types
-- command and undo/redo architecture
-- adapter protocol stubs
-- adapter host and mock game adapter
-- UI tree, render primitive, text, accessibility, asset, and project modules
-- architecture decision records
-- theme tokens
+## Current State
 
-## Important status
+This repository contains the v0.1 foundation for the Elcarax editor:
 
-This scaffold was generated in an environment without `rustc` or `cargo`, so it has not been compiler-verified here. It is written to be clean, small, and dependency-light so the first real validation step is straightforward on a machine with Rust 1.96.0 installed.
+- engine-neutral workspace, scene, schema, property, and command types
+- command history with undo/redo proof flow
+- adapter API, SDK, host boundary, and mock game adapter
+- `winit` native shell behind the `native-shell` feature
+- `wgpu` surface/context and rectangle primitive rendering
+- `cosmic-text` shaping and system-font rasterization through `elcarax_text`
+- retained UI tree, layout primitives, dirty flags, style/theme resolution, and paint output
+- static editor shell with toolbar, project panel, viewport, inspector, and status bar
+- project, asset, accessibility placeholder, and devtools modules
+- architecture decision records and milestone documentation
 
-## First local validation
+This is not a full editor yet. Docking, drag resizing, tree views, asset browser behavior, inspector editing, command palette, text input, scroll views, real accessibility integration, process IPC, and real engine binding are intentionally out of scope for the current milestone.
+
+## Requirements
+
+- Rust 1.96.0
+- Windows, macOS, or Linux for console/library validation
+- A desktop session for the manual `native-shell` smoke test
+
+Install the pinned Rust toolchain:
 
 ```bash
 rustup toolchain install 1.96.0
-cargo fmt --all
-cargo clippy --workspace --all-targets
+```
+
+## Validation
+
+Run the core quality gates:
+
+```bash
+cargo fmt --all --check
+cargo check --workspace
+cargo check --workspace --all-features
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo run -p elcarax_app
 ```
 
-## Current v0.1 behavior
+On Windows, if MSVC linker temp files fail because `TMP` is relative, use absolute temp paths for Cargo commands:
 
-The default executable is a console-backed editor simulation. It proves the editor's core architecture before the native GPU shell is added:
-
-1. creates a project model
-2. creates a scene snapshot
-3. selects an object
-4. edits a property through the command system
-5. records undo history
-6. undoes the edit
-7. exercises the mock adapter path
-
-## Native UI direction
-
-The planned native shell is:
-
-```text
-winit 0.30.x -> elcarax_platform
-wgpu 29.x   -> elcarax_gpu / elcarax_render
-cosmic-text -> elcarax_text
-AccessKit   -> elcarax_accessibility
+```powershell
+New-Item -ItemType Directory -Force -Path D:\elcarax_v0_1\target\tmp | Out-Null
+$env:TMP='D:\elcarax_v0_1\target\tmp'
+$env:TEMP='D:\elcarax_v0_1\target\tmp'
 ```
 
-Those dependencies are intentionally not required by the default scaffold yet. The next milestone is adding the `native-gpu` feature behind these stable crate boundaries.
+## Running
 
-## Core rule
+Default console proof flow:
 
-The game engine may depend on Elcarax adapter SDK types. Elcarax core must never depend on the game engine.
+```bash
+cargo run -p elcarax_app
+```
+
+The console flow builds the UI shell without opening a GPU window and prints project, command history, render, UI node, layout, primitive, text primitive, and dirty flag counts.
+
+Manual native shell smoke test:
+
+```bash
+cargo run -p elcarax_app --features native-shell
+```
+
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close.
+
+## Architecture
+
+Elcarax keeps external systems behind crate boundaries:
+
+- `elcarax_core`: foundational IDs, errors, diagnostics, workspace types
+- `elcarax_scene_model`: engine-neutral scene/property/schema model
+- `elcarax_commands`: command and undo/redo behavior
+- `elcarax_adapter_api`: stable adapter boundary
+- `elcarax_platform`: platform event loop and native window integration
+- `elcarax_gpu`: `wgpu` context, surface, and render-pass helpers
+- `elcarax_text`: `cosmic-text` shaping, layout cache, and system-font rasterization
+- `elcarax_render`: editor render primitives, batching, GPU rendering, and render stats
+- `elcarax_ui`: retained UI tree, layout, dirty flags, styles, and paint output
+- `elcarax_app`: composition layer for console proof and native shell
+
+The game engine may depend on Elcarax adapter SDK types. Elcarax core crates must not depend on the game engine.
+
+## Milestones
+
+- Milestone 1: native shell foundation
+- Milestone 2: GPU render primitive pipeline
+- Milestone 3: text rendering foundation
+- Milestone 4: UI tree and layout foundation
+
+See `docs/` for detailed milestone notes and ADRs.

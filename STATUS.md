@@ -10,6 +10,7 @@ Generated: 2026-06-21
 - Adapter API, SDK, host boundary, and mock game adapter
 - UI tree and layout foundation for the editor shell
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
+- `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
 - Native shell foundation behind `native-shell`
 - `winit` platform event loop contained in `elcarax_platform`
@@ -21,7 +22,6 @@ Generated: 2026-06-21
 - Icons, images, and full vector paths
 - Full editor UI system beyond the static shell
 - Docking, drag resizing, tree views, inspector editing, command palette, text input, scroll views, or asset browser behavior
-- Real `cosmic-text` shaping/rasterization
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
@@ -41,7 +41,7 @@ Feature-gated native shell:
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, paints it into a render scene, handles resize/DPI/events, and exits cleanly on close.
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close.
 
 ## Validation
 
@@ -57,9 +57,9 @@ cargo run -p elcarax_app
 ## Milestone 3: Text Rendering Foundation
 
 - Added `elcarax_text` static text layout types, cosmic-text-backed shaping, metrics, glyph placement data, and layout cache tests.
-- Added text primitives, text batching metadata, glyph atlas stats, and text/glyph render stats in `elcarax_render`.
+- Added text primitives, text batching metadata, glyph atlas stats, real system-font rasterization, and text/glyph render stats in `elcarax_render`.
 - Updated the demo proof scene to include static labels: Elcarax, Project, Viewport, Inspector, Console, and Status: Renderer online.
-- Documented the current system-font fallback strategy and explicit text editing exclusions in `docs/MILESTONE_3_TEXT_RENDERING.md`.
+- Documented the current system-font discovery/rasterization strategy and explicit text editing exclusions in `docs/MILESTONE_3_TEXT_RENDERING.md`.
 
 ## Milestone 4: UI Tree and Layout Foundation
 

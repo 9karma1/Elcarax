@@ -6,14 +6,16 @@ Milestone 3 introduces Elcarax's static text rendering boundary and render primi
 
 Included:
 
-- `elcarax_text` owns font system setup, static shaping, metrics, glyph placement data, and layout caching.
-- `elcarax_render` owns text render primitives, glyph atlas bookkeeping, text batching metadata, and text-related render stats.
+- `elcarax_text` owns font system setup, static shaping, metrics, glyph placement data, layout caching, and system-font rasterization.
+- `elcarax_render` owns text render primitives, glyph atlas bookkeeping, text batching metadata, text-related render stats, and GPU submission of rasterized text pixels.
 - The native demo scene now includes static labels for the toolbar, project panel, viewport, inspector, console, and status bar.
 - The console proof flow remains GPU/window-free and reports text primitive and glyph stats.
 
-## Font strategy
+## Font Strategy
 
-No bundled font file is added in this milestone. Elcarax uses `cosmic-text` system font discovery and fallback through `FontSystem`. This avoids adding font assets without a license review. A future asset milestone may add a bundled default font once license and redistribution requirements are reviewed.
+No bundled font file is added in this milestone. Elcarax uses `cosmic-text` system font discovery through `FontSystem` and rasterizes glyph pixels through `SwashCache`. This keeps font selection and rasterization in `elcarax_text` while `elcarax_render` remains focused on render primitives and GPU submission.
+
+A future asset milestone may add a bundled default font once redistribution requirements are reviewed.
 
 ## Explicit exclusions
 

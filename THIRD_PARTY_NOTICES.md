@@ -1,12 +1,19 @@
-# Third-party notices
+# Third-Party Notices
 
-Elcarax is proprietary. Every dependency must be reviewed before being added.
+Elcarax is open source under Apache-2.0. Third-party dependencies should still be reviewed before being added so license compatibility, redistribution requirements, and platform impact stay clear.
 
-Initial dependency policy:
+## Dependency Policy
 
 - MIT: allowed after review
 - Apache-2.0: allowed after review
 - BSD-2/BSD-3: allowed after review
-- GPL/AGPL/LGPL: blocked unless legal approval is explicit
+- MPL-2.0: requires review for file-level obligations
+- GPL/AGPL/LGPL: blocked unless compatibility and distribution obligations are explicitly accepted
 
-This v0.1 scaffold currently uses only the Rust standard library in code so it can be reviewed before external dependencies are introduced.
+## Current Dependency Areas
+
+- `winit` is isolated in `elcarax_platform`.
+- `wgpu` is isolated in `elcarax_gpu` and consumed by `elcarax_render`.
+- `cosmic-text` is isolated in `elcarax_text`.
+
+Editor-neutral crates should remain free of platform, GPU, text-rasterization, engine, and game-framework dependencies unless an ADR explicitly changes that boundary.
