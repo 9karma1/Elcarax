@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use elcarax_core::{Id, IdGenerator};
-use elcarax_render::{ColorRgba, PrimitiveList, Rect, RenderPrimitive};
+use elcarax_render::{Color, CornerRadius, Rect, RenderLayer, RenderPrimitive, RenderScene};
 
 pub enum WidgetMarker {}
 pub type WidgetId = Id<WidgetMarker>;
@@ -92,31 +92,29 @@ impl UiTree {
         Some(id)
     }
 
-    pub fn paint(&self) -> PrimitiveList {
-        let mut list = PrimitiveList::default();
+    pub fn paint(&self) -> RenderScene {
+        let mut scene = RenderScene::new();
         for node in self.nodes.values() {
             match &node.kind {
                 WidgetKind::Root | WidgetKind::Panel | WidgetKind::Viewport => {
-                    list.push(RenderPrimitive::RoundedRect {
-                        rect: node.rect,
-                        radius: 8.0,
-                        color: ColorRgba::srgb(0.08, 0.10, 0.14, 1.0),
-                    });
+                    scene.push(
+                        RenderLayer::Chrome,
+                        RenderPrimitive::rounded_rect(
+                            node.rect,
+                            CornerRadius::uniform(8.0),
+                            Color::srgb(0.08, 0.10, 0.14, 1.0),
+                        ),
+                    );
                 }
                 WidgetKind::Label(text)
                 | WidgetKind::Button(text)
                 | WidgetKind::TreeItem(text)
                 | WidgetKind::InspectorRow(text) => {
-                    list.push(RenderPrimitive::TextRun {
-                        origin_x: node.rect.x,
-                        origin_y: node.rect.y + 14.0,
-                        text: text.clone(),
-                        color: ColorRgba::srgb(0.91, 0.93, 0.97, 1.0),
-                    });
+                    let _ = text;
                 }
             }
         }
-        list
+        scene
     }
 
     pub fn root_id(&self) -> Option<WidgetId> {

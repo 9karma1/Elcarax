@@ -4,7 +4,7 @@ use elcarax_devtools::DevtoolsSnapshot;
 use elcarax_gpu::FrameStats;
 use elcarax_platform::NativeShellSpec;
 use elcarax_project::ProjectFile;
-use elcarax_render::{Rect, RenderStats};
+use elcarax_render::{Rect, RenderStats, batch_scene};
 use elcarax_scene_model::{
     ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
     SceneSnapshot,
@@ -42,8 +42,9 @@ pub fn run_console_proof() -> Result<()> {
     let snapshot = DevtoolsSnapshot {
         frame: FrameStats::empty(),
         render: RenderStats {
-            primitive_count: primitives.stats().primitive_count,
-            batch_count: primitives.stats().batch_count,
+            primitive_count: primitives.primitives().len(),
+            batch_count: batch_scene(&primitives).len(),
+            ..RenderStats::default()
         },
         adapter_messages: 0,
     };
@@ -59,7 +60,7 @@ pub fn run_console_proof() -> Result<()> {
     Ok(())
 }
 
-fn build_placeholder_ui(shell: &NativeShellSpec) -> elcarax_render::PrimitiveList {
+fn build_placeholder_ui(shell: &NativeShellSpec) -> elcarax_render::RenderScene {
     let mut ui = UiTree::new();
     let root_id = ui.set_root(WidgetNode::new(
         WidgetKind::Root,

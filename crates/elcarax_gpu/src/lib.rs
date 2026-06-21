@@ -187,6 +187,18 @@ impl GpuContext {
 }
 
 impl GpuSurface<'_> {
+    pub fn device(&self) -> Arc<wgpu::Device> {
+        Arc::clone(&self.device)
+    }
+
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.config.format
+    }
+
+    pub fn size(&self) -> SurfaceSize {
+        SurfaceSize::new(self.config.width, self.config.height)
+    }
+
     pub fn resize(&mut self, size: SurfaceSize) {
         self.config.width = size.width.max(1);
         self.config.height = size.height.max(1);
@@ -196,6 +208,15 @@ impl GpuSurface<'_> {
     }
 
     pub fn render_clear(&mut self, color: ClearColor) -> Result<GpuFrame, RenderError> {
+        self.render_with_clear(color, "Elcarax Clear Pass", |_encoder, _view| {})
+    }
+
+    pub fn render_with_clear(
+        &mut self,
+        color: ClearColor,
+        label: &'static str,
+        draw: impl FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView),
+    ) -> Result<GpuFrame, RenderError> {
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -216,12 +237,10 @@ impl GpuSurface<'_> {
             .create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Elcarax Clear Frame"),
-            });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
         {
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Elcarax Clear Pass"),
+                label: Some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     depth_slice: None,
@@ -242,6 +261,7 @@ impl GpuSurface<'_> {
                 multiview_mask: None,
             });
         }
+        draw(&mut encoder, &view);
         self.queue.submit([encoder.finish()]);
         frame.present();
         Ok(GpuFrame)
