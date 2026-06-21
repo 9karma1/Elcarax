@@ -103,7 +103,10 @@ impl UiTree {
                         color: ColorRgba::srgb(0.08, 0.10, 0.14, 1.0),
                     });
                 }
-                WidgetKind::Label(text) | WidgetKind::Button(text) | WidgetKind::TreeItem(text) | WidgetKind::InspectorRow(text) => {
+                WidgetKind::Label(text)
+                | WidgetKind::Button(text)
+                | WidgetKind::TreeItem(text)
+                | WidgetKind::InspectorRow(text) => {
                     list.push(RenderPrimitive::TextRun {
                         origin_x: node.rect.x,
                         origin_y: node.rect.y + 14.0,

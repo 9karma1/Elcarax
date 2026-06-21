@@ -26,10 +26,14 @@ impl ProjectFile {
 
     pub fn validate(&self) -> Result<()> {
         if self.name.trim().is_empty() {
-            return Err(ElcaraxError::Project("project name cannot be empty".to_owned()));
+            return Err(ElcaraxError::Project(
+                "project name cannot be empty".to_owned(),
+            ));
         }
         if self.adapter.trim().is_empty() {
-            return Err(ElcaraxError::Project("project adapter cannot be empty".to_owned()));
+            return Err(ElcaraxError::Project(
+                "project adapter cannot be empty".to_owned(),
+            ));
         }
         Ok(())
     }

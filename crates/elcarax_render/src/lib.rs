@@ -24,11 +24,32 @@ pub struct Rect {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderPrimitive {
-    SolidRect { rect: Rect, color: ColorRgba },
-    RoundedRect { rect: Rect, radius: f32, color: ColorRgba },
-    Border { rect: Rect, width: f32, color: ColorRgba },
-    TextRun { origin_x: f32, origin_y: f32, text: String, color: ColorRgba },
-    Line { from: [f32; 2], to: [f32; 2], width: f32, color: ColorRgba },
+    SolidRect {
+        rect: Rect,
+        color: ColorRgba,
+    },
+    RoundedRect {
+        rect: Rect,
+        radius: f32,
+        color: ColorRgba,
+    },
+    Border {
+        rect: Rect,
+        width: f32,
+        color: ColorRgba,
+    },
+    TextRun {
+        origin_x: f32,
+        origin_y: f32,
+        text: String,
+        color: ColorRgba,
+    },
+    Line {
+        from: [f32; 2],
+        to: [f32; 2],
+        width: f32,
+        color: ColorRgba,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -57,13 +57,18 @@ mod tests {
     use super::*;
     use crate::{CommandContext, CommandHistory};
     use elcarax_core::Result;
-    use elcarax_scene_model::{ObjectSchema, PropertyKind, PropertySchema, SceneObject, SceneSnapshot};
+    use elcarax_scene_model::{
+        ObjectSchema, PropertyKind, PropertySchema, SceneObject, SceneSnapshot,
+    };
 
     #[test]
     fn property_change_can_be_undone() -> Result<()> {
         let path = PropertyPath::parse("transform.position")?;
-        let schema = ObjectSchema::new("Transform")
-            .with_property(PropertySchema::editable(path.clone(), "Position", PropertyKind::Vec3));
+        let schema = ObjectSchema::new("Transform").with_property(PropertySchema::editable(
+            path.clone(),
+            "Position",
+            PropertyKind::Vec3,
+        ));
         let mut object = SceneObject::new("Camera", schema.type_id);
         object.set_property(path.clone(), PropertyValue::Vec3([0.0, 0.0, 0.0]));
         let object_id = object.id;
@@ -85,7 +90,10 @@ mod tests {
         history.undo(&mut context)?;
 
         let object = context.scene.object(object_id)?;
-        assert_eq!(object.property(&path), Some(&PropertyValue::Vec3([0.0, 0.0, 0.0])));
+        assert_eq!(
+            object.property(&path),
+            Some(&PropertyValue::Vec3([0.0, 0.0, 0.0]))
+        );
         Ok(())
     }
 }
