@@ -4,7 +4,9 @@ use elcarax_devtools::DevtoolsSnapshot;
 use elcarax_gpu::FrameStats;
 use elcarax_platform::NativeShellSpec;
 use elcarax_project::ProjectFile;
-use elcarax_render::{ColorRgba, Rect, RenderPrimitive, TextPrimitive};
+use elcarax_render::{
+    Color, Rect, RenderLayer, RenderPrimitive, RenderStats, batch_scene, text_stats,
+};
 use elcarax_scene_model::{
     ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
     SceneSnapshot,
@@ -39,9 +41,14 @@ pub fn run_console_proof() -> Result<()> {
     )?;
     history.undo(&mut context)?;
     let primitives = build_placeholder_ui(&shell);
+    let text_stats = text_stats(&primitives);
     let snapshot = DevtoolsSnapshot {
         frame: FrameStats::empty(),
-        render: primitives.stats(),
+        render: RenderStats {
+            primitive_count: primitives.primitives().len(),
+            batch_count: batch_scene(&primitives).len(),
+            ..text_stats
+        },
         adapter_messages: 0,
     };
     println!("Elcarax v0.1 core scaffold");
@@ -56,7 +63,7 @@ pub fn run_console_proof() -> Result<()> {
     Ok(())
 }
 
-fn build_placeholder_ui(shell: &NativeShellSpec) -> elcarax_render::PrimitiveList {
+fn build_placeholder_ui(shell: &NativeShellSpec) -> elcarax_render::RenderScene {
     let mut ui = UiTree::new();
     let root_id = ui.set_root(WidgetNode::new(
         WidgetKind::Root,
@@ -79,37 +86,37 @@ fn build_placeholder_ui(shell: &NativeShellSpec) -> elcarax_render::PrimitiveLis
             },
         ),
     );
-    let mut primitives = ui.paint();
-    let color = ColorRgba::srgb(0.91, 0.93, 0.97, 1.0);
-    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
-        "Elcarax", 24.0, 38.0, 18.0, color,
-    )));
-    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
-        "Project", 32.0, 96.0, 14.0, color,
-    )));
-    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
-        "Viewport", 380.0, 96.0, 14.0, color,
-    )));
-    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
-        "Inspector",
-        1180.0,
-        96.0,
-        14.0,
-        color,
-    )));
-    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
-        "Console",
-        380.0,
-        shell.height as f32 - 120.0,
-        14.0,
-        color,
-    )));
-    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
-        "Status: Renderer online",
-        24.0,
-        shell.height as f32 - 24.0,
-        13.0,
-        color,
-    )));
-    primitives
+    let mut scene = ui.paint();
+    let color = Color::srgb(0.91, 0.93, 0.97, 1.0);
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Elcarax", 24.0, 38.0, 18.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Project", 32.0, 96.0, 14.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Viewport", 380.0, 96.0, 14.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Inspector", 1180.0, 96.0, 14.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text("Console", 380.0, shell.height as f32 - 120.0, 14.0, color),
+    );
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::text(
+            "Status: Renderer online",
+            24.0,
+            shell.height as f32 - 24.0,
+            13.0,
+            color,
+        ),
+    );
+    scene
 }

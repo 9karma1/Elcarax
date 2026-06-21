@@ -10,4 +10,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+bytemuck = { version = "1.24.0", features = ["derive"] }
+elcarax_gpu = { path = "../elcarax_gpu" }
 elcarax_text = { path = "../elcarax_text" }
+wgpu = "29.0.3"

@@ -512,7 +512,10 @@ dependencies = [
 name = "elcarax_render"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
+ "elcarax_gpu",
  "elcarax_text",
+ "wgpu",
 ]
 
 [[package]]
