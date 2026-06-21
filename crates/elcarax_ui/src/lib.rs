@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use elcarax_core::{Id, IdGenerator};
-use elcarax_render::{ColorRgba, PrimitiveList, Rect, RenderPrimitive};
+use elcarax_render::{ColorRgba, PrimitiveList, Rect, RenderPrimitive, TextPrimitive};
 
 pub enum WidgetMarker {}
 pub type WidgetId = Id<WidgetMarker>;
@@ -107,12 +107,13 @@ impl UiTree {
                 | WidgetKind::Button(text)
                 | WidgetKind::TreeItem(text)
                 | WidgetKind::InspectorRow(text) => {
-                    list.push(RenderPrimitive::TextRun {
-                        origin_x: node.rect.x,
-                        origin_y: node.rect.y + 14.0,
-                        text: text.clone(),
-                        color: ColorRgba::srgb(0.91, 0.93, 0.97, 1.0),
-                    });
+                    list.push(RenderPrimitive::Text(TextPrimitive::new(
+                        text.clone(),
+                        node.rect.x,
+                        node.rect.y + 14.0,
+                        14.0,
+                        ColorRgba::srgb(0.91, 0.93, 0.97, 1.0),
+                    )));
                 }
             }
         }

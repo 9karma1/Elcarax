@@ -4,7 +4,7 @@ use elcarax_devtools::DevtoolsSnapshot;
 use elcarax_gpu::FrameStats;
 use elcarax_platform::NativeShellSpec;
 use elcarax_project::ProjectFile;
-use elcarax_render::{Rect, RenderStats};
+use elcarax_render::{ColorRgba, Rect, RenderPrimitive, TextPrimitive};
 use elcarax_scene_model::{
     ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
     SceneSnapshot,
@@ -41,10 +41,7 @@ pub fn run_console_proof() -> Result<()> {
     let primitives = build_placeholder_ui(&shell);
     let snapshot = DevtoolsSnapshot {
         frame: FrameStats::empty(),
-        render: RenderStats {
-            primitive_count: primitives.stats().primitive_count,
-            batch_count: primitives.stats().batch_count,
-        },
+        render: primitives.stats(),
         adapter_messages: 0,
     };
     println!("Elcarax v0.1 core scaffold");
@@ -82,5 +79,37 @@ fn build_placeholder_ui(shell: &NativeShellSpec) -> elcarax_render::PrimitiveLis
             },
         ),
     );
-    ui.paint()
+    let mut primitives = ui.paint();
+    let color = ColorRgba::srgb(0.91, 0.93, 0.97, 1.0);
+    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
+        "Elcarax", 24.0, 38.0, 18.0, color,
+    )));
+    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
+        "Project", 32.0, 96.0, 14.0, color,
+    )));
+    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
+        "Viewport", 380.0, 96.0, 14.0, color,
+    )));
+    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
+        "Inspector",
+        1180.0,
+        96.0,
+        14.0,
+        color,
+    )));
+    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
+        "Console",
+        380.0,
+        shell.height as f32 - 120.0,
+        14.0,
+        color,
+    )));
+    primitives.push(RenderPrimitive::Text(TextPrimitive::new(
+        "Status: Renderer online",
+        24.0,
+        shell.height as f32 - 24.0,
+        13.0,
+        color,
+    )));
+    primitives
 }

@@ -51,3 +51,10 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo run -p elcarax_app
 ```
+
+## Milestone 3: Text Rendering Foundation
+
+- Added `elcarax_text` static text layout types, cosmic-text-backed shaping, metrics, glyph placement data, and layout cache tests.
+- Added text primitives, text batching metadata, glyph atlas stats, and text/glyph render stats in `elcarax_render`.
+- Updated the demo proof scene to include static labels: Elcarax, Project, Viewport, Inspector, Console, and Status: Renderer online.
+- Documented the current system-font fallback strategy and explicit text editing exclusions in `docs/MILESTONE_3_TEXT_RENDERING.md`.
