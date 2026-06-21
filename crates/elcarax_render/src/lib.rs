@@ -8,6 +8,7 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use elcarax_gpu::{ClearColor, GpuContext, GpuSurface, RenderError, SurfaceSize};
+use elcarax_text::{FontSize, TextColor, TextError, TextRasterizer, TextRun};
 use wgpu::util::DeviceExt;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -290,11 +291,13 @@ impl Default for RendererConfig {
 #[derive(Debug)]
 pub enum RendererError {
     Gpu(RenderError),
+    Text(TextError),
 }
 impl fmt::Display for RendererError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Gpu(e) => write!(f, "renderer GPU error: {e}"),
+            Self::Text(e) => write!(f, "renderer text error: {e}"),
         }
     }
 }
@@ -304,10 +307,16 @@ impl From<RenderError> for RendererError {
         Self::Gpu(value)
     }
 }
+impl From<TextError> for RendererError {
+    fn from(value: TextError) -> Self {
+        Self::Text(value)
+    }
+}
 
 pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    text: TextRasterizer,
     config: RendererConfig,
     stats: RenderStats,
 }
@@ -390,6 +399,7 @@ impl Renderer {
         Ok(Self {
             pipeline,
             vertex_buffer,
+            text: TextRasterizer::new(),
             config,
             stats: RenderStats::default(),
         })
@@ -404,7 +414,7 @@ impl Renderer {
     ) -> Result<(), RendererError> {
         let started = Instant::now();
         let batches = batch_scene(scene);
-        let instances = collect_rect_instances(scene, surface.size());
+        let instances = collect_rect_instances(scene, surface.size(), &mut self.text)?;
         let uploaded_bytes = (instances.len() * std::mem::size_of::<RectInstance>()) as u64;
         let device = surface.device();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -481,21 +491,31 @@ pub fn batch_scene(scene: &RenderScene) -> Vec<RenderBatch> {
     batches
 }
 
-fn collect_rect_instances(scene: &RenderScene, size: SurfaceSize) -> Vec<RectInstance> {
-    scene
-        .primitives
-        .iter()
-        .flat_map(|(_, p)| primitive_instances(p, size))
-        .collect()
+fn collect_rect_instances(
+    scene: &RenderScene,
+    size: SurfaceSize,
+    text: &mut TextRasterizer,
+) -> Result<Vec<RectInstance>, RendererError> {
+    let mut instances = Vec::new();
+    for (_, primitive) in &scene.primitives {
+        instances.extend(primitive_instances(primitive, size, text)?);
+    }
+    Ok(instances)
 }
-fn primitive_instances(primitive: &RenderPrimitive, size: SurfaceSize) -> Vec<RectInstance> {
-    match primitive.kind {
+fn primitive_instances(
+    primitive: &RenderPrimitive,
+    size: SurfaceSize,
+    text: &mut TextRasterizer,
+) -> Result<Vec<RectInstance>, RendererError> {
+    let instances = match primitive.kind {
         RenderPrimitiveKind::SolidRect { rect, color }
         | RenderPrimitiveKind::RoundedRect { rect, color, .. } => {
             rect_instance(rect, color, size).into_iter().collect()
         }
         RenderPrimitiveKind::BorderRect { rect, border } => border_instances(rect, border, size),
-        RenderPrimitiveKind::Text(ref text) => text_instances(text, size),
+        RenderPrimitiveKind::Text(ref text_primitive) => {
+            text_instances(text_primitive, size, text)?
+        }
         RenderPrimitiveKind::Line {
             from,
             to,
@@ -504,7 +524,8 @@ fn primitive_instances(primitive: &RenderPrimitive, size: SurfaceSize) -> Vec<Re
         } => line_instance(from, to, width, color, size)
             .into_iter()
             .collect(),
-    }
+    };
+    Ok(instances)
 }
 fn rect_instance(rect: Rect, color: Color, size: SurfaceSize) -> Option<RectInstance> {
     let r = rect.normalized();
@@ -569,175 +590,42 @@ fn line_instance(
     }
 }
 
-fn text_instances(text: &TextPrimitive, size: SurfaceSize) -> Vec<RectInstance> {
-    let pixel = (text.size / 7.0).max(1.0);
-    let advance = pixel * 6.0;
-    let top = text.position[1] - text.size;
-    let mut instances = Vec::new();
-    for (index, character) in text.content.chars().enumerate() {
-        let x = text.position[0] + index as f32 * advance;
-        append_glyph_instances(&mut instances, character, x, top, pixel, text.color, size);
-    }
-    instances
-}
-
-fn append_glyph_instances(
-    instances: &mut Vec<RectInstance>,
-    character: char,
-    x: f32,
-    y: f32,
-    pixel: f32,
-    color: Color,
+fn text_instances(
+    primitive: &TextPrimitive,
     size: SurfaceSize,
-) {
-    let Some(rows) = glyph_rows(character) else {
-        return;
-    };
-    for (row_index, row) in rows.iter().enumerate() {
-        for column in 0..5 {
-            let mask = 1 << (4 - column);
-            if row & mask == 0 {
-                continue;
-            }
-            if let Some(instance) = rect_instance(
-                Rect::new(
-                    x + column as f32 * pixel,
-                    y + row_index as f32 * pixel,
-                    pixel,
-                    pixel,
-                ),
-                color,
-                size,
-            ) {
-                instances.push(instance);
-            }
-        }
+    rasterizer: &mut TextRasterizer,
+) -> Result<Vec<RectInstance>, RendererError> {
+    if primitive.content.is_empty() {
+        return Ok(Vec::new());
     }
-}
-
-fn glyph_rows(character: char) -> Option<[u8; 7]> {
-    let upper = character.to_ascii_uppercase();
-    let rows = match upper {
-        ' ' => [
-            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000,
-        ],
-        ':' => [
-            0b00000, 0b00100, 0b00100, 0b00000, 0b00100, 0b00100, 0b00000,
-        ],
-        '.' => [
-            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100,
-        ],
-        '0' => [
-            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
-        ],
-        '1' => [
-            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
-        ],
-        '2' => [
-            0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111,
-        ],
-        '3' => [
-            0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110,
-        ],
-        '4' => [
-            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
-        ],
-        '5' => [
-            0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110,
-        ],
-        '6' => [
-            0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110,
-        ],
-        '7' => [
-            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
-        ],
-        '8' => [
-            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
-        ],
-        '9' => [
-            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110,
-        ],
-        'A' => [
-            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
-        ],
-        'B' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
-        ],
-        'C' => [
-            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
-        ],
-        'D' => [
-            0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110,
-        ],
-        'E' => [
-            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
-        ],
-        'F' => [
-            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
-        ],
-        'G' => [
-            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
-        ],
-        'H' => [
-            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
-        ],
-        'I' => [
-            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111,
-        ],
-        'J' => [
-            0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100,
-        ],
-        'K' => [
-            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
-        ],
-        'L' => [
-            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
-        ],
-        'M' => [
-            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
-        ],
-        'N' => [
-            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
-        ],
-        'O' => [
-            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
-        ],
-        'P' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
-        ],
-        'Q' => [
-            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
-        ],
-        'R' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
-        ],
-        'S' => [
-            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
-        ],
-        'T' => [
-            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
-        ],
-        'U' => [
-            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
-        ],
-        'V' => [
-            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
-        ],
-        'W' => [
-            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010,
-        ],
-        'X' => [
-            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
-        ],
-        'Y' => [
-            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
-        ],
-        'Z' => [
-            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
-        ],
-        _ => return None,
-    };
-    Some(rows)
+    let run = TextRun::new(
+        primitive.content.clone(),
+        FontSize::new(primitive.size),
+        TextColor::srgb(
+            primitive.color.r,
+            primitive.color.g,
+            primitive.color.b,
+            primitive.color.a,
+        ),
+    );
+    let rasterized = rasterizer.rasterize(&run, None)?;
+    let top = primitive.position[1] - primitive.size;
+    Ok(rasterized
+        .pixels
+        .iter()
+        .filter_map(|pixel| {
+            rect_instance(
+                Rect::new(
+                    primitive.position[0] + pixel.x as f32,
+                    top + pixel.y as f32,
+                    pixel.width as f32,
+                    pixel.height as f32,
+                ),
+                Color::srgb(pixel.color.r, pixel.color.g, pixel.color.b, pixel.color.a),
+                size,
+            )
+        })
+        .collect())
 }
 fn to_ndc_x(x: f32, size: SurfaceSize) -> f32 {
     (x / size.width.max(1) as f32) * 2.0 - 1.0
@@ -939,9 +827,11 @@ mod tests {
     }
 
     #[test]
-    fn text_generates_fallback_rect_instances() {
+    fn text_generates_rasterized_rect_instances() {
         let text = TextPrimitive::new("A", 0.0, 14.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0));
-        let instances = text_instances(&text, SurfaceSize::new(100, 100));
+        let mut rasterizer = TextRasterizer::new();
+        let instances = text_instances(&text, SurfaceSize::new(100, 100), &mut rasterizer)
+            .unwrap_or_else(|error| panic!("text instances failed: {error}"));
         assert!(!instances.is_empty());
     }
 
