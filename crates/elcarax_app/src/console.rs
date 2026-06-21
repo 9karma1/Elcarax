@@ -4,14 +4,12 @@ use elcarax_devtools::DevtoolsSnapshot;
 use elcarax_gpu::FrameStats;
 use elcarax_platform::NativeShellSpec;
 use elcarax_project::ProjectFile;
-use elcarax_render::{
-    Color, Rect, RenderLayer, RenderPrimitive, RenderStats, batch_scene, text_stats,
-};
+use elcarax_render::{Rect, RenderScene, RenderStats, batch_scene, text_stats};
 use elcarax_scene_model::{
     ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
     SceneSnapshot,
 };
-use elcarax_ui::{UiTree, WidgetKind, WidgetNode};
+use elcarax_ui::{PaintContext, Theme, UiContext, build_editor_shell};
 
 pub fn run_console_proof() -> Result<()> {
     let shell = NativeShellSpec::default_editor();
@@ -40,13 +38,13 @@ pub fn run_console_proof() -> Result<()> {
         &mut context,
     )?;
     history.undo(&mut context)?;
-    let primitives = build_placeholder_ui(&shell);
-    let text_stats = text_stats(&primitives);
+    let proof = build_console_ui(&shell)?;
+    let text_stats = text_stats(&proof.scene);
     let snapshot = DevtoolsSnapshot {
         frame: FrameStats::empty(),
         render: RenderStats {
-            primitive_count: primitives.primitives().len(),
-            batch_count: batch_scene(&primitives).len(),
+            primitive_count: proof.scene.primitives().len(),
+            batch_count: batch_scene(&proof.scene).len(),
             ..text_stats
         },
         adapter_messages: 0,
@@ -60,63 +58,44 @@ pub fn run_console_proof() -> Result<()> {
         history.redo_count()
     );
     println!("devtools: {}", snapshot.summary());
+    println!(
+        "ui: nodes={} layouts={} primitives={} text_primitives={} dirty(layout={}, paint={}, text={}, hit_test={}, accessibility={})",
+        proof.node_count,
+        proof.layout_count,
+        snapshot.render.primitive_count,
+        snapshot.render.text_primitive_count,
+        proof.dirty.layout,
+        proof.dirty.paint,
+        proof.dirty.text,
+        proof.dirty.hit_test,
+        proof.dirty.accessibility
+    );
     Ok(())
 }
 
-fn build_placeholder_ui(shell: &NativeShellSpec) -> elcarax_render::RenderScene {
-    let mut ui = UiTree::new();
-    let root_id = ui.set_root(WidgetNode::new(
-        WidgetKind::Root,
-        Rect {
-            x: 0.0,
-            y: 0.0,
-            width: shell.width as f32,
-            height: shell.height as f32,
-        },
-    ));
-    let _panel_id = ui.insert_child(
-        root_id,
-        WidgetNode::new(
-            WidgetKind::Panel,
-            Rect {
-                x: 16.0,
-                y: 16.0,
-                width: 320.0,
-                height: 860.0,
-            },
-        ),
+struct ConsoleUiProof {
+    scene: RenderScene,
+    node_count: usize,
+    layout_count: usize,
+    dirty: elcarax_ui::DirtySummary,
+}
+
+fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
+    let theme = Theme::editor_dark();
+    let context = UiContext::new(
+        theme,
+        Rect::new(0.0, 0.0, shell.width as f32, shell.height as f32),
     );
-    let mut scene = ui.paint();
-    let color = Color::srgb(0.91, 0.93, 0.97, 1.0);
-    scene.push(
-        RenderLayer::Chrome,
-        RenderPrimitive::text("Elcarax", 24.0, 38.0, 18.0, color),
-    );
-    scene.push(
-        RenderLayer::Chrome,
-        RenderPrimitive::text("Project", 32.0, 96.0, 14.0, color),
-    );
-    scene.push(
-        RenderLayer::Chrome,
-        RenderPrimitive::text("Viewport", 380.0, 96.0, 14.0, color),
-    );
-    scene.push(
-        RenderLayer::Chrome,
-        RenderPrimitive::text("Inspector", 1180.0, 96.0, 14.0, color),
-    );
-    scene.push(
-        RenderLayer::Chrome,
-        RenderPrimitive::text("Console", 380.0, shell.height as f32 - 120.0, 14.0, color),
-    );
-    scene.push(
-        RenderLayer::Chrome,
-        RenderPrimitive::text(
-            "Status: Renderer online",
-            24.0,
-            shell.height as f32 - 24.0,
-            13.0,
-            color,
-        ),
-    );
-    scene
+    let tree = build_editor_shell(&context).map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to build UI shell: {error}"))
+    })?;
+    let scene = tree.paint(&PaintContext::new(theme)).map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to paint UI shell: {error}"))
+    })?;
+    Ok(ConsoleUiProof {
+        scene,
+        node_count: tree.node_count(),
+        layout_count: tree.node_count(),
+        dirty: tree.dirty_summary(),
+    })
 }
