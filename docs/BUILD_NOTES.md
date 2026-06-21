@@ -14,3 +14,7 @@ Add a `native-gpu` feature that wires:
 - `elcarax_accessibility` to `accesskit`
 
 The feature should keep all external types behind Elcarax-owned wrapper types.
+
+## CI quality gates
+
+GitHub Actions runs the Milestone 0 validation gates for every pull request and every push to `main`. The workflow uses Rust 1.96.0, caches Cargo state, checks formatting, builds the full workspace, runs Clippy with warnings denied, runs all tests, executes the app scaffold, and enforces ripgrep architecture guards for engine/GPU dependency tokens and unfinished shortcuts.
