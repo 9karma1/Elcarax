@@ -1,34 +1,12 @@
 //! Platform abstraction for windows, input, frame scheduling, and shell events.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NativeShellSpec {
-    pub title: String,
-    pub width: u32,
-    pub height: u32,
-}
+mod events;
+#[cfg(feature = "native")]
+mod native;
+mod spec;
 
-impl NativeShellSpec {
-    pub fn default_editor() -> Self {
-        Self {
-            title: "Elcarax".to_owned(),
-            width: 1440,
-            height: 900,
-        }
-    }
-}
+pub use events::{ElementState, KeyInput, MouseButton, PlatformEvent, WindowSize};
+pub use spec::{FramePolicy, NativeShellSpec};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum PlatformEvent {
-    CloseRequested,
-    RedrawRequested,
-    Resized { width: u32, height: u32 },
-    ScaleFactorChanged { scale_factor: f64 },
-    KeyboardInput { key: String, pressed: bool },
-    PointerMoved { x: f32, y: f32 },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FramePolicy {
-    WaitWhenIdle,
-    Continuous,
-}
+#[cfg(feature = "native")]
+pub use native::{NativeApp, NativeAppError, NativeAppHandler, run_native_app};

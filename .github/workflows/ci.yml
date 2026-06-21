@@ -39,8 +39,11 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace
 
+      - name: Check workspace with all features
+        run: cargo check --workspace --all-features
+
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
         run: cargo test --workspace
@@ -50,7 +53,7 @@ jobs:
 
       - name: Guard core crates against engine and GPU dependencies
         run: |
-          ! rg "\b(bevy|ggez|macroquad|godot|unity|unreal|wgpu|vulkano|ash|glium)\b" \
+          ! rg "\b(bevy|ggez|macroquad|godot|unity|unreal|wgpu|winit|vulkano|ash|glium)\b" \
             crates/elcarax_core \
             crates/elcarax_scene_model \
             crates/elcarax_commands \

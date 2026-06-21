@@ -9,6 +9,10 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+native-shell = ["dep:pollster", "elcarax_platform/native"]
+
 [dependencies]
 elcarax_adapter_api = { path = "../elcarax_adapter_api" }
 elcarax_commands = { path = "../elcarax_commands" }
@@ -20,3 +24,4 @@ elcarax_project = { path = "../elcarax_project" }
 elcarax_render = { path = "../elcarax_render" }
 elcarax_scene_model = { path = "../elcarax_scene_model" }
 elcarax_ui = { path = "../elcarax_ui" }
+pollster = { version = "0.4.0", optional = true }

@@ -1,6 +1,6 @@
 # Elcarax v0.1 scaffold status
 
-Generated: 2026-06-01
+Generated: 2026-06-21
 
 ## Included
 
@@ -9,26 +9,45 @@ Generated: 2026-06-01
 - Command and undo/redo path
 - Adapter API, SDK, host boundary, and mock game adapter
 - UI tree and render primitive scaffolds
-- Project, asset, GPU, platform, text, accessibility, and devtools modules
+- Project, asset, text, accessibility, and devtools modules
+- Native shell foundation behind `native-shell`
+- `winit` platform event loop contained in `elcarax_platform`
+- `wgpu` context/surface/clear-frame foundation contained in `elcarax_gpu`
 - ADRs and theme tokens
 
 ## Not included yet
 
-- Real `winit` event loop
-- Real `wgpu` surface/device/render passes
+- Full editor UI system
+- Panels, docking, widgets, inspector, viewport, or asset browser
 - Real `cosmic-text` shaping/rasterization
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
+- CI execution of the native window path
 
-## Validation caveat
+## Running
 
-This environment did not include `rustc` or `cargo`, so the scaffold could not be compiled here. The first validation step on a development machine should be:
+Default console proof flow:
 
 ```bash
-rustup toolchain install 1.96.0
-cargo fmt --all
-cargo clippy --workspace --all-targets
+cargo run -p elcarax_app
+```
+
+Feature-gated native shell:
+
+```bash
+cargo run -p elcarax_app --features native-shell
+```
+
+The native shell opens an `Elcarax` window, initializes `wgpu`, clears to the dark background color, handles resize/DPI/events, and exits cleanly on close.
+
+## Validation
+
+```bash
+cargo fmt --all --check
+cargo check --workspace
+cargo check --workspace --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo run -p elcarax_app
 ```
