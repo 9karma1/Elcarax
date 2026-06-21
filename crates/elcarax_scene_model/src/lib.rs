@@ -6,4 +6,6 @@ mod snapshot;
 
 pub use property::{PropertyPath, PropertyValue};
 pub use schema::{ObjectSchema, ObjectTypeId, PropertyKind, PropertySchema};
-pub use snapshot::{SceneId, SceneMarker, SceneObject, SceneObjectId, SceneObjectMarker, SceneSnapshot};
+pub use snapshot::{
+    SceneId, SceneMarker, SceneObject, SceneObjectId, SceneObjectMarker, SceneSnapshot,
+};

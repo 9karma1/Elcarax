@@ -56,7 +56,10 @@ impl PropertyValue {
             Self::String(value) => value.clone(),
             Self::Vec2(value) => format!("{}, {}", value[0], value[1]),
             Self::Vec3(value) => format!("{}, {}, {}", value[0], value[1], value[2]),
-            Self::ColorRgba(value) => format!("rgba({}, {}, {}, {})", value[0], value[1], value[2], value[3]),
+            Self::ColorRgba(value) => format!(
+                "rgba({}, {}, {}, {})",
+                value[0], value[1], value[2], value[3]
+            ),
             Self::Enum { variant } => variant.clone(),
             Self::AssetRef(value) => value.clone(),
             Self::ObjectRef(value) => value.to_string(),

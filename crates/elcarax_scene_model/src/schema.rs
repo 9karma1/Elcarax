@@ -29,7 +29,11 @@ pub struct PropertySchema {
 }
 
 impl PropertySchema {
-    pub fn editable(path: PropertyPath, display_name: impl Into<String>, kind: PropertyKind) -> Self {
+    pub fn editable(
+        path: PropertyPath,
+        display_name: impl Into<String>,
+        kind: PropertyKind,
+    ) -> Self {
         Self {
             path,
             display_name: display_name.into(),

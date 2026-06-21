@@ -8,8 +8,12 @@ pub enum EditorToAdapter {
     Handshake(HandshakeRequest),
     LoadProject,
     ListScenes,
-    OpenScene { scene_id: SceneId },
-    GetSceneSnapshot { scene_id: SceneId },
+    OpenScene {
+        scene_id: SceneId,
+    },
+    GetSceneSnapshot {
+        scene_id: SceneId,
+    },
     SetProperty {
         object_id: SceneObjectId,
         path: PropertyPath,
