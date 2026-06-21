@@ -9,6 +9,7 @@ Generated: 2026-06-21
 - Command and undo/redo path
 - Adapter API, SDK, host boundary, and mock game adapter
 - UI tree and layout foundation for the editor shell
+- UI input routing, hit testing, hover/focus/pressed state, keyboard focus traversal foundation, and basic button clicks
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -20,8 +21,8 @@ Generated: 2026-06-21
 ## Not included yet
 
 - Icons, images, and full vector paths
-- Full editor UI system beyond the static shell
-- Docking, drag resizing, tree views, inspector editing, command palette, text input, scroll views, or asset browser behavior
+- Full editor UI system beyond the interactive shell foundation
+- Docking, drag resizing, tree views, inspector editing, command palette, editable text fields, IME, selection, scroll views, or asset browser behavior
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
@@ -41,7 +42,7 @@ Feature-gated native shell:
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close.
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close.
 
 ## Validation
 
@@ -68,3 +69,13 @@ cargo run -p elcarax_app
 - Added non-interactive root, panel, label, separator, toolbar, status bar, and viewport placeholder widgets.
 - Replaced app-owned hardcoded shell primitives with UI-generated render scenes in console and native paths.
 - Documented explicit editor feature exclusions in `docs/MILESTONE_4_UI_TREE_LAYOUT.md`.
+
+## Milestone 5: Input and Interaction Foundation
+
+- Added Elcarax-owned platform input events for pointer, keyboard, modifiers, focus, wheel, redraw, resize, and close routing.
+- Added UI-facing input types, hit-test results, focus changes, and interaction state in `elcarax_ui`.
+- Added hit testing against final layout rectangles with deterministic deepest/topmost selection.
+- Added hover, focus, active/pressed, disabled, visible, focusable, and interactive state with dirty flag propagation.
+- Added basic `Button` and `IconButton` placeholder widget kinds plus a toolbar `Run` button.
+- Updated console and native shell flows so clicking `Run` updates the status label to `Status: Run clicked`.
+- Documented explicit interaction exclusions in `docs/MILESTONE_5_INPUT_INTERACTION.md`.

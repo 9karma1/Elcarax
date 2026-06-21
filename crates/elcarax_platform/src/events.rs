@@ -14,13 +14,13 @@ impl WindowSize {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ElementState {
     Pressed,
     Released,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {
     Left,
     Right,
@@ -28,6 +28,23 @@ pub enum MouseButton {
     Back,
     Forward,
     Other(u16),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModifierState {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub super_key: bool,
+}
+
+impl ModifierState {
+    pub const NONE: Self = Self {
+        shift: false,
+        control: false,
+        alt: false,
+        super_key: false,
+    };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,10 +75,19 @@ pub enum PlatformEvent {
         x: f64,
         y: f64,
     },
+    PointerEntered,
+    PointerLeft,
     MouseInput {
         button: MouseButton,
         state: ElementState,
     },
+    MouseWheel {
+        delta_x: f64,
+        delta_y: f64,
+    },
+    ModifiersChanged(ModifierState),
+    WindowFocused,
+    WindowUnfocused,
 }
 
 #[cfg(test)]
@@ -79,5 +105,18 @@ mod tests {
         let input = KeyInput::new("A", ElementState::Pressed);
         assert_eq!(input.key, "A");
         assert_eq!(input.state, ElementState::Pressed);
+    }
+
+    #[test]
+    fn modifier_state_can_represent_no_modifiers() {
+        assert_eq!(
+            ModifierState::NONE,
+            ModifierState {
+                shift: false,
+                control: false,
+                alt: false,
+                super_key: false,
+            }
+        );
     }
 }

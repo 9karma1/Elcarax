@@ -48,6 +48,8 @@ pub enum WidgetKind {
     Root,
     Panel,
     Label(String),
+    Button(String),
+    IconButton(String),
     Separator(Axis),
     StatusBar,
     Toolbar,
@@ -202,6 +204,7 @@ impl UiStyle {
     pub const STATUS_BAR: Self = Self::new(StyleRole::RaisedSurface);
     pub const VIEWPORT: Self = Self::new(StyleRole::Viewport);
     pub const LABEL: Self = Self::new(StyleRole::Transparent);
+    pub const BUTTON: Self = Self::new(StyleRole::Control).rounded(4.0);
     pub const SEPARATOR: Self = Self::new(StyleRole::Border);
 
     pub const fn new(role: StyleRole) -> Self {
@@ -228,6 +231,7 @@ pub enum StyleRole {
     Background,
     Surface,
     RaisedSurface,
+    Control,
     Viewport,
     Border,
     Transparent,
@@ -246,6 +250,10 @@ pub struct Theme {
     pub surface: Color,
     pub surface_raised: Color,
     pub viewport: Color,
+    pub control: Color,
+    pub control_hovered: Color,
+    pub control_active: Color,
+    pub focus_ring: Color,
     pub border: Color,
     pub text: Color,
     pub text_muted: Color,
@@ -261,6 +269,10 @@ impl Theme {
             surface: Color::srgb(0.095, 0.105, 0.14, 1.0),
             surface_raised: Color::srgb(0.075, 0.082, 0.11, 1.0),
             viewport: Color::srgb(0.045, 0.05, 0.07, 1.0),
+            control: Color::srgb(0.13, 0.15, 0.20, 1.0),
+            control_hovered: Color::srgb(0.18, 0.21, 0.29, 1.0),
+            control_active: Color::srgb(0.23, 0.29, 0.44, 1.0),
+            focus_ring: Color::srgb(0.58, 0.68, 0.95, 1.0),
             border: Color::srgb(0.18, 0.20, 0.26, 1.0),
             text: Color::srgb(0.91, 0.93, 0.97, 1.0),
             text_muted: Color::srgb(0.62, 0.66, 0.74, 1.0),
@@ -284,6 +296,7 @@ impl Theme {
             StyleRole::Background => Some(self.background),
             StyleRole::Surface => Some(self.surface),
             StyleRole::RaisedSurface => Some(self.surface_raised),
+            StyleRole::Control => Some(self.control),
             StyleRole::Viewport => Some(self.viewport),
             StyleRole::Border => Some(self.border),
             StyleRole::Transparent => None,
@@ -320,10 +333,164 @@ pub struct FontScale {
     pub title: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PointerPosition {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl PointerPosition {
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerButton {
+    Primary,
+    Secondary,
+    Middle,
+    Back,
+    Forward,
+    Other(u16),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyboardKey {
+    Enter,
+    Space,
+    Tab,
+    Escape,
+    Character(String),
+    Other(String),
+}
+
+impl KeyboardKey {
+    pub fn from_platform_key(key: impl Into<String>) -> Self {
+        let key = key.into();
+        match key.as_str() {
+            "Enter" | "Named(Enter)" => Self::Enter,
+            " " | "Space" | "Named(Space)" => Self::Space,
+            "Tab" | "Named(Tab)" => Self::Tab,
+            "Escape" | "Named(Escape)" => Self::Escape,
+            _ if key.chars().count() == 1 => Self::Character(key),
+            _ => Self::Other(key),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModifierState {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub super_key: bool,
+}
+
+impl ModifierState {
+    pub const NONE: Self = Self {
+        shift: false,
+        control: false,
+        alt: false,
+        super_key: false,
+    };
+}
+
+impl Default for ModifierState {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UiInputEvent {
+    PointerMoved(PointerPosition),
+    PointerEntered,
+    PointerLeft,
+    PointerButtonPressed(PointerButton),
+    PointerButtonReleased(PointerButton),
+    MouseWheel { delta_x: f32, delta_y: f32 },
+    KeyPressed(KeyboardKey),
+    KeyReleased(KeyboardKey),
+    ModifiersChanged(ModifierState),
+    WindowFocused,
+    WindowUnfocused,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HitTestResult {
+    pub id: WidgetId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FocusChange {
+    pub previous: Option<WidgetId>,
+    pub next: Option<WidgetId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InteractionState {
+    pub hovered: bool,
+    pub focused: bool,
+    pub active: bool,
+    pub disabled: bool,
+    pub visible: bool,
+    pub focusable: bool,
+    pub interactive: bool,
+}
+
+impl InteractionState {
+    pub const fn container() -> Self {
+        Self {
+            hovered: false,
+            focused: false,
+            active: false,
+            disabled: false,
+            visible: true,
+            focusable: false,
+            interactive: true,
+        }
+    }
+
+    pub const fn passive() -> Self {
+        Self {
+            hovered: false,
+            focused: false,
+            active: false,
+            disabled: false,
+            visible: true,
+            focusable: false,
+            interactive: false,
+        }
+    }
+
+    pub const fn control() -> Self {
+        Self {
+            hovered: false,
+            focused: false,
+            active: false,
+            disabled: false,
+            visible: true,
+            focusable: true,
+            interactive: true,
+        }
+    }
+
+    pub const fn can_hit_test(self) -> bool {
+        self.visible && !self.disabled && self.interactive
+    }
+
+    pub const fn can_focus(self) -> bool {
+        self.visible && !self.disabled && self.focusable
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiEvent {
     HoverChanged { id: WidgetId, hovered: bool },
-    FocusChanged { id: WidgetId, focused: bool },
+    FocusChanged(FocusChange),
+    ActiveChanged { id: WidgetId, active: bool },
+    Clicked { id: WidgetId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -355,8 +522,7 @@ pub struct UiNode {
     pub layout: LayoutNode,
     pub rect: Rect,
     pub dirty: DirtyFlags,
-    pub hovered: bool,
-    pub focused: bool,
+    pub interaction: InteractionState,
 }
 
 impl UiNode {
@@ -365,14 +531,18 @@ impl UiNode {
             id,
             parent: None,
             children: Vec::new(),
+            interaction: default_interaction_for(&kind),
             kind,
             style,
             layout,
             rect: Rect::new(0.0, 0.0, 0.0, 0.0),
             dirty: DirtyFlags::ALL,
-            hovered: false,
-            focused: false,
         }
+    }
+
+    pub fn with_interaction(mut self, interaction: InteractionState) -> Self {
+        self.interaction = interaction;
+        self
     }
 }
 
@@ -404,6 +574,11 @@ pub struct UiTree {
     nodes: BTreeMap<WidgetId, UiNode>,
     root_id: Option<WidgetId>,
     ids: IdGenerator<WidgetMarker>,
+    hovered_id: Option<WidgetId>,
+    focused_id: Option<WidgetId>,
+    active_id: Option<WidgetId>,
+    pointer_position: Option<PointerPosition>,
+    modifiers: ModifierState,
 }
 
 impl UiTree {
@@ -510,6 +685,53 @@ impl UiTree {
         Ok(scene)
     }
 
+    pub fn process_input(&mut self, input: UiInputEvent) -> Result<Vec<UiEvent>, UiError> {
+        match input {
+            UiInputEvent::PointerMoved(position) => {
+                self.pointer_position = Some(position);
+                let hit = self.hit_test(position).map(|result| result.id);
+                self.update_hover(hit)
+            }
+            UiInputEvent::PointerEntered => Ok(Vec::new()),
+            UiInputEvent::PointerLeft => {
+                self.pointer_position = None;
+                let mut events = self.update_hover(None)?;
+                events.extend(self.set_active(None)?);
+                Ok(events)
+            }
+            UiInputEvent::PointerButtonPressed(PointerButton::Primary) => {
+                self.press_primary_button()
+            }
+            UiInputEvent::PointerButtonReleased(PointerButton::Primary) => {
+                self.release_primary_button()
+            }
+            UiInputEvent::KeyPressed(key) => self.press_key(key),
+            UiInputEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers;
+                Ok(Vec::new())
+            }
+            UiInputEvent::WindowUnfocused => self.clear_focus_and_pointer_state(),
+            UiInputEvent::PointerButtonPressed(_)
+            | UiInputEvent::PointerButtonReleased(_)
+            | UiInputEvent::KeyReleased(_)
+            | UiInputEvent::MouseWheel { .. }
+            | UiInputEvent::WindowFocused => Ok(Vec::new()),
+        }
+    }
+
+    pub fn hit_test(&self, position: PointerPosition) -> Option<HitTestResult> {
+        let root_id = self.root_id?;
+        let traversal = self.traversal_from(root_id).ok()?;
+        traversal.into_iter().rev().find_map(|id| {
+            let node = self.nodes.get(&id)?;
+            if node_can_receive_hit(node, position) {
+                Some(HitTestResult { id })
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn traversal(&self) -> Result<Vec<WidgetId>, UiError> {
         let root_id = self.root_id.ok_or(UiError::MissingRoot)?;
         self.traversal_from(root_id)
@@ -531,11 +753,58 @@ impl UiTree {
         let Some(node) = self.nodes.get_mut(&id) else {
             return Err(UiError::MissingNode(id));
         };
-        if node.hovered == hovered {
+        if node.interaction.hovered == hovered {
             return Ok(());
         }
-        node.hovered = hovered;
+        node.interaction.hovered = hovered;
         node.dirty.insert(DirtyFlags::PAINT);
+        Ok(())
+    }
+
+    pub fn set_focused(&mut self, next: Option<WidgetId>) -> Result<Vec<UiEvent>, UiError> {
+        if next == self.focused_id {
+            return Ok(Vec::new());
+        }
+        if let Some(id) = next
+            && !self
+                .nodes
+                .get(&id)
+                .is_some_and(|node| node.interaction.can_focus())
+        {
+            return Ok(Vec::new());
+        }
+        let previous = self.focused_id;
+        if let Some(id) = previous {
+            self.set_node_focus(id, false)?;
+        }
+        if let Some(id) = next {
+            self.set_node_focus(id, true)?;
+        }
+        self.focused_id = next;
+        Ok(vec![UiEvent::FocusChanged(FocusChange { previous, next })])
+    }
+
+    pub fn set_disabled(&mut self, id: WidgetId, disabled: bool) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        if node.interaction.disabled == disabled {
+            return Ok(());
+        }
+        node.interaction.disabled = disabled;
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        node.dirty.insert(DirtyFlags::ACCESSIBILITY);
+        if disabled {
+            if self.hovered_id == Some(id) {
+                self.hovered_id = None;
+                node.interaction.hovered = false;
+            }
+            if self.active_id == Some(id) {
+                self.active_id = None;
+                node.interaction.active = false;
+            }
+        }
         Ok(())
     }
 
@@ -563,6 +832,149 @@ impl UiTree {
             return Err(UiError::DuplicateNode(node.id));
         }
         self.nodes.insert(node.id, node);
+        Ok(())
+    }
+
+    fn press_primary_button(&mut self) -> Result<Vec<UiEvent>, UiError> {
+        let hit = self
+            .pointer_position
+            .and_then(|position| self.hit_test(position))
+            .map(|result| result.id);
+        let mut events = Vec::new();
+        if let Some(id) = hit {
+            events.extend(self.set_focused(Some(id))?);
+            if is_clickable(self.nodes.get(&id)) {
+                events.extend(self.set_active(Some(id))?);
+            }
+        } else {
+            events.extend(self.set_focused(None)?);
+        }
+        Ok(events)
+    }
+
+    fn release_primary_button(&mut self) -> Result<Vec<UiEvent>, UiError> {
+        let pressed = self.active_id;
+        let release_hit = self
+            .pointer_position
+            .and_then(|position| self.hit_test(position))
+            .map(|result| result.id);
+        let mut events = self.set_active(None)?;
+        if let Some(id) = pressed
+            && release_hit == Some(id)
+            && is_clickable(self.nodes.get(&id))
+        {
+            events.push(UiEvent::Clicked { id });
+        }
+        Ok(events)
+    }
+
+    fn press_key(&mut self, key: KeyboardKey) -> Result<Vec<UiEvent>, UiError> {
+        match key {
+            KeyboardKey::Enter | KeyboardKey::Space => {
+                if let Some(id) = self.focused_id
+                    && is_clickable(self.nodes.get(&id))
+                {
+                    return Ok(vec![UiEvent::Clicked { id }]);
+                }
+                Ok(Vec::new())
+            }
+            KeyboardKey::Tab => self.focus_next(),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    fn focus_next(&mut self) -> Result<Vec<UiEvent>, UiError> {
+        let focusable = self.focusable_widgets()?;
+        if focusable.is_empty() {
+            return self.set_focused(None);
+        }
+        let current_index = self
+            .focused_id
+            .and_then(|id| focusable.iter().position(|candidate| *candidate == id));
+        let next_index = current_index.map_or(0, |index| (index + 1) % focusable.len());
+        self.set_focused(Some(focusable[next_index]))
+    }
+
+    fn focusable_widgets(&self) -> Result<Vec<WidgetId>, UiError> {
+        let root_id = self.root_id.ok_or(UiError::MissingRoot)?;
+        Ok(self
+            .traversal_from(root_id)?
+            .into_iter()
+            .filter(|id| {
+                self.nodes
+                    .get(id)
+                    .is_some_and(|node| node.interaction.can_focus())
+            })
+            .collect())
+    }
+
+    fn clear_focus_and_pointer_state(&mut self) -> Result<Vec<UiEvent>, UiError> {
+        let mut events = self.update_hover(None)?;
+        events.extend(self.set_active(None)?);
+        events.extend(self.set_focused(None)?);
+        Ok(events)
+    }
+
+    fn update_hover(&mut self, next: Option<WidgetId>) -> Result<Vec<UiEvent>, UiError> {
+        if next == self.hovered_id {
+            return Ok(Vec::new());
+        }
+        let previous = self.hovered_id;
+        if let Some(id) = previous {
+            self.set_hovered(id, false)?;
+        }
+        if let Some(id) = next {
+            self.set_hovered(id, true)?;
+        }
+        self.hovered_id = next;
+        let mut events = Vec::new();
+        if let Some(id) = previous {
+            events.push(UiEvent::HoverChanged { id, hovered: false });
+        }
+        if let Some(id) = next {
+            events.push(UiEvent::HoverChanged { id, hovered: true });
+        }
+        Ok(events)
+    }
+
+    fn set_active(&mut self, next: Option<WidgetId>) -> Result<Vec<UiEvent>, UiError> {
+        if next == self.active_id {
+            return Ok(Vec::new());
+        }
+        let previous = self.active_id;
+        if let Some(id) = previous {
+            self.set_node_active(id, false)?;
+        }
+        if let Some(id) = next {
+            self.set_node_active(id, true)?;
+        }
+        self.active_id = next;
+        let mut events = Vec::new();
+        if let Some(id) = previous {
+            events.push(UiEvent::ActiveChanged { id, active: false });
+        }
+        if let Some(id) = next {
+            events.push(UiEvent::ActiveChanged { id, active: true });
+        }
+        Ok(events)
+    }
+
+    fn set_node_focus(&mut self, id: WidgetId, focused: bool) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        node.interaction.focused = focused;
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::ACCESSIBILITY);
+        Ok(())
+    }
+
+    fn set_node_active(&mut self, id: WidgetId, active: bool) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        node.interaction.active = active;
+        node.dirty.insert(DirtyFlags::PAINT);
         Ok(())
     }
 
@@ -646,7 +1058,22 @@ impl DirtySummary {
     }
 }
 
+pub struct EditorShell {
+    pub tree: UiTree,
+    pub ids: EditorShellIds,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditorShellIds {
+    pub run_button: WidgetId,
+    pub status_label: WidgetId,
+}
+
 pub fn build_editor_shell(context: &UiContext) -> Result<UiTree, UiError> {
+    build_editor_shell_with_ids(context).map(|shell| shell.tree)
+}
+
+pub fn build_editor_shell_with_ids(context: &UiContext) -> Result<EditorShell, UiError> {
     let mut tree = UiTree::new();
     let root = WidgetId::new(1).ok_or(UiError::MissingRoot)?;
     let toolbar = WidgetId::new(2).ok_or(UiError::MissingRoot)?;
@@ -664,6 +1091,7 @@ pub fn build_editor_shell(context: &UiContext) -> Result<UiTree, UiError> {
     let viewport_label = WidgetId::new(14).ok_or(UiError::MissingRoot)?;
     let inspector_label = WidgetId::new(15).ok_or(UiError::MissingRoot)?;
     let status_label = WidgetId::new(16).ok_or(UiError::MissingRoot)?;
+    let run_button = WidgetId::new(17).ok_or(UiError::MissingRoot)?;
 
     tree.set_root(UiNode::new(
         root,
@@ -726,6 +1154,15 @@ pub fn build_editor_shell(context: &UiContext) -> Result<UiTree, UiError> {
             title,
             WidgetKind::Label("Elcarax".to_string()),
             UiStyle::LABEL,
+            LayoutNode::leaf().with_width(SizePolicy::Content),
+        ),
+    )?;
+    tree.insert_child(
+        toolbar,
+        UiNode::new(
+            run_button,
+            WidgetKind::Button("Run".to_string()),
+            UiStyle::BUTTON,
             LayoutNode::leaf().with_width(SizePolicy::Content),
         ),
     )?;
@@ -819,7 +1256,13 @@ pub fn build_editor_shell(context: &UiContext) -> Result<UiTree, UiError> {
     tree.layout(LayoutConstraints {
         bounds: context.root_bounds,
     })?;
-    Ok(tree)
+    Ok(EditorShell {
+        tree,
+        ids: EditorShellIds {
+            run_button,
+            status_label,
+        },
+    })
 }
 
 fn layout_children(
@@ -968,17 +1411,59 @@ fn cross_size(axis: Axis, rect: Rect) -> f32 {
 fn content_span(axis: Axis, kind: &WidgetKind) -> f32 {
     match axis {
         Axis::Horizontal => {
-            text_content(kind).map_or(1.0, |text| text.chars().count() as f32 * 8.0)
+            let text_width =
+                text_content(kind).map_or(1.0, |text| text.chars().count() as f32 * 8.0);
+            match kind {
+                WidgetKind::Button(_) => text_width + 28.0,
+                WidgetKind::IconButton(_) => 32.0,
+                _ => text_width,
+            }
         }
-        Axis::Vertical => 22.0,
+        Axis::Vertical => match kind {
+            WidgetKind::Button(_) | WidgetKind::IconButton(_) => 32.0,
+            _ => 22.0,
+        },
     }
 }
 
 fn text_content(kind: &WidgetKind) -> Option<&str> {
     match kind {
         WidgetKind::Label(text) => Some(text.as_str()),
+        WidgetKind::Button(text) => Some(text.as_str()),
+        WidgetKind::IconButton(text) => Some(text.as_str()),
         _ => None,
     }
+}
+
+fn default_interaction_for(kind: &WidgetKind) -> InteractionState {
+    match kind {
+        WidgetKind::Button(_) | WidgetKind::IconButton(_) => InteractionState::control(),
+        WidgetKind::Label(_) | WidgetKind::Separator(_) => InteractionState::passive(),
+        WidgetKind::Root
+        | WidgetKind::Panel
+        | WidgetKind::StatusBar
+        | WidgetKind::Toolbar
+        | WidgetKind::ViewportPlaceholder => InteractionState::container(),
+    }
+}
+
+fn node_can_receive_hit(node: &UiNode, position: PointerPosition) -> bool {
+    node.interaction.can_hit_test() && rect_contains(node.rect, position)
+}
+
+fn is_clickable(node: Option<&UiNode>) -> bool {
+    node.is_some_and(|node| {
+        matches!(node.kind, WidgetKind::Button(_) | WidgetKind::IconButton(_))
+            && node.interaction.can_hit_test()
+    })
+}
+
+fn rect_contains(rect: Rect, position: PointerPosition) -> bool {
+    let rect = rect.normalized();
+    position.x >= rect.x
+        && position.y >= rect.y
+        && position.x < rect.x + rect.width
+        && position.y < rect.y + rect.height
 }
 
 fn paint_node(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
@@ -996,6 +1481,9 @@ fn paint_node(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
         }
         WidgetKind::Separator(axis) => paint_separator(*axis, node, context, scene),
         WidgetKind::Label(text) => paint_label(text, node, context, scene),
+        WidgetKind::Button(text) | WidgetKind::IconButton(text) => {
+            paint_button(text, node, context, scene);
+        }
     }
 }
 
@@ -1054,6 +1542,46 @@ fn paint_label(text: &str, node: &UiNode, context: &PaintContext, scene: &mut Re
     );
 }
 
+fn paint_button(text: &str, node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
+    let color = if node.interaction.disabled {
+        context.theme.surface
+    } else if node.interaction.active {
+        context.theme.control_active
+    } else if node.interaction.hovered {
+        context.theme.control_hovered
+    } else {
+        context.theme.control
+    };
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::rounded_rect(
+            node.rect,
+            CornerRadius::uniform(node.style.corner_radius),
+            color,
+        )
+        .with_debug_label("button"),
+    );
+    if node.interaction.focused {
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::border_rect(node.rect, Border::new(1.0, context.theme.focus_ring))
+                .with_debug_label("button focus"),
+        );
+    }
+    let font_size = context.theme.fonts.body;
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(
+            text,
+            node.rect.x + 14.0,
+            node.rect.y + 20.0,
+            font_size,
+            context.theme.text,
+        )
+        .with_debug_label("button label"),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1066,10 +1594,47 @@ mod tests {
         }
     }
 
+    fn must<T, E: std::fmt::Debug>(result: std::result::Result<T, E>) -> T {
+        match result {
+            Ok(value) => value,
+            Err(error) => panic!("expected Ok result, got {error:?}"),
+        }
+    }
+
+    fn must_some<T>(value: Option<T>) -> T {
+        match value {
+            Some(value) => value,
+            None => panic!("expected Some value"),
+        }
+    }
+
     fn root_tree(layout: LayoutNode) -> UiTree {
         let mut tree = UiTree::new();
         let result = tree.set_root(UiNode::new(id(1), WidgetKind::Root, UiStyle::ROOT, layout));
         assert_eq!(result, Ok(id(1)));
+        tree
+    }
+
+    fn button_tree() -> UiTree {
+        let mut tree = root_tree(LayoutNode::fill(LayoutMode::Leaf));
+        assert_eq!(
+            tree.insert_child(
+                id(1),
+                UiNode::new(
+                    id(2),
+                    WidgetKind::Button("Run".to_string()),
+                    UiStyle::BUTTON,
+                    LayoutNode::fixed(80.0, 32.0)
+                )
+            ),
+            Ok(id(2))
+        );
+        assert!(
+            tree.layout(LayoutConstraints {
+                bounds: Rect::new(0.0, 0.0, 200.0, 100.0),
+            })
+            .is_ok()
+        );
         tree
     }
 
@@ -1312,5 +1877,263 @@ mod tests {
             Ok(id(3))
         );
         assert_eq!(tree.traversal(), Ok(vec![id(1), id(2), id(3)]));
+    }
+
+    #[test]
+    fn hit_testing_empty_tree_returns_none() {
+        let tree = UiTree::new();
+        assert_eq!(tree.hit_test(PointerPosition::new(1.0, 1.0)), None);
+    }
+
+    #[test]
+    fn hit_testing_root_can_return_container() {
+        let mut tree = root_tree(LayoutNode::fill(LayoutMode::Leaf));
+        assert!(
+            tree.layout(LayoutConstraints {
+                bounds: Rect::new(0.0, 0.0, 100.0, 50.0),
+            })
+            .is_ok()
+        );
+        assert_eq!(
+            tree.hit_test(PointerPosition::new(10.0, 10.0)),
+            Some(HitTestResult { id: id(1) })
+        );
+    }
+
+    #[test]
+    fn hit_testing_child_beats_parent() {
+        let tree = button_tree();
+        assert_eq!(
+            tree.hit_test(PointerPosition::new(10.0, 10.0)),
+            Some(HitTestResult { id: id(2) })
+        );
+    }
+
+    #[test]
+    fn hit_testing_outside_bounds_returns_none() {
+        let tree = button_tree();
+        assert_eq!(tree.hit_test(PointerPosition::new(250.0, 10.0)), None);
+    }
+
+    #[test]
+    fn hit_testing_overlapping_children_prefers_later_child() {
+        let mut tree = root_tree(LayoutNode::fill(LayoutMode::Leaf));
+        for value in [2, 3] {
+            assert_eq!(
+                tree.insert_child(
+                    id(1),
+                    UiNode::new(
+                        id(value),
+                        WidgetKind::Button(format!("Button {value}")),
+                        UiStyle::BUTTON,
+                        LayoutNode::fixed(80.0, 32.0)
+                    )
+                ),
+                Ok(id(value))
+            );
+        }
+        assert!(
+            tree.layout(LayoutConstraints {
+                bounds: Rect::new(0.0, 0.0, 200.0, 100.0),
+            })
+            .is_ok()
+        );
+        assert_eq!(
+            tree.hit_test(PointerPosition::new(10.0, 10.0)),
+            Some(HitTestResult { id: id(3) })
+        );
+    }
+
+    #[test]
+    fn disabled_and_non_interactive_widgets_do_not_receive_hits() {
+        let mut tree = button_tree();
+        assert!(tree.set_disabled(id(2), true).is_ok());
+        assert_eq!(
+            tree.hit_test(PointerPosition::new(10.0, 10.0)),
+            Some(HitTestResult { id: id(1) })
+        );
+
+        let mut label_tree = root_tree(LayoutNode::fill(LayoutMode::Leaf));
+        assert_eq!(
+            label_tree.insert_child(
+                id(1),
+                UiNode::new(
+                    id(2),
+                    WidgetKind::Label("Passive".to_string()),
+                    UiStyle::LABEL,
+                    LayoutNode::fixed(80.0, 32.0)
+                )
+            ),
+            Ok(id(2))
+        );
+        assert!(
+            label_tree
+                .layout(LayoutConstraints {
+                    bounds: Rect::new(0.0, 0.0, 200.0, 100.0),
+                })
+                .is_ok()
+        );
+        assert_eq!(
+            label_tree.hit_test(PointerPosition::new(10.0, 10.0)),
+            Some(HitTestResult { id: id(1) })
+        );
+    }
+
+    #[test]
+    fn hover_enter_and_exit_update_dirty_flags() {
+        let mut tree = button_tree();
+        let events =
+            must(tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(10.0, 10.0))));
+        assert_eq!(
+            events,
+            vec![UiEvent::HoverChanged {
+                id: id(2),
+                hovered: true
+            }]
+        );
+        assert!(
+            tree.get(id(2)).is_some_and(
+                |node| node.interaction.hovered && node.dirty.contains(DirtyFlags::PAINT)
+            )
+        );
+        let events = must(tree.process_input(UiInputEvent::PointerLeft));
+        assert!(events.contains(&UiEvent::HoverChanged {
+            id: id(2),
+            hovered: false
+        }));
+    }
+
+    #[test]
+    fn focus_change_updates_dirty_flags() {
+        let mut tree = button_tree();
+        let events = must(tree.set_focused(Some(id(2))));
+        assert_eq!(
+            events,
+            vec![UiEvent::FocusChanged(FocusChange {
+                previous: None,
+                next: Some(id(2))
+            })]
+        );
+        assert!(tree.get(id(2)).is_some_and(|node| {
+            node.interaction.focused
+                && node.dirty.contains(DirtyFlags::PAINT)
+                && node.dirty.contains(DirtyFlags::ACCESSIBILITY)
+        }));
+    }
+
+    #[test]
+    fn button_click_emits_event() {
+        let mut tree = button_tree();
+        assert!(
+            tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(10.0, 10.0)))
+                .is_ok()
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerButtonPressed(PointerButton::Primary))
+                .is_ok()
+        );
+        let events =
+            must(tree.process_input(UiInputEvent::PointerButtonReleased(PointerButton::Primary)));
+        assert!(events.contains(&UiEvent::Clicked { id: id(2) }));
+    }
+
+    #[test]
+    fn press_outside_release_inside_does_not_click() {
+        let mut tree = button_tree();
+        assert!(
+            tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(
+                180.0, 80.0
+            )))
+            .is_ok()
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerButtonPressed(PointerButton::Primary))
+                .is_ok()
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(10.0, 10.0)))
+                .is_ok()
+        );
+        let events =
+            must(tree.process_input(UiInputEvent::PointerButtonReleased(PointerButton::Primary)));
+        assert!(!events.contains(&UiEvent::Clicked { id: id(2) }));
+    }
+
+    #[test]
+    fn press_inside_release_outside_cancels_click() {
+        let mut tree = button_tree();
+        assert!(
+            tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(10.0, 10.0)))
+                .is_ok()
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerButtonPressed(PointerButton::Primary))
+                .is_ok()
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(
+                250.0, 10.0
+            )))
+            .is_ok()
+        );
+        let events =
+            must(tree.process_input(UiInputEvent::PointerButtonReleased(PointerButton::Primary)));
+        assert!(!events.contains(&UiEvent::Clicked { id: id(2) }));
+    }
+
+    #[test]
+    fn focused_button_activates_on_enter_and_space() {
+        let mut tree = button_tree();
+        assert!(tree.set_focused(Some(id(2))).is_ok());
+        let enter_events = must(tree.process_input(UiInputEvent::KeyPressed(KeyboardKey::Enter)));
+        let space_events = must(tree.process_input(UiInputEvent::KeyPressed(KeyboardKey::Space)));
+        assert!(enter_events.contains(&UiEvent::Clicked { id: id(2) }));
+        assert!(space_events.contains(&UiEvent::Clicked { id: id(2) }));
+    }
+
+    #[test]
+    fn disabled_button_cannot_be_clicked() {
+        let mut tree = button_tree();
+        assert!(tree.set_disabled(id(2), true).is_ok());
+        assert!(
+            tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(10.0, 10.0)))
+                .is_ok()
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerButtonPressed(PointerButton::Primary))
+                .is_ok()
+        );
+        let events =
+            must(tree.process_input(UiInputEvent::PointerButtonReleased(PointerButton::Primary)));
+        assert!(!events.contains(&UiEvent::Clicked { id: id(2) }));
+    }
+
+    #[test]
+    fn status_label_can_update_after_button_event() {
+        let theme = Theme::editor_dark();
+        let shell = must(build_editor_shell_with_ids(&UiContext::new(
+            theme,
+            Rect::new(0.0, 0.0, 1440.0, 900.0),
+        )));
+        let mut tree = shell.tree;
+        let button = must_some(tree.get(shell.ids.run_button).map(|node| node.rect));
+        for input in [
+            UiInputEvent::PointerMoved(PointerPosition::new(button.x + 4.0, button.y + 4.0)),
+            UiInputEvent::PointerButtonPressed(PointerButton::Primary),
+            UiInputEvent::PointerButtonReleased(PointerButton::Primary),
+        ] {
+            let events = must(tree.process_input(input));
+            if events.contains(&UiEvent::Clicked {
+                id: shell.ids.run_button,
+            }) {
+                assert!(
+                    tree.set_label_text(shell.ids.status_label, "Status: Run clicked")
+                        .is_ok()
+                );
+            }
+        }
+        assert!(tree.get(shell.ids.status_label).is_some_and(|node| {
+            matches!(&node.kind, WidgetKind::Label(text) if text == "Status: Run clicked")
+        }));
     }
 }
