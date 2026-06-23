@@ -7,9 +7,11 @@ Generated: 2026-06-21
 - Rust workspace scaffold targeting Rust 1.96.0 and Edition 2024
 - Engine-neutral scene/property/schema model
 - Command and undo/redo path
+- Platform-neutral command registry, built-in editor commands, command filtering, and invocation results
 - Adapter API, SDK, host boundary, and mock game adapter
 - UI tree and layout foundation for the editor shell
 - UI input routing, hit testing, hover/focus/pressed state, keyboard focus traversal foundation, and basic button clicks
+- Command palette shell with query filtering, keyboard selection, execution, cancel behavior, and status feedback
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -22,7 +24,7 @@ Generated: 2026-06-21
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive shell foundation
-- Docking, drag resizing, tree views, inspector editing, command palette, editable text fields, IME, selection, scroll views, or asset browser behavior
+- Docking, drag resizing, tree views, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, or asset browser behavior
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
@@ -42,7 +44,7 @@ Feature-gated native shell:
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close.
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree and command palette, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close.
 
 ## Validation
 
@@ -79,3 +81,12 @@ cargo run -p elcarax_app
 - Added basic `Button` and `IconButton` placeholder widget kinds plus a toolbar `Run` button.
 - Updated console and native shell flows so clicking `Run` updates the status label to `Status: Run clicked`.
 - Documented explicit interaction exclusions in `docs/MILESTONE_5_INPUT_INTERACTION.md`.
+
+## Milestone 6: Command Palette Shell
+
+- Added platform-neutral command registry types, built-in command registration, filtering, lookup, and invocation results in `elcarax_commands`.
+- Added command palette state, simple query buffer, filtered entries, selected row movement, and overlay painting in `elcarax_ui`.
+- Added Ctrl+K command palette opening in the native shell and keyboard routing for query input, Backspace, ArrowUp, ArrowDown, Enter, and Escape.
+- Added command execution for renderer stats, ready status, and the demo run action.
+- Updated the console proof to execute `Show Ready Status` through the command palette and print `Status: Ready`.
+- Documented explicit command palette exclusions in `docs/MILESTONE_6_COMMAND_PALETTE.md`.

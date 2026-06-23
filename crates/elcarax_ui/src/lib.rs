@@ -361,6 +361,9 @@ pub enum KeyboardKey {
     Space,
     Tab,
     Escape,
+    Backspace,
+    ArrowUp,
+    ArrowDown,
     Character(String),
     Other(String),
 }
@@ -373,10 +376,183 @@ impl KeyboardKey {
             " " | "Space" | "Named(Space)" => Self::Space,
             "Tab" | "Named(Tab)" => Self::Tab,
             "Escape" | "Named(Escape)" => Self::Escape,
+            "Backspace" | "Named(Backspace)" => Self::Backspace,
+            "ArrowUp" | "Named(ArrowUp)" => Self::ArrowUp,
+            "ArrowDown" | "Named(ArrowDown)" => Self::ArrowDown,
             _ if key.chars().count() == 1 => Self::Character(key),
             _ => Self::Other(key),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandPaletteEntry {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub description: Option<String>,
+    pub enabled: bool,
+}
+
+impl CommandPaletteEntry {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        category: impl Into<String>,
+        description: Option<String>,
+        enabled: bool,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            category: category.into(),
+            description,
+            enabled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandPaletteAction {
+    None,
+    Execute,
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandPaletteState {
+    is_open: bool,
+    query: String,
+    selected_index: usize,
+    entries: Vec<CommandPaletteEntry>,
+    filtered_entries: Vec<CommandPaletteEntry>,
+}
+
+impl CommandPaletteState {
+    pub fn new(entries: Vec<CommandPaletteEntry>) -> Self {
+        let mut state = Self {
+            is_open: false,
+            query: String::new(),
+            selected_index: 0,
+            entries,
+            filtered_entries: Vec::new(),
+        };
+        state.refresh_filter();
+        state
+    }
+
+    pub const fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    pub fn query(&self) -> &str {
+        self.query.as_str()
+    }
+
+    pub const fn selected_index(&self) -> usize {
+        self.selected_index
+    }
+
+    pub fn filtered_entries(&self) -> &[CommandPaletteEntry] {
+        self.filtered_entries.as_slice()
+    }
+
+    pub fn selected_entry(&self) -> Option<&CommandPaletteEntry> {
+        self.filtered_entries.get(self.selected_index)
+    }
+
+    pub fn replace_entries(&mut self, entries: Vec<CommandPaletteEntry>) {
+        self.entries = entries;
+        self.refresh_filter();
+    }
+
+    pub fn open(&mut self) {
+        self.is_open = true;
+        self.query.clear();
+        self.selected_index = 0;
+        self.refresh_filter();
+    }
+
+    pub fn close(&mut self) {
+        self.is_open = false;
+        self.query.clear();
+        self.selected_index = 0;
+        self.refresh_filter();
+    }
+
+    pub fn handle_key(&mut self, key: KeyboardKey) -> CommandPaletteAction {
+        if !self.is_open {
+            return CommandPaletteAction::None;
+        }
+        match key {
+            KeyboardKey::Escape => {
+                self.close();
+                CommandPaletteAction::Closed
+            }
+            KeyboardKey::Enter => CommandPaletteAction::Execute,
+            KeyboardKey::ArrowDown => {
+                self.move_selection(1);
+                CommandPaletteAction::None
+            }
+            KeyboardKey::ArrowUp => {
+                self.move_selection(-1);
+                CommandPaletteAction::None
+            }
+            KeyboardKey::Backspace => {
+                self.query.pop();
+                self.refresh_filter();
+                CommandPaletteAction::None
+            }
+            KeyboardKey::Character(value) => {
+                self.push_query_text(value.as_str());
+                CommandPaletteAction::None
+            }
+            _ => CommandPaletteAction::None,
+        }
+    }
+
+    fn push_query_text(&mut self, text: &str) {
+        if text.chars().all(|character| !character.is_control()) {
+            self.query.push_str(text);
+            self.refresh_filter();
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        if self.filtered_entries.is_empty() {
+            self.selected_index = 0;
+            return;
+        }
+        let len = self.filtered_entries.len() as isize;
+        let next = (self.selected_index as isize + delta).rem_euclid(len);
+        self.selected_index = next as usize;
+    }
+
+    fn refresh_filter(&mut self) {
+        let query = self.query.to_lowercase();
+        self.filtered_entries = self
+            .entries
+            .iter()
+            .filter(|entry| palette_entry_matches(entry, &query))
+            .cloned()
+            .collect();
+        if self.selected_index >= self.filtered_entries.len() {
+            self.selected_index = 0;
+        }
+    }
+}
+
+fn palette_entry_matches(entry: &CommandPaletteEntry, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    entry.id.to_lowercase().contains(query)
+        || entry.name.to_lowercase().contains(query)
+        || entry.category.to_lowercase().contains(query)
+        || entry
+            .description
+            .as_ref()
+            .is_some_and(|description| description.to_lowercase().contains(query))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1582,6 +1758,160 @@ fn paint_button(text: &str, node: &UiNode, context: &PaintContext, scene: &mut R
     );
 }
 
+pub fn paint_command_palette_overlay(
+    scene: &mut RenderScene,
+    palette: &CommandPaletteState,
+    bounds: Rect,
+    context: &PaintContext,
+) {
+    if !palette.is_open() {
+        return;
+    }
+    let panel_width = bounds.width.clamp(280.0, 640.0);
+    let visible_rows = palette.filtered_entries().len().min(8);
+    let panel_height = 96.0 + visible_rows as f32 * 42.0;
+    let panel = Rect::new(
+        bounds.x + (bounds.width - panel_width) * 0.5,
+        bounds.y + 72.0,
+        panel_width,
+        panel_height,
+    );
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::solid_rect(bounds, Color::srgb(0.0, 0.0, 0.0, 0.42))
+            .with_debug_label("command palette dim"),
+    );
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::rounded_rect(
+            panel,
+            CornerRadius::uniform(6.0),
+            context.theme.surface_raised,
+        )
+        .with_debug_label("command palette"),
+    );
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::border_rect(panel, Border::new(1.0, context.theme.border))
+            .with_debug_label("command palette border"),
+    );
+    paint_palette_query(scene, palette, panel, context);
+    paint_palette_rows(scene, palette, panel, context);
+}
+
+fn paint_palette_query(
+    scene: &mut RenderScene,
+    palette: &CommandPaletteState,
+    panel: Rect,
+    context: &PaintContext,
+) {
+    let query_rect = Rect::new(panel.x + 18.0, panel.y + 18.0, panel.width - 36.0, 36.0);
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::rounded_rect(
+            query_rect,
+            CornerRadius::uniform(4.0),
+            context.theme.control,
+        )
+        .with_debug_label("command palette query"),
+    );
+    let query = if palette.query().is_empty() {
+        "Type a command..."
+    } else {
+        palette.query()
+    };
+    let color = if palette.query().is_empty() {
+        context.theme.text_muted
+    } else {
+        context.theme.text
+    };
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(query, query_rect.x + 12.0, query_rect.y + 23.0, 14.0, color)
+            .with_debug_label("command palette query text"),
+    );
+}
+
+fn paint_palette_rows(
+    scene: &mut RenderScene,
+    palette: &CommandPaletteState,
+    panel: Rect,
+    context: &PaintContext,
+) {
+    if palette.filtered_entries().is_empty() {
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::text(
+                "No commands found",
+                panel.x + 24.0,
+                panel.y + 84.0,
+                14.0,
+                context.theme.text_muted,
+            )
+            .with_debug_label("command palette empty"),
+        );
+        return;
+    }
+    for (index, entry) in palette.filtered_entries().iter().take(8).enumerate() {
+        paint_palette_row(
+            scene,
+            entry,
+            index,
+            palette.selected_index(),
+            panel,
+            context,
+        );
+    }
+}
+
+fn paint_palette_row(
+    scene: &mut RenderScene,
+    entry: &CommandPaletteEntry,
+    index: usize,
+    selected_index: usize,
+    panel: Rect,
+    context: &PaintContext,
+) {
+    let row = Rect::new(
+        panel.x + 18.0,
+        panel.y + 68.0 + index as f32 * 42.0,
+        panel.width - 36.0,
+        38.0,
+    );
+    if index == selected_index {
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::rounded_rect(
+                row,
+                CornerRadius::uniform(4.0),
+                context.theme.control_hovered,
+            )
+            .with_debug_label("command palette selected row"),
+        );
+    }
+    let name_color = if entry.enabled {
+        context.theme.text
+    } else {
+        context.theme.text_muted
+    };
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(&entry.name, row.x + 10.0, row.y + 17.0, 13.0, name_color)
+            .with_debug_label("command palette row name"),
+    );
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(
+            &entry.category,
+            row.x + 10.0,
+            row.y + 33.0,
+            11.0,
+            context.theme.text_muted,
+        )
+        .with_debug_label("command palette row category"),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2135,5 +2465,142 @@ mod tests {
         assert!(tree.get(shell.ids.status_label).is_some_and(|node| {
             matches!(&node.kind, WidgetKind::Label(text) if text == "Status: Run clicked")
         }));
+    }
+
+    fn palette_entries() -> Vec<CommandPaletteEntry> {
+        vec![
+            CommandPaletteEntry::new(
+                "elcarax.status.show_ready",
+                "Show Ready Status",
+                "Status",
+                Some("Set ready status".to_string()),
+                true,
+            ),
+            CommandPaletteEntry::new(
+                "elcarax.demo.run",
+                "Run Demo Action",
+                "Demo",
+                Some("Run demo".to_string()),
+                true,
+            ),
+        ]
+    }
+
+    #[test]
+    fn command_palette_opening_and_closing_updates_state() {
+        let mut palette = CommandPaletteState::new(palette_entries());
+        assert!(!palette.is_open());
+        palette.open();
+        assert!(palette.is_open());
+        palette.close();
+        assert!(!palette.is_open());
+        assert_eq!(palette.query(), "");
+    }
+
+    #[test]
+    fn command_palette_typing_filters_commands() {
+        let mut palette = CommandPaletteState::new(palette_entries());
+        palette.open();
+        assert_eq!(
+            palette.handle_key(KeyboardKey::Character("ready".to_string())),
+            CommandPaletteAction::None
+        );
+        assert_eq!(palette.query(), "ready");
+        assert_eq!(palette.filtered_entries().len(), 1);
+        assert_eq!(palette.filtered_entries()[0].name, "Show Ready Status");
+    }
+
+    #[test]
+    fn command_palette_backspace_updates_query() {
+        let mut palette = CommandPaletteState::new(palette_entries());
+        palette.open();
+        assert_eq!(
+            palette.handle_key(KeyboardKey::Character("run".to_string())),
+            CommandPaletteAction::None
+        );
+        assert_eq!(
+            palette.handle_key(KeyboardKey::Backspace),
+            CommandPaletteAction::None
+        );
+        assert_eq!(palette.query(), "ru");
+    }
+
+    #[test]
+    fn command_palette_arrow_keys_change_selection() {
+        let mut palette = CommandPaletteState::new(palette_entries());
+        palette.open();
+        assert_eq!(palette.selected_index(), 0);
+        assert_eq!(
+            palette.handle_key(KeyboardKey::ArrowDown),
+            CommandPaletteAction::None
+        );
+        assert_eq!(palette.selected_index(), 1);
+        assert_eq!(
+            palette.handle_key(KeyboardKey::ArrowUp),
+            CommandPaletteAction::None
+        );
+        assert_eq!(palette.selected_index(), 0);
+    }
+
+    #[test]
+    fn command_palette_enter_and_escape_return_actions() {
+        let mut palette = CommandPaletteState::new(palette_entries());
+        palette.open();
+        assert_eq!(
+            palette.handle_key(KeyboardKey::Enter),
+            CommandPaletteAction::Execute
+        );
+        assert!(palette.is_open());
+        assert_eq!(
+            palette.handle_key(KeyboardKey::Escape),
+            CommandPaletteAction::Closed
+        );
+        assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn command_palette_empty_query_shows_registered_commands() {
+        let mut palette = CommandPaletteState::new(palette_entries());
+        palette.open();
+        assert_eq!(palette.filtered_entries().len(), 2);
+        assert_eq!(palette.filtered_entries()[0].name, "Show Ready Status");
+        assert_eq!(palette.filtered_entries()[1].name, "Run Demo Action");
+    }
+
+    #[test]
+    fn command_palette_no_match_does_not_panic() {
+        let mut palette = CommandPaletteState::new(palette_entries());
+        palette.open();
+        assert_eq!(
+            palette.handle_key(KeyboardKey::Character("zzzz".to_string())),
+            CommandPaletteAction::None
+        );
+        assert!(palette.filtered_entries().is_empty());
+        assert_eq!(
+            palette.handle_key(KeyboardKey::ArrowDown),
+            CommandPaletteAction::None
+        );
+        assert_eq!(palette.selected_entry(), None);
+    }
+
+    #[test]
+    fn command_palette_overlay_adds_primitives_when_open() {
+        let mut palette = CommandPaletteState::new(palette_entries());
+        let mut scene = RenderScene::new();
+        paint_command_palette_overlay(
+            &mut scene,
+            &palette,
+            Rect::new(0.0, 0.0, 800.0, 600.0),
+            &PaintContext::new(Theme::default()),
+        );
+        assert_eq!(scene.primitives().len(), 0);
+        palette.open();
+        paint_command_palette_overlay(
+            &mut scene,
+            &palette,
+            Rect::new(0.0, 0.0, 800.0, 600.0),
+            &PaintContext::new(Theme::default()),
+        );
+        assert!(!scene.primitives().is_empty());
     }
 }
