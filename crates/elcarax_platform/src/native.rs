@@ -3,13 +3,18 @@ use std::{error::Error, fmt, sync::Arc};
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{ElementState as WinitElementState, MouseButton as WinitMouseButton, WindowEvent},
+    event::{
+        ElementState as WinitElementState, MouseButton as WinitMouseButton, MouseScrollDelta,
+        WindowEvent,
+    },
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::Key,
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{ElementState, KeyInput, MouseButton, NativeShellSpec, PlatformEvent, WindowSize};
+use crate::{
+    ElementState, KeyInput, ModifierState, MouseButton, NativeShellSpec, PlatformEvent, WindowSize,
+};
 
 #[derive(Debug)]
 pub enum NativeAppError {
@@ -154,16 +159,32 @@ fn translate_window_event(event: WindowEvent) -> Option<PlatformEvent> {
             x: position.x,
             y: position.y,
         }),
+        WindowEvent::CursorEntered { .. } => Some(PlatformEvent::PointerEntered),
+        WindowEvent::CursorLeft { .. } => Some(PlatformEvent::PointerLeft),
         WindowEvent::MouseInput { state, button, .. } => Some(PlatformEvent::MouseInput {
             button: translate_mouse_button(button),
             state: translate_element_state(state),
         }),
+        WindowEvent::MouseWheel { delta, .. } => {
+            let (delta_x, delta_y) = translate_mouse_wheel(delta);
+            Some(PlatformEvent::MouseWheel { delta_x, delta_y })
+        }
         WindowEvent::KeyboardInput { event, .. } => {
             Some(PlatformEvent::KeyboardInput(KeyInput::new(
                 translate_key(event.logical_key),
                 translate_element_state(event.state),
             )))
         }
+        WindowEvent::ModifiersChanged(modifiers) => {
+            Some(PlatformEvent::ModifiersChanged(ModifierState {
+                shift: modifiers.state().shift_key(),
+                control: modifiers.state().control_key(),
+                alt: modifiers.state().alt_key(),
+                super_key: modifiers.state().super_key(),
+            }))
+        }
+        WindowEvent::Focused(true) => Some(PlatformEvent::WindowFocused),
+        WindowEvent::Focused(false) => Some(PlatformEvent::WindowUnfocused),
         _ => None,
     }
 }
@@ -183,6 +204,13 @@ fn translate_mouse_button(button: WinitMouseButton) -> MouseButton {
         WinitMouseButton::Back => MouseButton::Back,
         WinitMouseButton::Forward => MouseButton::Forward,
         WinitMouseButton::Other(value) => MouseButton::Other(value),
+    }
+}
+
+fn translate_mouse_wheel(delta: MouseScrollDelta) -> (f64, f64) {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => (f64::from(x), f64::from(y)),
+        MouseScrollDelta::PixelDelta(position) => (position.x, position.y),
     }
 }
 

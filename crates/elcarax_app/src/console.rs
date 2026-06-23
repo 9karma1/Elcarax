@@ -9,7 +9,10 @@ use elcarax_scene_model::{
     ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
     SceneSnapshot,
 };
-use elcarax_ui::{PaintContext, Theme, UiContext, build_editor_shell};
+use elcarax_ui::{
+    PaintContext, PointerButton, PointerPosition, Theme, UiContext, UiEvent, UiInputEvent,
+    build_editor_shell_with_ids,
+};
 
 pub fn run_console_proof() -> Result<()> {
     let shell = NativeShellSpec::default_editor();
@@ -70,6 +73,7 @@ pub fn run_console_proof() -> Result<()> {
         proof.dirty.hit_test,
         proof.dirty.accessibility
     );
+    println!("interaction: run_clicked={}", proof.run_clicked);
     Ok(())
 }
 
@@ -78,6 +82,7 @@ struct ConsoleUiProof {
     node_count: usize,
     layout_count: usize,
     dirty: elcarax_ui::DirtySummary,
+    run_clicked: bool,
 }
 
 fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
@@ -86,9 +91,36 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         theme,
         Rect::new(0.0, 0.0, shell.width as f32, shell.height as f32),
     );
-    let tree = build_editor_shell(&context).map_err(|error| {
+    let shell = build_editor_shell_with_ids(&context).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to build UI shell: {error}"))
     })?;
+    let mut tree = shell.tree;
+    let button_rect = tree
+        .get(shell.ids.run_button)
+        .map(|node| node.rect)
+        .ok_or_else(|| {
+            elcarax_core::ElcaraxError::Internal("missing Run button in UI shell".to_string())
+        })?;
+    let pointer = PointerPosition::new(button_rect.x + 4.0, button_rect.y + 4.0);
+    let mut interaction_events = Vec::new();
+    for input in [
+        UiInputEvent::PointerMoved(pointer),
+        UiInputEvent::PointerButtonPressed(PointerButton::Primary),
+        UiInputEvent::PointerButtonReleased(PointerButton::Primary),
+    ] {
+        interaction_events.extend(tree.process_input(input).map_err(|error| {
+            elcarax_core::ElcaraxError::Internal(format!("failed to process UI input: {error}"))
+        })?);
+    }
+    let run_clicked = interaction_events
+        .iter()
+        .any(|event| matches!(event, UiEvent::Clicked { id } if *id == shell.ids.run_button));
+    if run_clicked {
+        tree.set_label_text(shell.ids.status_label, "Status: Run clicked")
+            .map_err(|error| {
+                elcarax_core::ElcaraxError::Internal(format!("failed to update status: {error}"))
+            })?;
+    }
     let scene = tree.paint(&PaintContext::new(theme)).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to paint UI shell: {error}"))
     })?;
@@ -97,5 +129,6 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         node_count: tree.node_count(),
         layout_count: tree.node_count(),
         dirty: tree.dirty_summary(),
+        run_clicked,
     })
 }
