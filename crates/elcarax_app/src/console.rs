@@ -1,4 +1,7 @@
-use elcarax_commands::{CommandContext, CommandHistory, PropertyChangeCommand};
+use elcarax_commands::{
+    CommandContext, CommandHistory, CommandRegistry, CommandResult, PropertyChangeCommand,
+    RegisteredCommand, built_in_commands,
+};
 use elcarax_core::Result;
 use elcarax_devtools::DevtoolsSnapshot;
 use elcarax_gpu::FrameStats;
@@ -10,7 +13,8 @@ use elcarax_scene_model::{
     SceneSnapshot,
 };
 use elcarax_ui::{
-    PaintContext, PointerButton, PointerPosition, Theme, UiContext, UiEvent, UiInputEvent,
+    CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey, PaintContext,
+    PointerButton, PointerPosition, Theme, UiContext, UiEvent, UiInputEvent,
     build_editor_shell_with_ids,
 };
 
@@ -74,6 +78,10 @@ pub fn run_console_proof() -> Result<()> {
         proof.dirty.accessibility
     );
     println!("interaction: run_clicked={}", proof.run_clicked);
+    println!(
+        "command_palette: ready_executed={} status=\"{}\"",
+        proof.ready_executed, proof.status_text
+    );
     Ok(())
 }
 
@@ -83,6 +91,8 @@ struct ConsoleUiProof {
     layout_count: usize,
     dirty: elcarax_ui::DirtySummary,
     run_clicked: bool,
+    ready_executed: bool,
+    status_text: String,
 }
 
 fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
@@ -121,6 +131,46 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
                 elcarax_core::ElcaraxError::Internal(format!("failed to update status: {error}"))
             })?;
     }
+    let registry = built_in_commands().map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to register commands: {error}"))
+    })?;
+    let mut palette = CommandPaletteState::new(palette_entries_from_registry(&registry));
+    palette.open();
+    for character in ["r", "e", "a", "d", "y"] {
+        let action = palette.handle_key(KeyboardKey::Character(character.to_string()));
+        if action != CommandPaletteAction::None {
+            return Err(elcarax_core::ElcaraxError::Internal(
+                "typing should not execute command palette action".to_string(),
+            ));
+        }
+    }
+    let mut ready_executed = false;
+    if palette.handle_key(KeyboardKey::Enter) == CommandPaletteAction::Execute {
+        if let Some(entry) = palette.selected_entry() {
+            let id = elcarax_commands::CommandId::new(entry.id.as_str()).map_err(|error| {
+                elcarax_core::ElcaraxError::Internal(format!("invalid command ID: {error}"))
+            })?;
+            if matches!(registry.invoke(&id), CommandResult::Invoked(_))
+                && id.as_str() == "elcarax.status.show_ready"
+            {
+                tree.set_label_text(shell.ids.status_label, "Status: Ready")
+                    .map_err(|error| {
+                        elcarax_core::ElcaraxError::Internal(format!(
+                            "failed to update status: {error}"
+                        ))
+                    })?;
+                ready_executed = true;
+            }
+        }
+        palette.close();
+    }
+    let status_text = tree
+        .get(shell.ids.status_label)
+        .and_then(|node| match &node.kind {
+            elcarax_ui::WidgetKind::Label(text) => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Status: Unknown".to_string());
     let scene = tree.paint(&PaintContext::new(theme)).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to paint UI shell: {error}"))
     })?;
@@ -130,5 +180,27 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         layout_count: tree.node_count(),
         dirty: tree.dirty_summary(),
         run_clicked,
+        ready_executed,
+        status_text,
     })
+}
+
+fn palette_entries_from_registry(registry: &CommandRegistry) -> Vec<CommandPaletteEntry> {
+    registry
+        .all()
+        .into_iter()
+        .map(palette_entry_from_command)
+        .collect()
+}
+
+fn palette_entry_from_command(command: &RegisteredCommand) -> CommandPaletteEntry {
+    CommandPaletteEntry::new(
+        command.id().as_str(),
+        command.name().as_str(),
+        command.category().label(),
+        command
+            .description()
+            .map(|description| description.as_str().to_string()),
+        command.enabled(),
+    )
 }

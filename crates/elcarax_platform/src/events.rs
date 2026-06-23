@@ -47,6 +47,12 @@ impl ModifierState {
     };
 }
 
+impl Default for ModifierState {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyInput {
     pub key: String,

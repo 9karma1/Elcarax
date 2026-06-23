@@ -30,9 +30,11 @@ The default app command is a console proof. It does not require a desktop sessio
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell is a manual desktop smoke test. It opens an `Elcarax` window through `winit`, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes pointer and keyboard input into the UI tree, renders primitive rectangles/lines through `elcarax_render`, and renders static labels through `elcarax_text`.
+The native shell is a manual desktop smoke test. It opens an `Elcarax` window through `winit`, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes pointer and keyboard input into the UI tree and command palette, renders primitive rectangles/lines through `elcarax_render`, and renders static labels through `elcarax_text`.
 
 The toolbar `Run` button should show hover/pressed/focused visual state. Clicking it should update the status text to `Status: Run clicked`.
+
+Ctrl+K should open the command palette. Typing `ready` and pressing Enter should execute `Show Ready Status` and update the status text to `Status: Ready`. Escape should close the palette without executing a command.
 
 CI should compile the native-shell feature but should not require opening a desktop window.
 
@@ -48,13 +50,13 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 
 ## Dependency Boundaries
 
-- `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, and `elcarax_adapter_api` remain engine-, GPU-, window-, and text-library-neutral.
+- `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, and `elcarax_adapter_api` remain engine-, GPU-, window-, renderer-, UI-, and text-library-neutral.
 - `elcarax_platform` owns `winit` integration.
 - `elcarax_gpu` owns `wgpu` context and surface integration.
 - `elcarax_text` owns `cosmic-text` shaping, layout cache, and system-font rasterization.
 - `elcarax_render` owns editor render primitives, batching, render stats, and GPU draw submission.
-- `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, dirty flags, theme/style resolution, and paint output.
+- `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, command palette state/painting, dirty flags, theme/style resolution, and paint output.
 
 ## Current Exclusions
 
-The current shell deliberately excludes docking, drag resizing, tree views, asset browser behavior, inspector editing, command palette, editable text fields, IME, selection, scroll views, accessibility implementation beyond placeholder dirty flags, process IPC, adapter commands, and real engine adapter integration.
+The current shell deliberately excludes docking, drag resizing, tree views, asset browser behavior, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, process IPC, adapter commands, project commands, async command execution, and real engine adapter integration.

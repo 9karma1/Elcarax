@@ -1,15 +1,20 @@
 use std::time::{Duration, Instant};
 
+use elcarax_commands::{
+    CommandId, CommandInvocation, CommandRegistry, CommandResult, RegisteredCommand,
+    built_in_commands,
+};
 use elcarax_core::{ElcaraxError, Result};
 use elcarax_gpu::{GpuContext, GpuContextSpec, GpuSurface, RenderError, SurfaceSize};
 use elcarax_platform::{
     ElementState, MouseButton, NativeApp, NativeAppError, NativeAppHandler, NativeShellSpec,
     PlatformEvent, run_native_app,
 };
-use elcarax_render::{Rect, RenderScene, Renderer, RendererConfig, RendererError};
+use elcarax_render::{Rect, RenderScene, Renderer, RendererConfig, RendererError, text_stats};
 use elcarax_ui::{
-    EditorShellIds, KeyboardKey, ModifierState, PaintContext, PointerButton, PointerPosition,
-    Theme, UiContext, UiEvent, UiInputEvent, UiTree, build_editor_shell_with_ids,
+    CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, EditorShellIds, KeyboardKey,
+    ModifierState, PaintContext, PointerButton, PointerPosition, Theme, UiContext, UiEvent,
+    UiInputEvent, UiTree, build_editor_shell_with_ids, paint_command_palette_overlay,
 };
 
 pub fn run_native_shell() -> Result<()> {
@@ -22,6 +27,7 @@ pub fn run_native_shell() -> Result<()> {
 struct ShellState {
     gpu: Option<GpuState>,
     ui: Option<UiState>,
+    modifiers: elcarax_platform::ModifierState,
 }
 
 struct GpuState {
@@ -37,6 +43,9 @@ struct UiState {
     theme: Theme,
     scene: RenderScene,
     scene_dirty: bool,
+    command_registry: CommandRegistry,
+    command_palette: CommandPaletteState,
+    bounds: Rect,
 }
 
 impl NativeAppHandler for ShellState {
@@ -109,6 +118,7 @@ impl ShellState {
         }
         if let Some(ui) = &mut self.ui {
             let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
+            ui.bounds = bounds;
             ui.tree
                 .resize_root(bounds)
                 .and_then(|()| ui.tree.layout(elcarax_ui::LayoutConstraints { bounds }))
@@ -127,10 +137,7 @@ impl ShellState {
             return Ok(());
         };
         if ui.scene_dirty {
-            ui.scene = ui
-                .tree
-                .paint(&PaintContext::new(ui.theme))
-                .map_err(|error| NativeAppError::Window(format!("failed to paint UI: {error}")))?;
+            repaint_ui_scene(ui)?;
             ui.scene_dirty = false;
         }
         gpu.context.keep_alive();
@@ -155,12 +162,23 @@ impl ShellState {
         event: PlatformEvent,
         app: &NativeApp,
     ) -> std::result::Result<(), NativeAppError> {
+        if let PlatformEvent::ModifiersChanged(modifiers) = event {
+            self.modifiers = modifiers;
+        }
         let Some(input) = platform_to_ui_input(event) else {
             return Ok(());
         };
         let Some(ui) = &mut self.ui else {
             return Ok(());
         };
+        if handle_palette_shortcut(ui, &input, self.modifiers)? {
+            app.request_redraw();
+            return Ok(());
+        }
+        if handle_palette_input(ui, &input)? {
+            app.request_redraw();
+            return Ok(());
+        }
         let events = ui.tree.process_input(input).map_err(|error| {
             NativeAppError::Window(format!("failed to process UI input: {error}"))
         })?;
@@ -180,17 +198,174 @@ fn build_ui_state(
     let context = UiContext::new(theme, Rect::new(0.0, 0.0, width, height));
     let shell = build_editor_shell_with_ids(&context)
         .map_err(|error| NativeAppError::Window(format!("failed to build UI shell: {error}")))?;
-    let scene = shell
-        .tree
-        .paint(&PaintContext::new(theme))
-        .map_err(|error| NativeAppError::Window(format!("failed to paint UI shell: {error}")))?;
-    Ok(UiState {
+    let command_registry =
+        built_in_commands().map_err(|error| NativeAppError::Window(error.to_string()))?;
+    let command_palette =
+        CommandPaletteState::new(palette_entries_from_registry(&command_registry));
+    let bounds = context.root_bounds;
+    let mut ui = UiState {
         tree: shell.tree,
         ids: shell.ids,
         theme,
-        scene,
-        scene_dirty: false,
-    })
+        scene: RenderScene::new(),
+        scene_dirty: true,
+        command_registry,
+        command_palette,
+        bounds,
+    };
+    repaint_ui_scene(&mut ui)?;
+    ui.scene_dirty = false;
+    Ok(ui)
+}
+
+fn repaint_ui_scene(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    let mut scene = ui
+        .tree
+        .paint(&PaintContext::new(ui.theme))
+        .map_err(|error| NativeAppError::Window(format!("failed to paint UI: {error}")))?;
+    paint_command_palette_overlay(
+        &mut scene,
+        &ui.command_palette,
+        ui.bounds,
+        &PaintContext::new(ui.theme),
+    );
+    ui.scene = scene;
+    Ok(())
+}
+
+fn palette_entries_from_registry(registry: &CommandRegistry) -> Vec<CommandPaletteEntry> {
+    registry
+        .all()
+        .into_iter()
+        .map(palette_entry_from_command)
+        .collect()
+}
+
+fn palette_entry_from_command(command: &RegisteredCommand) -> CommandPaletteEntry {
+    CommandPaletteEntry::new(
+        command.id().as_str(),
+        command.name().as_str(),
+        command.category().label(),
+        command
+            .description()
+            .map(|description| description.as_str().to_string()),
+        command.enabled(),
+    )
+}
+
+fn handle_palette_shortcut(
+    ui: &mut UiState,
+    input: &UiInputEvent,
+    modifiers: elcarax_platform::ModifierState,
+) -> std::result::Result<bool, NativeAppError> {
+    if !modifiers.control {
+        return Ok(false);
+    }
+    let UiInputEvent::KeyPressed(key) = input else {
+        return Ok(false);
+    };
+    if !is_command_palette_shortcut(key) {
+        return Ok(false);
+    }
+    open_palette(ui)?;
+    Ok(true)
+}
+
+fn is_command_palette_shortcut(key: &KeyboardKey) -> bool {
+    matches!(key, KeyboardKey::Character(value) if value.eq_ignore_ascii_case("k") || value.eq_ignore_ascii_case("p"))
+}
+
+fn handle_palette_input(
+    ui: &mut UiState,
+    input: &UiInputEvent,
+) -> std::result::Result<bool, NativeAppError> {
+    if !ui.command_palette.is_open() {
+        return Ok(false);
+    }
+    let UiInputEvent::KeyPressed(key) = input else {
+        return Ok(true);
+    };
+    match ui.command_palette.handle_key(key.clone()) {
+        CommandPaletteAction::None => {
+            ui.scene_dirty = true;
+            Ok(true)
+        }
+        CommandPaletteAction::Closed => {
+            ui.scene_dirty = true;
+            Ok(true)
+        }
+        CommandPaletteAction::Execute => {
+            execute_selected_palette_command(ui)?;
+            ui.scene_dirty = true;
+            Ok(true)
+        }
+    }
+}
+
+fn open_palette(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    let open_id = command_id("elcarax.palette.open")?;
+    if matches!(
+        ui.command_registry.invoke(&open_id),
+        CommandResult::Invoked(_)
+    ) {
+        ui.command_palette
+            .replace_entries(palette_entries_from_registry(&ui.command_registry));
+        ui.command_palette.open();
+        ui.scene_dirty = true;
+    }
+    Ok(())
+}
+
+fn execute_selected_palette_command(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    let Some(entry) = ui.command_palette.selected_entry() else {
+        return Ok(());
+    };
+    let id = command_id(entry.id.as_str())?;
+    if let CommandResult::Invoked(invocation) = ui.command_registry.invoke(&id) {
+        apply_command_invocation(ui, &invocation)?;
+    }
+    if ui.command_palette.is_open() {
+        ui.command_palette.close();
+    }
+    Ok(())
+}
+
+fn apply_command_invocation(
+    ui: &mut UiState,
+    invocation: &CommandInvocation,
+) -> std::result::Result<(), NativeAppError> {
+    match invocation.id.as_str() {
+        "elcarax.palette.open" => ui.command_palette.open(),
+        "elcarax.palette.close" => ui.command_palette.close(),
+        "elcarax.status.show_renderer_stats" => {
+            set_status_text(ui, renderer_stats_status(&ui.scene))?
+        }
+        "elcarax.status.show_ready" => set_status_text(ui, "Status: Ready".to_string())?,
+        "elcarax.demo.run" => set_status_text(ui, "Status: Run clicked".to_string())?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn set_status_text(ui: &mut UiState, text: String) -> std::result::Result<(), NativeAppError> {
+    ui.tree
+        .set_label_text(ui.ids.status_label, text)
+        .map_err(|error| NativeAppError::Window(format!("failed to update status: {error}")))?;
+    Ok(())
+}
+
+fn renderer_stats_status(scene: &RenderScene) -> String {
+    let stats = text_stats(scene);
+    format!(
+        "Status: primitives={} text={} glyphs={}",
+        scene.primitives().len(),
+        stats.text_primitive_count,
+        stats.glyph_count
+    )
+}
+
+fn command_id(id: &str) -> std::result::Result<CommandId, NativeAppError> {
+    CommandId::new(id).map_err(|error| NativeAppError::Window(error.to_string()))
 }
 
 fn platform_to_ui_input(event: PlatformEvent) -> Option<UiInputEvent> {
@@ -251,11 +426,7 @@ fn apply_ui_events(
     let mut changed = false;
     for event in events {
         if matches!(event, UiEvent::Clicked { id } if *id == ui.ids.run_button) {
-            ui.tree
-                .set_label_text(ui.ids.status_label, "Status: Run clicked")
-                .map_err(|error| {
-                    NativeAppError::Window(format!("failed to update status: {error}"))
-                })?;
+            set_status_text(ui, "Status: Run clicked".to_string())?;
             changed = true;
         }
     }
