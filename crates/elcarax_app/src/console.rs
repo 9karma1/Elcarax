@@ -1,6 +1,6 @@
 use elcarax_commands::{
-    CommandContext, CommandHistory, CommandRegistry, CommandResult, PropertyChangeCommand,
-    RegisteredCommand, built_in_commands,
+    CommandContext, CommandHistory, CommandId, CommandRegistry, CommandResult,
+    PropertyChangeCommand, RegisteredCommand, built_in_commands,
 };
 use elcarax_core::Result;
 use elcarax_devtools::DevtoolsSnapshot;
@@ -15,8 +15,13 @@ use elcarax_scene_model::{
 use elcarax_ui::{
     CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey, PaintContext,
     PointerButton, PointerPosition, Theme, UiContext, UiEvent, UiInputEvent,
-    build_editor_shell_with_ids,
+    build_editor_shell_with_content,
 };
+
+use crate::project_state::{
+    PROJECT_CLOSE_COMMAND, PROJECT_NEW_DEMO_COMMAND, PROJECT_VALIDATE_COMMAND, ProjectState,
+};
+use crate::project_ui::{apply_project_snapshot, shell_content_from_project};
 
 pub fn run_console_proof() -> Result<()> {
     let shell = NativeShellSpec::default_editor();
@@ -82,6 +87,19 @@ pub fn run_console_proof() -> Result<()> {
         "command_palette: ready_executed={} status=\"{}\"",
         proof.ready_executed, proof.status_text
     );
+    println!("project_ui: initial=\"{}\"", proof.project_initial_status);
+    println!(
+        "project_command: new_demo_executed={} status=\"{}\"",
+        proof.project_new_demo_executed, proof.project_loaded_status
+    );
+    println!(
+        "project_command: validate_executed={} diagnostics=\"{}\"",
+        proof.project_validate_executed, proof.project_validation_summary
+    );
+    println!(
+        "project_command: close_executed={} status=\"{}\"",
+        proof.project_close_executed, proof.project_closed_status
+    );
     Ok(())
 }
 
@@ -93,6 +111,13 @@ struct ConsoleUiProof {
     run_clicked: bool,
     ready_executed: bool,
     status_text: String,
+    project_initial_status: String,
+    project_loaded_status: String,
+    project_validation_summary: String,
+    project_closed_status: String,
+    project_new_demo_executed: bool,
+    project_validate_executed: bool,
+    project_close_executed: bool,
 }
 
 fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
@@ -101,7 +126,9 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         theme,
         Rect::new(0.0, 0.0, shell.width as f32, shell.height as f32),
     );
-    let shell = build_editor_shell_with_ids(&context).map_err(|error| {
+    let mut project_state = ProjectState::default();
+    let initial_content = shell_content_from_project(&project_state.ui_snapshot());
+    let shell = build_editor_shell_with_content(&context, &initial_content).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to build UI shell: {error}"))
     })?;
     let mut tree = shell.tree;
@@ -135,42 +162,69 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         elcarax_core::ElcaraxError::Internal(format!("failed to register commands: {error}"))
     })?;
     let mut palette = CommandPaletteState::new(palette_entries_from_registry(&registry));
-    palette.open();
-    for character in ["r", "e", "a", "d", "y"] {
-        let action = palette.handle_key(KeyboardKey::Character(character.to_string()));
-        if action != CommandPaletteAction::None {
-            return Err(elcarax_core::ElcaraxError::Internal(
-                "typing should not execute command palette action".to_string(),
-            ));
-        }
-    }
     let mut ready_executed = false;
-    if palette.handle_key(KeyboardKey::Enter) == CommandPaletteAction::Execute {
-        if let Some(entry) = palette.selected_entry() {
-            let id = elcarax_commands::CommandId::new(entry.id.as_str()).map_err(|error| {
-                elcarax_core::ElcaraxError::Internal(format!("invalid command ID: {error}"))
+    if let Some(id) = execute_palette_query(&registry, &mut palette, "ready")?
+        && id.as_str() == "elcarax.status.show_ready"
+    {
+        tree.set_label_text(shell.ids.status_label, "Status: Ready")
+            .map_err(|error| {
+                elcarax_core::ElcaraxError::Internal(format!("failed to update status: {error}"))
             })?;
-            if matches!(registry.invoke(&id), CommandResult::Invoked(_))
-                && id.as_str() == "elcarax.status.show_ready"
-            {
-                tree.set_label_text(shell.ids.status_label, "Status: Ready")
-                    .map_err(|error| {
-                        elcarax_core::ElcaraxError::Internal(format!(
-                            "failed to update status: {error}"
-                        ))
-                    })?;
-                ready_executed = true;
-            }
-        }
-        palette.close();
+        ready_executed = true;
     }
-    let status_text = tree
-        .get(shell.ids.status_label)
-        .and_then(|node| match &node.kind {
-            elcarax_ui::WidgetKind::Label(text) => Some(text.clone()),
-            _ => None,
-        })
-        .unwrap_or_else(|| "Status: Unknown".to_string());
+    let ready_status_text = label_text(&tree, shell.ids.status_label);
+
+    let bounds = context.root_bounds;
+    let project_initial_status = project_state.ui_snapshot().status;
+
+    let project_new_demo_executed = execute_project_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut project_state,
+        PROJECT_NEW_DEMO_COMMAND,
+    )?;
+    apply_project_snapshot(&mut tree, shell.ids, &project_state.ui_snapshot(), bounds).map_err(
+        |error| {
+            elcarax_core::ElcaraxError::Internal(format!(
+                "failed to apply project state to UI: {error}"
+            ))
+        },
+    )?;
+    let project_loaded_status = project_state.ui_snapshot().status;
+
+    let project_validate_executed = execute_project_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut project_state,
+        PROJECT_VALIDATE_COMMAND,
+    )?;
+    apply_project_snapshot(&mut tree, shell.ids, &project_state.ui_snapshot(), bounds).map_err(
+        |error| {
+            elcarax_core::ElcaraxError::Internal(format!(
+                "failed to apply project validation to UI: {error}"
+            ))
+        },
+    )?;
+    let project_validation_summary = project_state
+        .ui_snapshot()
+        .project_diagnostics
+        .trim_start_matches("Diagnostics: ")
+        .to_string();
+
+    let project_close_executed = execute_project_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut project_state,
+        PROJECT_CLOSE_COMMAND,
+    )?;
+    apply_project_snapshot(&mut tree, shell.ids, &project_state.ui_snapshot(), bounds).map_err(
+        |error| {
+            elcarax_core::ElcaraxError::Internal(format!(
+                "failed to apply closed project state to UI: {error}"
+            ))
+        },
+    )?;
+    let project_closed_status = project_state.ui_snapshot().status;
     let scene = tree.paint(&PaintContext::new(theme)).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to paint UI shell: {error}"))
     })?;
@@ -181,8 +235,71 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         dirty: tree.dirty_summary(),
         run_clicked,
         ready_executed,
-        status_text,
+        status_text: ready_status_text,
+        project_initial_status,
+        project_loaded_status,
+        project_validation_summary,
+        project_closed_status,
+        project_new_demo_executed,
+        project_validate_executed,
+        project_close_executed,
     })
+}
+
+fn execute_project_command_from_palette(
+    registry: &CommandRegistry,
+    palette: &mut CommandPaletteState,
+    project_state: &mut ProjectState,
+    query: &str,
+) -> Result<bool> {
+    let Some(id) = execute_palette_query(registry, palette, query)? else {
+        return Ok(false);
+    };
+    Ok(project_state.execute_command_id(id.as_str()).is_some())
+}
+
+fn execute_palette_query(
+    registry: &CommandRegistry,
+    palette: &mut CommandPaletteState,
+    query: &str,
+) -> Result<Option<CommandId>> {
+    palette.open();
+    for character in query.chars() {
+        let action = palette.handle_key(KeyboardKey::Character(character.to_string()));
+        if action != CommandPaletteAction::None {
+            return Err(elcarax_core::ElcaraxError::Internal(
+                "typing should not execute command palette action".to_string(),
+            ));
+        }
+    }
+    if palette.handle_key(KeyboardKey::Enter) != CommandPaletteAction::Execute {
+        palette.close();
+        return Ok(None);
+    }
+    let id = palette
+        .selected_entry()
+        .map(|entry| CommandId::new(entry.id.as_str()))
+        .transpose()
+        .map_err(|error| {
+            elcarax_core::ElcaraxError::Internal(format!("invalid command ID: {error}"))
+        })?;
+    palette.close();
+    let Some(id) = id else {
+        return Ok(None);
+    };
+    match registry.invoke(&id) {
+        CommandResult::Invoked(invocation) => Ok(Some(invocation.id)),
+        CommandResult::Disabled(_) | CommandResult::NotFound(_) => Ok(None),
+    }
+}
+
+fn label_text(tree: &elcarax_ui::UiTree, id: elcarax_ui::WidgetId) -> String {
+    tree.get(id)
+        .and_then(|node| match &node.kind {
+            elcarax_ui::WidgetKind::Label(text) => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Status: Unknown".to_string())
 }
 
 fn palette_entries_from_registry(registry: &CommandRegistry) -> Vec<CommandPaletteEntry> {

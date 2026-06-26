@@ -1,6 +1,6 @@
 # Elcarax v0.1 scaffold status
 
-Generated: 2026-06-21
+Generated: 2026-06-26
 
 ## Included
 
@@ -12,6 +12,7 @@ Generated: 2026-06-21
 - UI tree and layout foundation for the editor shell
 - UI input routing, hit testing, hover/focus/pressed state, keyboard focus traversal foundation, and basic button clicks
 - Command palette shell with query filtering, keyboard selection, execution, cancel behavior, and status feedback
+- Project system UI with project status, recent project count, validation diagnostics, project panel metadata, and command-palette project commands
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -23,8 +24,8 @@ Generated: 2026-06-21
 ## Not included yet
 
 - Icons, images, and full vector paths
-- Full editor UI system beyond the interactive shell foundation
-- Docking, drag resizing, tree views, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, or asset browser behavior
+- Full editor UI system beyond the interactive shell and project-status foundation
+- Docking, drag resizing, tree views, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, or asset browser behavior
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
@@ -90,3 +91,12 @@ cargo run -p elcarax_app
 - Added command execution for renderer stats, ready status, and the demo run action.
 - Updated the console proof to execute `Show Ready Status` through the command palette and print `Status: Ready`.
 - Documented explicit command palette exclusions in `docs/MILESTONE_6_COMMAND_PALETTE.md`.
+
+## Milestone 7: Project System UI
+
+- Added project-domain types for project identity, name, path, status, validation diagnostics, recent project entries, and project errors in `elcarax_project`.
+- Added command-palette project commands for demo project creation/loading, close, validate, and recent-project reporting.
+- Added app-owned project state in `elcarax_app`, separate from native UI tree state.
+- Updated the shell to show project name/path/status, recent count, validation summary, command result, and project status bar text.
+- Updated the console proof to execute project commands through the command palette and print initial, loaded, validated, and closed project states.
+- Documented explicit project system exclusions in `docs/MILESTONE_7_PROJECT_SYSTEM_UI.md`.
