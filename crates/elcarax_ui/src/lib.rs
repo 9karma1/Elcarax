@@ -242,6 +242,9 @@ pub enum TextRole {
     Default,
     Muted,
     Accent,
+    Success,
+    Warning,
+    Danger,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -258,6 +261,9 @@ pub struct Theme {
     pub text: Color,
     pub text_muted: Color,
     pub accent: Color,
+    pub success: Color,
+    pub warning: Color,
+    pub danger: Color,
     pub spacing: SpacingScale,
     pub fonts: FontScale,
 }
@@ -277,6 +283,9 @@ impl Theme {
             text: Color::srgb(0.91, 0.93, 0.97, 1.0),
             text_muted: Color::srgb(0.62, 0.66, 0.74, 1.0),
             accent: Color::srgb(0.26, 0.34, 0.55, 1.0),
+            success: Color::srgb(0.42, 0.78, 0.57, 1.0),
+            warning: Color::srgb(0.95, 0.74, 0.35, 1.0),
+            danger: Color::srgb(0.93, 0.42, 0.42, 1.0),
             spacing: SpacingScale {
                 xs: 4.0,
                 sm: 8.0,
@@ -308,6 +317,9 @@ impl Theme {
             TextRole::Default => self.text,
             TextRole::Muted => self.text_muted,
             TextRole::Accent => self.accent,
+            TextRole::Success => self.success,
+            TextRole::Warning => self.warning,
+            TextRole::Danger => self.danger,
         }
     }
 }
@@ -925,6 +937,18 @@ impl UiTree {
         Ok(())
     }
 
+    pub fn set_text_role(&mut self, id: WidgetId, role: TextRole) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        if node.style.text_role == role {
+            return Ok(());
+        }
+        node.style.text_role = role;
+        node.dirty.insert(DirtyFlags::PAINT);
+        Ok(())
+    }
+
     pub fn set_hovered(&mut self, id: WidgetId, hovered: bool) -> Result<(), UiError> {
         let Some(node) = self.nodes.get_mut(&id) else {
             return Err(UiError::MissingNode(id));
@@ -1241,8 +1265,51 @@ pub struct EditorShell {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EditorShellIds {
+    pub toolbar_title: WidgetId,
     pub run_button: WidgetId,
+    pub project_title: WidgetId,
+    pub project_name: WidgetId,
+    pub project_path: WidgetId,
+    pub project_status: WidgetId,
+    pub project_recent: WidgetId,
+    pub project_diagnostics: WidgetId,
+    pub project_command: WidgetId,
     pub status_label: WidgetId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorShellContent {
+    pub toolbar_title: String,
+    pub project_title: String,
+    pub project_name: String,
+    pub project_path: String,
+    pub project_status: String,
+    pub project_recent: String,
+    pub project_diagnostics: String,
+    pub project_command: String,
+    pub status: String,
+}
+
+impl EditorShellContent {
+    pub fn no_project() -> Self {
+        Self {
+            toolbar_title: "Elcarax - No Project".to_string(),
+            project_title: "Project".to_string(),
+            project_name: "Name: No project".to_string(),
+            project_path: "Path: None".to_string(),
+            project_status: "Status: None".to_string(),
+            project_recent: "Recent: 0".to_string(),
+            project_diagnostics: "Diagnostics: No diagnostics".to_string(),
+            project_command: "Command: None".to_string(),
+            status: "Project: None".to_string(),
+        }
+    }
+}
+
+impl Default for EditorShellContent {
+    fn default() -> Self {
+        Self::no_project()
+    }
 }
 
 pub fn build_editor_shell(context: &UiContext) -> Result<UiTree, UiError> {
@@ -1250,6 +1317,13 @@ pub fn build_editor_shell(context: &UiContext) -> Result<UiTree, UiError> {
 }
 
 pub fn build_editor_shell_with_ids(context: &UiContext) -> Result<EditorShell, UiError> {
+    build_editor_shell_with_content(context, &EditorShellContent::default())
+}
+
+pub fn build_editor_shell_with_content(
+    context: &UiContext,
+    content: &EditorShellContent,
+) -> Result<EditorShell, UiError> {
     let mut tree = UiTree::new();
     let root = WidgetId::new(1).ok_or(UiError::MissingRoot)?;
     let toolbar = WidgetId::new(2).ok_or(UiError::MissingRoot)?;
@@ -1263,11 +1337,17 @@ pub fn build_editor_shell_with_ids(context: &UiContext) -> Result<EditorShell, U
     let right_separator = WidgetId::new(10).ok_or(UiError::MissingRoot)?;
     let inspector = WidgetId::new(11).ok_or(UiError::MissingRoot)?;
     let title = WidgetId::new(12).ok_or(UiError::MissingRoot)?;
-    let project_label = WidgetId::new(13).ok_or(UiError::MissingRoot)?;
+    let project_title = WidgetId::new(13).ok_or(UiError::MissingRoot)?;
     let viewport_label = WidgetId::new(14).ok_or(UiError::MissingRoot)?;
     let inspector_label = WidgetId::new(15).ok_or(UiError::MissingRoot)?;
     let status_label = WidgetId::new(16).ok_or(UiError::MissingRoot)?;
     let run_button = WidgetId::new(17).ok_or(UiError::MissingRoot)?;
+    let project_name = WidgetId::new(18).ok_or(UiError::MissingRoot)?;
+    let project_path = WidgetId::new(19).ok_or(UiError::MissingRoot)?;
+    let project_status = WidgetId::new(20).ok_or(UiError::MissingRoot)?;
+    let project_recent = WidgetId::new(21).ok_or(UiError::MissingRoot)?;
+    let project_diagnostics = WidgetId::new(22).ok_or(UiError::MissingRoot)?;
+    let project_command = WidgetId::new(23).ok_or(UiError::MissingRoot)?;
 
     tree.set_root(UiNode::new(
         root,
@@ -1328,7 +1408,7 @@ pub fn build_editor_shell_with_ids(context: &UiContext) -> Result<EditorShell, U
         toolbar,
         UiNode::new(
             title,
-            WidgetKind::Label("Elcarax".to_string()),
+            WidgetKind::Label(content.toolbar_title.clone()),
             UiStyle::LABEL,
             LayoutNode::leaf().with_width(SizePolicy::Content),
         ),
@@ -1396,9 +1476,63 @@ pub fn build_editor_shell_with_ids(context: &UiContext) -> Result<EditorShell, U
     tree.insert_child(
         project,
         UiNode::new(
-            project_label,
-            WidgetKind::Label("Project".to_string()),
+            project_title,
+            WidgetKind::Label(content.project_title.clone()),
             UiStyle::LABEL,
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            project_name,
+            WidgetKind::Label(content.project_name.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            project_path,
+            WidgetKind::Label(content.project_path.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            project_status,
+            WidgetKind::Label(content.project_status.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            project_recent,
+            WidgetKind::Label(content.project_recent.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            project_diagnostics,
+            WidgetKind::Label(content.project_diagnostics.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            project_command,
+            WidgetKind::Label(content.project_command.clone()),
+            UiStyle::LABEL.muted_text(),
             LayoutNode::leaf(),
         ),
     )?;
@@ -1424,7 +1558,7 @@ pub fn build_editor_shell_with_ids(context: &UiContext) -> Result<EditorShell, U
         status,
         UiNode::new(
             status_label,
-            WidgetKind::Label("Status: Renderer online".to_string()),
+            WidgetKind::Label(content.status.clone()),
             UiStyle::LABEL.muted_text(),
             LayoutNode::leaf(),
         ),
@@ -1435,7 +1569,15 @@ pub fn build_editor_shell_with_ids(context: &UiContext) -> Result<EditorShell, U
     Ok(EditorShell {
         tree,
         ids: EditorShellIds {
+            toolbar_title: title,
             run_button,
+            project_title,
+            project_name,
+            project_path,
+            project_status,
+            project_recent,
+            project_diagnostics,
+            project_command,
             status_label,
         },
     })
@@ -1936,6 +2078,17 @@ mod tests {
             Some(value) => value,
             None => panic!("expected Some value"),
         }
+    }
+
+    fn painted_texts(scene: &RenderScene) -> Vec<&str> {
+        scene
+            .primitives()
+            .iter()
+            .filter_map(|(_, primitive)| match &primitive.kind {
+                RenderPrimitiveKind::Text(text) => Some(text.content.as_str()),
+                _ => None,
+            })
+            .collect()
     }
 
     fn root_tree(layout: LayoutNode) -> UiTree {
@@ -2464,6 +2617,71 @@ mod tests {
         }
         assert!(tree.get(shell.ids.status_label).is_some_and(|node| {
             matches!(&node.kind, WidgetKind::Label(text) if text == "Status: Run clicked")
+        }));
+    }
+
+    #[test]
+    fn no_project_shell_paints_project_state() {
+        let theme = Theme::editor_dark();
+        let shell = must(build_editor_shell_with_ids(&UiContext::new(
+            theme,
+            Rect::new(0.0, 0.0, 1440.0, 900.0),
+        )));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Elcarax - No Project"));
+        assert!(texts.contains(&"Name: No project"));
+        assert!(texts.contains(&"Project: None"));
+    }
+
+    #[test]
+    fn loaded_project_shell_paints_project_metadata() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            toolbar_title: "Elcarax - Demo Project".to_string(),
+            project_name: "Name: Demo Project".to_string(),
+            project_path: "Path: samples/demo_project.elcarax".to_string(),
+            project_status: "Status: Loaded".to_string(),
+            project_recent: "Recent: 1".to_string(),
+            project_diagnostics: "Diagnostics: No diagnostics".to_string(),
+            project_command: "Command: project.new_demo".to_string(),
+            status: "Project: Loaded | Diagnostics: 0 | Command: project.new_demo".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Elcarax - Demo Project"));
+        assert!(texts.contains(&"Name: Demo Project"));
+        assert!(texts.contains(&"Diagnostics: No diagnostics"));
+        assert!(texts.contains(&"Project: Loaded | Diagnostics: 0 | Command: project.new_demo"));
+    }
+
+    #[test]
+    fn diagnostics_count_can_update_project_panel() {
+        let theme = Theme::editor_dark();
+        let shell = must(build_editor_shell_with_ids(&UiContext::new(
+            theme,
+            Rect::new(0.0, 0.0, 1440.0, 900.0),
+        )));
+        let mut tree = shell.tree;
+        assert!(
+            tree.set_label_text(
+                shell.ids.project_diagnostics,
+                "Diagnostics: 1 error(s), 0 warning(s)"
+            )
+            .is_ok()
+        );
+        assert!(
+            tree.set_text_role(shell.ids.project_diagnostics, TextRole::Danger)
+                .is_ok()
+        );
+        assert!(tree.get(shell.ids.project_diagnostics).is_some_and(|node| {
+            matches!(&node.kind, WidgetKind::Label(text) if text == "Diagnostics: 1 error(s), 0 warning(s)")
+                && node.style.text_role == TextRole::Danger
         }));
     }
 

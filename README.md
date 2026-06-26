@@ -15,11 +15,12 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - `wgpu` surface/context and rectangle primitive rendering
 - `cosmic-text` shaping and system-font rasterization through `elcarax_text`
 - retained UI tree, layout primitives, hit testing, interaction state, dirty flags, style/theme resolution, and paint output
-- interactive editor shell foundation with toolbar, Run button, project panel, viewport, inspector, and status bar
+- interactive editor shell foundation with toolbar, Run button, project panel, viewport, inspector, status bar, command palette, and project status display
+- project-domain model, recent project list, validation diagnostics, and project commands
 - project, asset, accessibility placeholder, and devtools modules
 - architecture decision records and milestone documentation
 
-This is not a full editor yet. Docking, drag resizing, tree views, asset browser behavior, inspector editing, command palette, editable text fields, IME, selection, scroll views, real accessibility integration, process IPC, adapter commands, and real engine binding are intentionally out of scope for the current milestone.
+This is not a full editor yet. Docking, drag resizing, tree views, asset browser behavior, inspector editing, editable text fields, IME, selection, scroll views, real accessibility integration, file dialogs, file watching, process IPC, adapter loading, and real engine binding are intentionally out of scope for the current milestone.
 
 ## Requirements
 
@@ -63,7 +64,7 @@ Default console proof flow:
 cargo run -p elcarax_app
 ```
 
-The console flow builds the UI shell without opening a GPU window, simulates a Run button click, updates the status label, and prints project, command history, render, UI node, layout, primitive, text primitive, dirty flag, and interaction proof counts.
+The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project commands, updates project UI state, and prints project, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, command palette, and project proof counts.
 
 Manual native shell smoke test:
 
@@ -71,7 +72,7 @@ Manual native shell smoke test:
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close. Clicking the toolbar `Run` button updates the status text to `Status: Run clicked`.
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree and command palette, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close. Clicking the toolbar `Run` button updates the status text to `Status: Run clicked`; project commands update the toolbar, status bar, and project panel.
 
 ## Architecture
 
@@ -80,6 +81,7 @@ Elcarax keeps external systems behind crate boundaries:
 - `elcarax_core`: foundational IDs, errors, diagnostics, workspace types
 - `elcarax_scene_model`: engine-neutral scene/property/schema model
 - `elcarax_commands`: command and undo/redo behavior
+- `elcarax_project`: project model, validation, status, and recent-project domain types
 - `elcarax_adapter_api`: stable adapter boundary
 - `elcarax_platform`: platform event loop and native window integration
 - `elcarax_gpu`: `wgpu` context, surface, and render-pass helpers
@@ -97,5 +99,7 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 3: text rendering foundation
 - Milestone 4: UI tree and layout foundation
 - Milestone 5: input and interaction foundation
+- Milestone 6: command palette shell
+- Milestone 7: project system UI
 
 See `docs/` for detailed milestone notes and ADRs.

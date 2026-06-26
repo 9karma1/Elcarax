@@ -13,9 +13,13 @@ use elcarax_platform::{
 use elcarax_render::{Rect, RenderScene, Renderer, RendererConfig, RendererError, text_stats};
 use elcarax_ui::{
     CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, EditorShellIds, KeyboardKey,
-    ModifierState, PaintContext, PointerButton, PointerPosition, Theme, UiContext, UiEvent,
-    UiInputEvent, UiTree, build_editor_shell_with_ids, paint_command_palette_overlay,
+    LayoutConstraints, ModifierState, PaintContext, PointerButton, PointerPosition, Theme,
+    UiContext, UiEvent, UiInputEvent, UiTree, build_editor_shell_with_content,
+    paint_command_palette_overlay,
 };
+
+use crate::project_state::ProjectState;
+use crate::project_ui::{apply_project_snapshot, shell_content_from_project};
 
 pub fn run_native_shell() -> Result<()> {
     println!("Elcarax native shell: starting");
@@ -45,6 +49,7 @@ struct UiState {
     scene_dirty: bool,
     command_registry: CommandRegistry,
     command_palette: CommandPaletteState,
+    project_state: ProjectState,
     bounds: Rect,
 }
 
@@ -196,7 +201,9 @@ fn build_ui_state(
     height: f32,
 ) -> std::result::Result<UiState, NativeAppError> {
     let context = UiContext::new(theme, Rect::new(0.0, 0.0, width, height));
-    let shell = build_editor_shell_with_ids(&context)
+    let project_state = ProjectState::default();
+    let content = shell_content_from_project(&project_state.ui_snapshot());
+    let shell = build_editor_shell_with_content(&context, &content)
         .map_err(|error| NativeAppError::Window(format!("failed to build UI shell: {error}")))?;
     let command_registry =
         built_in_commands().map_err(|error| NativeAppError::Window(error.to_string()))?;
@@ -211,6 +218,7 @@ fn build_ui_state(
         scene_dirty: true,
         command_registry,
         command_palette,
+        project_state,
         bounds,
     };
     repaint_ui_scene(&mut ui)?;
@@ -334,6 +342,20 @@ fn apply_command_invocation(
     ui: &mut UiState,
     invocation: &CommandInvocation,
 ) -> std::result::Result<(), NativeAppError> {
+    if ui
+        .project_state
+        .execute_command_id(invocation.id.as_str())
+        .is_some()
+    {
+        apply_project_snapshot(
+            &mut ui.tree,
+            ui.ids,
+            &ui.project_state.ui_snapshot(),
+            ui.bounds,
+        )
+        .map_err(|error| NativeAppError::Window(format!("failed to update project UI: {error}")))?;
+        return Ok(());
+    }
     match invocation.id.as_str() {
         "elcarax.palette.open" => ui.command_palette.open(),
         "elcarax.palette.close" => ui.command_palette.close(),
@@ -351,6 +373,9 @@ fn set_status_text(ui: &mut UiState, text: String) -> std::result::Result<(), Na
     ui.tree
         .set_label_text(ui.ids.status_label, text)
         .map_err(|error| NativeAppError::Window(format!("failed to update status: {error}")))?;
+    ui.tree
+        .layout(LayoutConstraints { bounds: ui.bounds })
+        .map_err(|error| NativeAppError::Window(format!("failed to relayout status: {error}")))?;
     Ok(())
 }
 

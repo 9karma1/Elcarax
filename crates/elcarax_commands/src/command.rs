@@ -72,6 +72,7 @@ impl CommandDescription {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandCategory {
     Palette,
+    Project,
     Status,
     Demo,
 }
@@ -80,6 +81,7 @@ impl CommandCategory {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Palette => "Palette",
+            Self::Project => "Project",
             Self::Status => "Status",
             Self::Demo => "Demo",
         }
@@ -247,6 +249,36 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Palette,
         )?,
         registered(
+            "project.new_demo",
+            "New Demo Project",
+            "Create an in-memory demo project",
+            CommandCategory::Project,
+        )?,
+        registered(
+            "project.open_demo",
+            "Open Demo Project",
+            "Load a sample demo project path",
+            CommandCategory::Project,
+        )?,
+        registered(
+            "project.close",
+            "Close Project",
+            "Return to no-project state",
+            CommandCategory::Project,
+        )?,
+        registered(
+            "project.validate",
+            "Validate Project",
+            "Validate the current project model",
+            CommandCategory::Project,
+        )?,
+        registered(
+            "project.show_recent",
+            "Show Recent Projects",
+            "Report recent project entries",
+            CommandCategory::Project,
+        )?,
+        registered(
             "elcarax.status.show_renderer_stats",
             "Show Renderer Stats",
             "Show current primitive, text, and glyph counts",
@@ -347,6 +379,22 @@ mod tests {
     }
 
     #[test]
+    fn project_commands_are_discoverable() {
+        let registry = match built_in_commands() {
+            Ok(registry) => registry,
+            Err(error) => panic!("built-ins should register: {error}"),
+        };
+        let matches = registry.filter("project");
+        let ids: Vec<_> = matches
+            .into_iter()
+            .map(|command| command.id().as_str())
+            .collect();
+        assert!(ids.contains(&"project.new_demo"));
+        assert!(ids.contains(&"project.validate"));
+        assert!(ids.contains(&"project.close"));
+    }
+
+    #[test]
     fn empty_query_returns_stable_order() {
         let registry = match built_in_commands() {
             Ok(registry) => registry,
@@ -362,6 +410,11 @@ mod tests {
             vec![
                 "elcarax.palette.open",
                 "elcarax.palette.close",
+                "project.new_demo",
+                "project.open_demo",
+                "project.close",
+                "project.validate",
+                "project.show_recent",
                 "elcarax.status.show_renderer_stats",
                 "elcarax.status.show_ready",
                 "elcarax.demo.run"

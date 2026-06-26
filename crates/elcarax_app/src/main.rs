@@ -2,6 +2,9 @@
 mod console;
 #[cfg(feature = "native-shell")]
 mod native_shell;
+mod project_display;
+mod project_state;
+mod project_ui;
 
 use elcarax_core::Result;
 
