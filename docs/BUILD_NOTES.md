@@ -40,7 +40,9 @@ Typing `project.new_demo`, `project.validate`, or `project.close` in the command
 
 After loading a demo project, `asset.scan_demo`, `asset.select_first`, `asset.clear_selection`, and `asset.show_selected` should update the asset count, asset rows, selected summary, and status bar. Asset row buttons in the project panel should be clickable in the native shell.
 
-The console proof runs `project.new_demo`, then asset scan/select/clear commands, and prints asset count and kind summary lines.
+`scene.load_demo`, `scene.select_player`, `scene.expand_all`, `scene.collapse_all`, `scene.clear_selection`, and `scene.show_selected` should update the scene tree, selected summary, expand markers, and status bar. Scene row and expand buttons in the project panel should be clickable in the native shell.
+
+The console proof runs `project.new_demo`, asset scan/select commands, scene load/select/expand/collapse/clear commands, and prints asset and scene summary lines.
 
 CI should compile the native-shell feature but should not require opening a desktop window.
 
@@ -62,8 +64,8 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_text` owns `cosmic-text` shaping, layout cache, and system-font rasterization.
 - `elcarax_render` owns editor render primitives, batching, render stats, and GPU draw submission.
 - `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, command palette state/painting, dirty flags, theme/style resolution, and paint output.
-- `elcarax_app` owns app-level project and asset state composition and pushes display text into the UI tree.
+- `elcarax_app` owns app-level project, asset, and scene state composition and pushes display text into the UI tree.
 
 ## Current Exclusions
 
-The current shell deliberately excludes docking, drag resizing, tree views, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, file dialogs, file watching, process IPC, adapter commands, async command execution, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, and real engine adapter integration.
+The current shell deliberately excludes docking, drag resizing, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, file dialogs, file watching, process IPC, adapter commands, async command execution, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, hierarchy drag/drop, scene object creation/deletion, property inspector editing, viewport scene rendering, scene save/writeback, and real engine adapter integration.

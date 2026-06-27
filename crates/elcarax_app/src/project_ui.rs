@@ -3,13 +3,16 @@ use elcarax_ui::{EditorShellContent, EditorShellIds, TextRole, UiError, UiTree};
 
 use crate::asset_display::AssetUiSnapshot;
 use crate::asset_ui::apply_asset_snapshot;
+use crate::editor_status::editor_status_bar;
 use crate::project_display::{DiagnosticTone, ProjectUiSnapshot};
+use crate::scene_display::SceneUiSnapshot;
+use crate::scene_ui::apply_scene_snapshot;
 
-pub(crate) use crate::asset_ui::shell_content_from_editor_state;
+pub(crate) use crate::scene_ui::shell_content_from_editor_state;
 
 #[cfg_attr(feature = "native-shell", allow(dead_code))]
 pub(crate) fn shell_content_from_project(snapshot: &ProjectUiSnapshot) -> EditorShellContent {
-    shell_content_from_editor_state(snapshot, &empty_asset_snapshot())
+    shell_content_from_editor_state(snapshot, &empty_asset_snapshot(), &empty_scene_snapshot())
 }
 
 #[cfg_attr(feature = "native-shell", allow(dead_code))]
@@ -25,13 +28,34 @@ fn empty_asset_snapshot() -> AssetUiSnapshot {
 }
 
 #[cfg_attr(feature = "native-shell", allow(dead_code))]
+fn empty_scene_snapshot() -> SceneUiSnapshot {
+    SceneUiSnapshot {
+        scene_section_title: "Scene".to_string(),
+        scene_name: "No scene".to_string(),
+        scene_expand_labels: std::array::from_fn(|_| String::new()),
+        scene_row_labels: std::array::from_fn(|_| String::new()),
+        scene_selected_summary: "Selected: None".to_string(),
+        selected_row_index: None,
+        visible_object_ids: std::array::from_fn(|_| None),
+        status_scene_suffix: "Scene: None | Object: None".to_string(),
+    }
+}
+
+#[cfg_attr(feature = "native-shell", allow(dead_code))]
 pub(crate) fn apply_project_snapshot(
     tree: &mut UiTree,
     ids: EditorShellIds,
     snapshot: &ProjectUiSnapshot,
     bounds: Rect,
 ) -> Result<(), UiError> {
-    apply_editor_snapshot(tree, ids, snapshot, &empty_asset_snapshot(), bounds)
+    apply_editor_snapshot(
+        tree,
+        ids,
+        snapshot,
+        &empty_asset_snapshot(),
+        &empty_scene_snapshot(),
+        bounds,
+    )
 }
 
 pub(crate) fn apply_editor_snapshot(
@@ -39,6 +63,7 @@ pub(crate) fn apply_editor_snapshot(
     ids: EditorShellIds,
     project: &ProjectUiSnapshot,
     assets: &AssetUiSnapshot,
+    scene: &SceneUiSnapshot,
     bounds: Rect,
 ) -> Result<(), UiError> {
     tree.set_label_text(ids.toolbar_title, project.toolbar_title.clone())?;
@@ -52,7 +77,9 @@ pub(crate) fn apply_editor_snapshot(
         ids.project_diagnostics,
         text_role_for_diagnostic_tone(project.diagnostic_tone),
     )?;
-    apply_asset_snapshot(tree, ids, assets, &project.status, bounds)?;
+    let status = editor_status_bar(project, assets, scene);
+    apply_asset_snapshot(tree, ids, assets, &status, bounds)?;
+    apply_scene_snapshot(tree, ids, scene, &status, bounds)?;
     Ok(())
 }
 

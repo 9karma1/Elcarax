@@ -3,11 +3,15 @@ mod asset_state;
 mod asset_ui;
 #[cfg(not(feature = "native-shell"))]
 mod console;
+mod editor_status;
 #[cfg(feature = "native-shell")]
 mod native_shell;
 mod project_display;
 mod project_state;
 mod project_ui;
+mod scene_display;
+mod scene_state;
+mod scene_ui;
 
 use elcarax_core::Result;
 

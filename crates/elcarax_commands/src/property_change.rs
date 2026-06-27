@@ -58,7 +58,7 @@ mod tests {
     use crate::{CommandContext, CommandHistory};
     use elcarax_core::Result;
     use elcarax_scene_model::{
-        ObjectSchema, PropertyKind, PropertySchema, SceneObject, SceneSnapshot,
+        ObjectSchema, PropertyKind, PropertySchema, SceneObject, SceneObjectKind, SceneSnapshot,
     };
 
     #[test]
@@ -69,7 +69,7 @@ mod tests {
             "Position",
             PropertyKind::Vec3,
         ));
-        let mut object = SceneObject::new("Camera", schema.type_id);
+        let mut object = SceneObject::new("Camera", SceneObjectKind::Camera, schema.type_id);
         object.set_property(path.clone(), PropertyValue::Vec3([0.0, 0.0, 0.0]));
         let object_id = object.id;
 

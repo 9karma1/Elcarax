@@ -10,7 +10,7 @@ use elcarax_project::ProjectFile;
 use elcarax_render::{Rect, RenderScene, RenderStats, batch_scene, text_stats};
 use elcarax_scene_model::{
     ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
-    SceneSnapshot,
+    SceneObjectKind, SceneSnapshot,
 };
 use elcarax_ui::{
     CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey, PaintContext,
@@ -24,7 +24,12 @@ use crate::asset_state::{
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_NEW_DEMO_COMMAND, PROJECT_VALIDATE_COMMAND, ProjectState,
 };
-use crate::project_ui::{apply_editor_snapshot, shell_content_from_editor_state};
+use crate::project_ui::apply_editor_snapshot;
+use crate::scene_state::{
+    SCENE_CLEAR_SELECTION_COMMAND, SCENE_COLLAPSE_ALL_COMMAND, SCENE_EXPAND_ALL_COMMAND,
+    SCENE_LOAD_DEMO_COMMAND, SCENE_SELECT_PLAYER_COMMAND, SceneState,
+};
+use crate::scene_ui::shell_content_from_editor_state;
 
 pub fn run_console_proof() -> Result<()> {
     let shell = NativeShellSpec::default_editor();
@@ -36,7 +41,7 @@ pub fn run_console_proof() -> Result<()> {
         "Position",
         PropertyKind::Vec3,
     ));
-    let mut object = SceneObject::new("Player", schema.type_id);
+    let mut object = SceneObject::new("Player", SceneObjectKind::Character, schema.type_id);
     object.set_property(position_path.clone(), PropertyValue::Vec3([0.0, 1.0, 0.0]));
     let object_id = object.id;
     let mut scene = SceneSnapshot::empty();
@@ -113,6 +118,26 @@ pub fn run_console_proof() -> Result<()> {
         proof.asset_select_first_executed, proof.asset_selected_summary
     );
     println!(
+        "scene_command: load_demo_executed={} objects={}",
+        proof.scene_load_demo_executed, proof.scene_object_count
+    );
+    println!(
+        "scene_command: select_player_executed={} selected=\"{}\"",
+        proof.scene_select_player_executed, proof.scene_selected_summary
+    );
+    println!(
+        "scene_command: expand_all_executed={} expanded={}",
+        proof.scene_expand_all_executed, proof.scene_expanded_count
+    );
+    println!(
+        "scene_command: collapse_all_executed={} expanded={}",
+        proof.scene_collapse_all_executed, proof.scene_collapsed_count
+    );
+    println!(
+        "scene_command: clear_selection_executed={} selected=\"{}\"",
+        proof.scene_clear_selection_executed, proof.scene_cleared_summary
+    );
+    println!(
         "asset_command: clear_selection_executed={} selected=\"{}\"",
         proof.asset_clear_selection_executed, proof.asset_cleared_summary
     );
@@ -141,6 +166,16 @@ struct ConsoleUiProof {
     asset_kinds_summary: String,
     asset_selected_summary: String,
     asset_cleared_summary: String,
+    scene_load_demo_executed: bool,
+    scene_select_player_executed: bool,
+    scene_expand_all_executed: bool,
+    scene_collapse_all_executed: bool,
+    scene_clear_selection_executed: bool,
+    scene_object_count: usize,
+    scene_expanded_count: usize,
+    scene_collapsed_count: usize,
+    scene_selected_summary: String,
+    scene_cleared_summary: String,
 }
 
 fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
@@ -151,8 +186,12 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     );
     let mut project_state = ProjectState::default();
     let mut asset_state = AssetState::default();
-    let initial_content =
-        shell_content_from_editor_state(&project_state.ui_snapshot(), &asset_state.ui_snapshot());
+    let mut scene_state = SceneState::default();
+    let initial_content = shell_content_from_editor_state(
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+    );
     let shell = build_editor_shell_with_content(&context, &initial_content).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to build UI shell: {error}"))
     })?;
@@ -213,6 +252,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         shell.ids,
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
         bounds,
     )
     .map_err(|error| {
@@ -234,6 +274,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         shell.ids,
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
         bounds,
     )
     .map_err(|error| {
@@ -254,6 +295,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         shell.ids,
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
         bounds,
     )
     .map_err(|error| {
@@ -262,6 +304,112 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         ))
     })?;
     let asset_selected_summary = asset_state.ui_snapshot().asset_selected_summary;
+
+    let scene_load_demo_executed = execute_scene_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        SCENE_LOAD_DEMO_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to apply scene load to UI: {error}"))
+    })?;
+    let scene_object_count = match scene_state.snapshot() {
+        Some(scene) => scene.object_count(),
+        None => 0,
+    };
+
+    let scene_select_player_executed = execute_scene_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        SCENE_SELECT_PLAYER_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply scene selection to UI: {error}"
+        ))
+    })?;
+    let scene_selected_summary = scene_state.ui_snapshot().scene_selected_summary;
+
+    let scene_expand_all_executed = execute_scene_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        SCENE_EXPAND_ALL_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply scene expansion to UI: {error}"
+        ))
+    })?;
+    let scene_expanded_count = scene_state.expansion().len();
+
+    let scene_collapse_all_executed = execute_scene_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        SCENE_COLLAPSE_ALL_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply scene collapse to UI: {error}"
+        ))
+    })?;
+    let scene_collapsed_count = scene_state.expansion().len();
+
+    let scene_clear_selection_executed = execute_scene_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        SCENE_CLEAR_SELECTION_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply cleared scene selection to UI: {error}"
+        ))
+    })?;
+    let scene_cleared_summary = scene_state.ui_snapshot().scene_selected_summary;
 
     let asset_clear_selection_executed = execute_asset_command_from_palette(
         &registry,
@@ -275,6 +423,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         shell.ids,
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
         bounds,
     )
     .map_err(|error| {
@@ -295,6 +444,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         shell.ids,
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
         bounds,
     )
     .map_err(|error| {
@@ -319,6 +469,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         shell.ids,
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
         bounds,
     )
     .map_err(|error| {
@@ -352,6 +503,16 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         asset_kinds_summary,
         asset_selected_summary,
         asset_cleared_summary,
+        scene_load_demo_executed,
+        scene_select_player_executed,
+        scene_expand_all_executed,
+        scene_collapse_all_executed,
+        scene_clear_selection_executed,
+        scene_object_count,
+        scene_expanded_count,
+        scene_collapsed_count,
+        scene_selected_summary,
+        scene_cleared_summary,
     })
 }
 
@@ -381,6 +542,18 @@ fn execute_asset_command_from_palette(
     Ok(asset_state
         .execute_command_id(id.as_str(), project_loaded)
         .is_some())
+}
+
+fn execute_scene_command_from_palette(
+    registry: &CommandRegistry,
+    palette: &mut CommandPaletteState,
+    scene_state: &mut SceneState,
+    query: &str,
+) -> Result<bool> {
+    let Some(id) = execute_palette_query(registry, palette, query)? else {
+        return Ok(false);
+    };
+    Ok(scene_state.execute_command_id(id.as_str()).is_some())
 }
 
 fn execute_palette_query(

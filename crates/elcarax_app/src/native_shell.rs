@@ -21,7 +21,11 @@ use elcarax_ui::{
 use crate::asset_state::AssetState;
 use crate::asset_ui::asset_row_index_for_widget;
 use crate::project_state::ProjectState;
-use crate::project_ui::{apply_editor_snapshot, shell_content_from_editor_state};
+use crate::project_ui::apply_editor_snapshot;
+use crate::scene_state::SceneState;
+use crate::scene_ui::{
+    scene_expand_index_for_widget, scene_row_index_for_widget, shell_content_from_editor_state,
+};
 
 pub fn run_native_shell() -> Result<()> {
     println!("Elcarax native shell: starting");
@@ -53,6 +57,7 @@ struct UiState {
     command_palette: CommandPaletteState,
     project_state: ProjectState,
     asset_state: AssetState,
+    scene_state: SceneState,
     bounds: Rect,
 }
 
@@ -206,8 +211,12 @@ fn build_ui_state(
     let context = UiContext::new(theme, Rect::new(0.0, 0.0, width, height));
     let project_state = ProjectState::default();
     let asset_state = AssetState::default();
-    let content =
-        shell_content_from_editor_state(&project_state.ui_snapshot(), &asset_state.ui_snapshot());
+    let scene_state = SceneState::default();
+    let content = shell_content_from_editor_state(
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+    );
     let shell = build_editor_shell_with_content(&context, &content)
         .map_err(|error| NativeAppError::Window(format!("failed to build UI shell: {error}")))?;
     let command_registry =
@@ -225,6 +234,7 @@ fn build_ui_state(
         command_palette,
         project_state,
         asset_state,
+        scene_state,
         bounds,
     };
     repaint_ui_scene(&mut ui)?;
@@ -364,6 +374,14 @@ fn apply_command_invocation(
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
+    if ui
+        .scene_state
+        .execute_command_id(invocation.id.as_str())
+        .is_some()
+    {
+        apply_editor_snapshot_to_ui(ui)?;
+        return Ok(());
+    }
     match invocation.id.as_str() {
         "elcarax.palette.open" => ui.command_palette.open(),
         "elcarax.palette.close" => ui.command_palette.close(),
@@ -458,6 +476,7 @@ fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), Nati
         ui.ids,
         &ui.project_state.ui_snapshot(),
         &ui.asset_state.ui_snapshot(),
+        &ui.scene_state.ui_snapshot(),
         ui.bounds,
     )
     .map_err(|error| NativeAppError::Window(format!("failed to update editor UI: {error}")))
@@ -480,6 +499,26 @@ fn apply_ui_events(
         {
             apply_editor_snapshot_to_ui(ui)?;
             changed = true;
+            continue;
+        }
+        if let UiEvent::Clicked { id } = event
+            && let Some(row_index) = scene_expand_index_for_widget(ui.ids, *id)
+            && ui.scene_state.toggle_expand_row(row_index)
+        {
+            apply_editor_snapshot_to_ui(ui)?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::Clicked { id } = event
+            && let Some(row_index) = scene_row_index_for_widget(ui.ids, *id)
+        {
+            let object_id = ui.scene_state.ui_snapshot().visible_object_ids[row_index];
+            if let Some(object_id) = object_id
+                && ui.scene_state.select_object(object_id)
+            {
+                apply_editor_snapshot_to_ui(ui)?;
+                changed = true;
+            }
         }
     }
     Ok(changed)
