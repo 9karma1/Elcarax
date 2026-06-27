@@ -18,8 +18,10 @@ use elcarax_ui::{
     paint_command_palette_overlay,
 };
 
+use crate::asset_state::AssetState;
+use crate::asset_ui::asset_row_index_for_widget;
 use crate::project_state::ProjectState;
-use crate::project_ui::{apply_project_snapshot, shell_content_from_project};
+use crate::project_ui::{apply_editor_snapshot, shell_content_from_editor_state};
 
 pub fn run_native_shell() -> Result<()> {
     println!("Elcarax native shell: starting");
@@ -50,6 +52,7 @@ struct UiState {
     command_registry: CommandRegistry,
     command_palette: CommandPaletteState,
     project_state: ProjectState,
+    asset_state: AssetState,
     bounds: Rect,
 }
 
@@ -202,7 +205,9 @@ fn build_ui_state(
 ) -> std::result::Result<UiState, NativeAppError> {
     let context = UiContext::new(theme, Rect::new(0.0, 0.0, width, height));
     let project_state = ProjectState::default();
-    let content = shell_content_from_project(&project_state.ui_snapshot());
+    let asset_state = AssetState::default();
+    let content =
+        shell_content_from_editor_state(&project_state.ui_snapshot(), &asset_state.ui_snapshot());
     let shell = build_editor_shell_with_content(&context, &content)
         .map_err(|error| NativeAppError::Window(format!("failed to build UI shell: {error}")))?;
     let command_registry =
@@ -219,6 +224,7 @@ fn build_ui_state(
         command_registry,
         command_palette,
         project_state,
+        asset_state,
         bounds,
     };
     repaint_ui_scene(&mut ui)?;
@@ -347,13 +353,15 @@ fn apply_command_invocation(
         .execute_command_id(invocation.id.as_str())
         .is_some()
     {
-        apply_project_snapshot(
-            &mut ui.tree,
-            ui.ids,
-            &ui.project_state.ui_snapshot(),
-            ui.bounds,
-        )
-        .map_err(|error| NativeAppError::Window(format!("failed to update project UI: {error}")))?;
+        apply_editor_snapshot_to_ui(ui)?;
+        return Ok(());
+    }
+    if ui
+        .asset_state
+        .execute_command_id(invocation.id.as_str(), ui.project_state.is_project_loaded())
+        .is_some()
+    {
+        apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
     match invocation.id.as_str() {
@@ -444,6 +452,17 @@ fn pointer_button_event(button: MouseButton, state: ElementState) -> Option<UiIn
     }
 }
 
+fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    apply_editor_snapshot(
+        &mut ui.tree,
+        ui.ids,
+        &ui.project_state.ui_snapshot(),
+        &ui.asset_state.ui_snapshot(),
+        ui.bounds,
+    )
+    .map_err(|error| NativeAppError::Window(format!("failed to update editor UI: {error}")))
+}
+
 fn apply_ui_events(
     ui: &mut UiState,
     events: &[UiEvent],
@@ -452,6 +471,14 @@ fn apply_ui_events(
     for event in events {
         if matches!(event, UiEvent::Clicked { id } if *id == ui.ids.run_button) {
             set_status_text(ui, "Status: Run clicked".to_string())?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::Clicked { id } = event
+            && let Some(row_index) = asset_row_index_for_widget(ui.ids, *id)
+            && ui.asset_state.select_row(row_index)
+        {
+            apply_editor_snapshot_to_ui(ui)?;
             changed = true;
         }
     }

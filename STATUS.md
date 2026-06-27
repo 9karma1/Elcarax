@@ -1,6 +1,6 @@
 # Elcarax v0.1 scaffold status
 
-Generated: 2026-06-26
+Generated: 2026-06-27
 
 ## Included
 
@@ -13,6 +13,7 @@ Generated: 2026-06-26
 - UI input routing, hit testing, hover/focus/pressed state, keyboard focus traversal foundation, and basic button clicks
 - Command palette shell with query filtering, keyboard selection, execution, cancel behavior, and status feedback
 - Project system UI with project status, recent project count, validation diagnostics, project panel metadata, and command-palette project commands
+- Asset browser foundation with file-based asset index, demo scan, asset panel rows, selection state, and command-palette asset commands
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -25,7 +26,7 @@ Generated: 2026-06-26
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive shell and project-status foundation
-- Docking, drag resizing, tree views, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, or asset browser behavior
+- Docking, drag resizing, tree views, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, or drag-and-drop asset behavior
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
@@ -100,3 +101,11 @@ cargo run -p elcarax_app
 - Updated the shell to show project name/path/status, recent count, validation summary, command result, and project status bar text.
 - Updated the console proof to execute project commands through the command palette and print initial, loaded, validated, and closed project states.
 - Documented explicit project system exclusions in `docs/MILESTONE_7_PROJECT_SYSTEM_UI.md`.
+
+## Milestone 8: Asset Browser Foundation
+
+- Added file-based asset domain types, extension detection, in-memory demo index, synchronous scan API, and selection helpers in `elcarax_assets`.
+- Added command-palette asset commands for demo scan, first selection, clear selection, and show selected.
+- Added app-owned asset state separate from UI widgets and project-panel asset rows with clickable selection in the native shell.
+- Updated the console proof to load a demo project, scan demo assets, select the first asset, and clear selection.
+- Documented explicit asset browser exclusions in `docs/MILESTONE_8_ASSET_BROWSER_FOUNDATION.md`.

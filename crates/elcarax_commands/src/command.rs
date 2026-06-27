@@ -73,6 +73,7 @@ impl CommandDescription {
 pub enum CommandCategory {
     Palette,
     Project,
+    Asset,
     Status,
     Demo,
 }
@@ -82,6 +83,7 @@ impl CommandCategory {
         match self {
             Self::Palette => "Palette",
             Self::Project => "Project",
+            Self::Asset => "Asset",
             Self::Status => "Status",
             Self::Demo => "Demo",
         }
@@ -279,6 +281,30 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Project,
         )?,
         registered(
+            "asset.scan_demo",
+            "Scan Demo Assets",
+            "Populate the asset index with demo assets",
+            CommandCategory::Asset,
+        )?,
+        registered(
+            "asset.select_first",
+            "Select First Asset",
+            "Select the first asset in stable order",
+            CommandCategory::Asset,
+        )?,
+        registered(
+            "asset.clear_selection",
+            "Clear Asset Selection",
+            "Clear the current asset selection",
+            CommandCategory::Asset,
+        )?,
+        registered(
+            "asset.show_selected",
+            "Show Selected Asset",
+            "Report the currently selected asset",
+            CommandCategory::Asset,
+        )?,
+        registered(
             "elcarax.status.show_renderer_stats",
             "Show Renderer Stats",
             "Show current primitive, text, and glyph counts",
@@ -415,11 +441,32 @@ mod tests {
                 "project.close",
                 "project.validate",
                 "project.show_recent",
+                "asset.scan_demo",
+                "asset.select_first",
+                "asset.clear_selection",
+                "asset.show_selected",
                 "elcarax.status.show_renderer_stats",
                 "elcarax.status.show_ready",
                 "elcarax.demo.run"
             ]
         );
+    }
+
+    #[test]
+    fn asset_commands_are_discoverable() {
+        let registry = match built_in_commands() {
+            Ok(registry) => registry,
+            Err(error) => panic!("built-ins should register: {error}"),
+        };
+        let matches = registry.filter("asset");
+        let ids: Vec<_> = matches
+            .into_iter()
+            .map(|command| command.id().as_str())
+            .collect();
+        assert!(ids.contains(&"asset.scan_demo"));
+        assert!(ids.contains(&"asset.select_first"));
+        assert!(ids.contains(&"asset.clear_selection"));
+        assert!(ids.contains(&"asset.show_selected"));
     }
 
     #[test]

@@ -12,6 +12,8 @@ use elcarax_render::{
 pub enum WidgetMarker {}
 pub type WidgetId = Id<WidgetMarker>;
 
+pub const MAX_VISIBLE_ASSET_ROWS: usize = 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirtyFlags(u32);
 
@@ -937,6 +939,37 @@ impl UiTree {
         Ok(())
     }
 
+    pub fn set_button_text(
+        &mut self,
+        id: WidgetId,
+        text: impl Into<String>,
+    ) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        let text = text.into();
+        let has_label = !text.is_empty();
+        node.kind = if has_label {
+            WidgetKind::Button(text)
+        } else {
+            WidgetKind::Label(String::new())
+        };
+        node.layout.height = if has_label {
+            SizePolicy::Fixed(28.0)
+        } else {
+            SizePolicy::Fixed(0.0)
+        };
+        node.interaction.disabled = !has_label;
+        node.interaction.interactive = has_label;
+        node.interaction.focusable = has_label;
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
     pub fn set_text_role(&mut self, id: WidgetId, role: TextRole) -> Result<(), UiError> {
         let Some(node) = self.nodes.get_mut(&id) else {
             return Err(UiError::MissingNode(id));
@@ -1274,6 +1307,10 @@ pub struct EditorShellIds {
     pub project_recent: WidgetId,
     pub project_diagnostics: WidgetId,
     pub project_command: WidgetId,
+    pub asset_section_title: WidgetId,
+    pub asset_count: WidgetId,
+    pub asset_rows: [WidgetId; MAX_VISIBLE_ASSET_ROWS],
+    pub asset_selected_summary: WidgetId,
     pub status_label: WidgetId,
 }
 
@@ -1287,7 +1324,15 @@ pub struct EditorShellContent {
     pub project_recent: String,
     pub project_diagnostics: String,
     pub project_command: String,
+    pub asset_section_title: String,
+    pub asset_count: String,
+    pub asset_row_labels: [String; MAX_VISIBLE_ASSET_ROWS],
+    pub asset_selected_summary: String,
     pub status: String,
+}
+
+fn empty_asset_row_labels() -> [String; MAX_VISIBLE_ASSET_ROWS] {
+    std::array::from_fn(|_| String::new())
 }
 
 impl EditorShellContent {
@@ -1301,6 +1346,10 @@ impl EditorShellContent {
             project_recent: "Recent: 0".to_string(),
             project_diagnostics: "Diagnostics: No diagnostics".to_string(),
             project_command: "Command: None".to_string(),
+            asset_section_title: "Assets".to_string(),
+            asset_count: "Assets: 0".to_string(),
+            asset_row_labels: empty_asset_row_labels(),
+            asset_selected_summary: "Selected: None".to_string(),
             status: "Project: None".to_string(),
         }
     }
@@ -1348,6 +1397,27 @@ pub fn build_editor_shell_with_content(
     let project_recent = WidgetId::new(21).ok_or(UiError::MissingRoot)?;
     let project_diagnostics = WidgetId::new(22).ok_or(UiError::MissingRoot)?;
     let project_command = WidgetId::new(23).ok_or(UiError::MissingRoot)?;
+    let asset_section_title = WidgetId::new(24).ok_or(UiError::MissingRoot)?;
+    let asset_count = WidgetId::new(25).ok_or(UiError::MissingRoot)?;
+    let asset_row_0 = WidgetId::new(26).ok_or(UiError::MissingRoot)?;
+    let asset_row_1 = WidgetId::new(27).ok_or(UiError::MissingRoot)?;
+    let asset_row_2 = WidgetId::new(28).ok_or(UiError::MissingRoot)?;
+    let asset_row_3 = WidgetId::new(29).ok_or(UiError::MissingRoot)?;
+    let asset_row_4 = WidgetId::new(30).ok_or(UiError::MissingRoot)?;
+    let asset_row_5 = WidgetId::new(31).ok_or(UiError::MissingRoot)?;
+    let asset_row_6 = WidgetId::new(32).ok_or(UiError::MissingRoot)?;
+    let asset_row_7 = WidgetId::new(33).ok_or(UiError::MissingRoot)?;
+    let asset_selected_summary = WidgetId::new(34).ok_or(UiError::MissingRoot)?;
+    let asset_rows = [
+        asset_row_0,
+        asset_row_1,
+        asset_row_2,
+        asset_row_3,
+        asset_row_4,
+        asset_row_5,
+        asset_row_6,
+        asset_row_7,
+    ];
 
     tree.set_root(UiNode::new(
         root,
@@ -1537,6 +1607,57 @@ pub fn build_editor_shell_with_content(
         ),
     )?;
     tree.insert_child(
+        project,
+        UiNode::new(
+            asset_section_title,
+            WidgetKind::Label(content.asset_section_title.clone()),
+            UiStyle::LABEL,
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            asset_count,
+            WidgetKind::Label(content.asset_count.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    for (index, row_id) in asset_rows.iter().enumerate() {
+        let label = content.asset_row_labels[index].clone();
+        let has_label = !label.is_empty();
+        tree.insert_child(
+            project,
+            UiNode::new(
+                *row_id,
+                if has_label {
+                    WidgetKind::Button(label)
+                } else {
+                    WidgetKind::Label(String::new())
+                },
+                UiStyle::BUTTON,
+                LayoutNode::leaf().with_height(if has_label {
+                    SizePolicy::Fixed(28.0)
+                } else {
+                    SizePolicy::Fixed(0.0)
+                }),
+            ),
+        )?;
+        if !has_label {
+            tree.set_disabled(*row_id, true)?;
+        }
+    }
+    tree.insert_child(
+        project,
+        UiNode::new(
+            asset_selected_summary,
+            WidgetKind::Label(content.asset_selected_summary.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
         viewport,
         UiNode::new(
             viewport_label,
@@ -1578,6 +1699,10 @@ pub fn build_editor_shell_with_content(
             project_recent,
             project_diagnostics,
             project_command,
+            asset_section_title,
+            asset_count,
+            asset_rows,
+            asset_selected_summary,
             status_label,
         },
     })
@@ -2683,6 +2808,60 @@ mod tests {
             matches!(&node.kind, WidgetKind::Label(text) if text == "Diagnostics: 1 error(s), 0 warning(s)")
                 && node.style.text_role == TextRole::Danger
         }));
+    }
+
+    #[test]
+    fn asset_panel_paints_asset_count_and_rows() {
+        let theme = Theme::editor_dark();
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        row_labels[0] = "demo.scene (Scene)".to_string();
+        row_labels[1] = "cube.glb (Model)".to_string();
+        let content = EditorShellContent {
+            asset_section_title: "Assets".to_string(),
+            asset_count: "Assets: 2".to_string(),
+            asset_row_labels: row_labels,
+            asset_selected_summary: "Selected: None".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Assets"));
+        assert!(texts.contains(&"Assets: 2"));
+        assert!(texts.contains(&"demo.scene (Scene)"));
+        assert!(texts.contains(&"cube.glb (Model)"));
+    }
+
+    #[test]
+    fn selected_asset_row_can_gain_focus_and_summary() {
+        let theme = Theme::editor_dark();
+        let shell = must(build_editor_shell_with_ids(&UiContext::new(
+            theme,
+            Rect::new(0.0, 0.0, 1440.0, 900.0),
+        )));
+        let mut tree = shell.tree;
+        assert!(
+            tree.set_button_text(shell.ids.asset_rows[0], "demo.scene (Scene)")
+                .is_ok()
+        );
+        assert!(tree.set_focused(Some(shell.ids.asset_rows[0])).is_ok());
+        assert!(
+            tree.set_label_text(
+                shell.ids.asset_selected_summary,
+                "Selected: demo.scene | Scene | assets/scenes/demo.scene"
+            )
+            .is_ok()
+        );
+        assert!(tree.get(shell.ids.asset_rows[0]).is_some_and(|node| {
+            node.interaction.focused
+                && matches!(&node.kind, WidgetKind::Button(text) if text == "demo.scene (Scene)")
+        }));
+        let scene = must(tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Selected: demo.scene | Scene | assets/scenes/demo.scene"));
     }
 
     fn palette_entries() -> Vec<CommandPaletteEntry> {

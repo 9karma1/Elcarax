@@ -38,6 +38,10 @@ Ctrl+K should open the command palette. Typing `ready` and pressing Enter should
 
 Typing `project.new_demo`, `project.validate`, or `project.close` in the command palette should update the toolbar, status bar, and project panel.
 
+After loading a demo project, `asset.scan_demo`, `asset.select_first`, `asset.clear_selection`, and `asset.show_selected` should update the asset count, asset rows, selected summary, and status bar. Asset row buttons in the project panel should be clickable in the native shell.
+
+The console proof runs `project.new_demo`, then asset scan/select/clear commands, and prints asset count and kind summary lines.
+
 CI should compile the native-shell feature but should not require opening a desktop window.
 
 ## Windows Temp Path Note
@@ -52,14 +56,14 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 
 ## Dependency Boundaries
 
-- `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, `elcarax_adapter_api`, and `elcarax_project` remain engine-, GPU-, window-, renderer-, UI-, and text-library-neutral.
+- `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, `elcarax_adapter_api`, `elcarax_project`, and `elcarax_assets` remain engine-, GPU-, window-, renderer-, UI-, and text-library-neutral.
 - `elcarax_platform` owns `winit` integration.
 - `elcarax_gpu` owns `wgpu` context and surface integration.
 - `elcarax_text` owns `cosmic-text` shaping, layout cache, and system-font rasterization.
 - `elcarax_render` owns editor render primitives, batching, render stats, and GPU draw submission.
 - `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, command palette state/painting, dirty flags, theme/style resolution, and paint output.
-- `elcarax_app` owns app-level project state composition and pushes display text into the UI tree.
+- `elcarax_app` owns app-level project and asset state composition and pushes display text into the UI tree.
 
 ## Current Exclusions
 
-The current shell deliberately excludes docking, drag resizing, tree views, asset browser behavior, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, file dialogs, file watching, process IPC, adapter commands, async command execution, project migration, persistent recent-project storage, and real engine adapter integration.
+The current shell deliberately excludes docking, drag resizing, tree views, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, file dialogs, file watching, process IPC, adapter commands, async command execution, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, and real engine adapter integration.
