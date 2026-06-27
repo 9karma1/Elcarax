@@ -15,6 +15,7 @@ Generated: 2026-06-27
 - Project system UI with project status, recent project count, validation diagnostics, project panel metadata, and command-palette project commands
 - Asset browser foundation with file-based asset index, demo scan, asset panel rows, selection state, and command-palette asset commands
 - Scene tree foundation with engine-neutral scene model, demo snapshot, scene panel hierarchy, selection/expand state, and command-palette scene commands
+- Read-only inspector foundation with property formatting, grouped inspector rows, selection-driven updates, and command-palette inspector commands
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -27,7 +28,7 @@ Generated: 2026-06-27
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive shell and project-status foundation
-- Docking, drag resizing, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, hierarchy drag/drop, scene object creation/deletion, property inspector editing, viewport scene rendering, or scene save/writeback
+- Docking, drag resizing, property editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, hierarchy drag/drop, scene object creation/deletion, undo/redo inspector writes, viewport scene rendering, or scene save/writeback
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
@@ -118,3 +119,11 @@ cargo run -p elcarax_app
 - Added app-owned scene state separate from UI widgets and project-panel scene rows with clickable selection and expand toggles in the native shell.
 - Updated the console proof to load the demo scene, select Player, expand/collapse all, and clear selection.
 - Documented explicit scene tree exclusions in `docs/MILESTONE_9_SCENE_TREE_FOUNDATION.md`.
+
+## Milestone 10: Read-Only Inspector Foundation
+
+- Added inspector view model types, property formatting, grouped read-only rows, and expanded demo scene properties in `elcarax_scene_model`.
+- Added command-palette inspector commands for show selected, clear, inspect player/root, and property count reporting.
+- Added app-owned inspector state derived from scene selection and right-panel inspector UI in the native shell.
+- Updated the console proof to select Player, show inspector properties, report property count, and clear the inspector view.
+- Documented explicit read-only inspector exclusions in `docs/MILESTONE_10_READ_ONLY_INSPECTOR.md`.

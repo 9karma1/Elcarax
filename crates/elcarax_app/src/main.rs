@@ -4,6 +4,9 @@ mod asset_ui;
 #[cfg(not(feature = "native-shell"))]
 mod console;
 mod editor_status;
+mod inspector_display;
+mod inspector_state;
+mod inspector_ui;
 #[cfg(feature = "native-shell")]
 mod native_shell;
 mod project_display;

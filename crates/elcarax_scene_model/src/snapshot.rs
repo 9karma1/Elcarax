@@ -133,6 +133,14 @@ impl SceneSnapshot {
         self.objects.len()
     }
 
+    pub fn object_schemas(&self) -> &BTreeMap<ObjectTypeId, ObjectSchema> {
+        &self.schemas
+    }
+
+    pub fn schema(&self, type_id: ObjectTypeId) -> Option<&ObjectSchema> {
+        self.schemas.get(&type_id)
+    }
+
     pub fn add_schema(&mut self, schema: ObjectSchema) {
         self.schemas.insert(schema.type_id, schema);
     }

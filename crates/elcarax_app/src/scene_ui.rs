@@ -3,6 +3,7 @@ use elcarax_ui::{EditorShellContent, EditorShellIds, LayoutConstraints, UiError,
 
 use crate::asset_display::AssetUiSnapshot;
 use crate::editor_status::editor_status_bar;
+use crate::inspector_display::InspectorUiSnapshot;
 use crate::project_display::ProjectUiSnapshot;
 use crate::scene_display::SceneUiSnapshot;
 
@@ -10,6 +11,7 @@ pub(crate) fn shell_content_from_editor_state(
     project: &ProjectUiSnapshot,
     assets: &AssetUiSnapshot,
     scene: &SceneUiSnapshot,
+    inspector: &InspectorUiSnapshot,
 ) -> EditorShellContent {
     EditorShellContent {
         toolbar_title: project.toolbar_title.clone(),
@@ -29,6 +31,16 @@ pub(crate) fn shell_content_from_editor_state(
         scene_expand_labels: scene.scene_expand_labels.clone(),
         scene_row_labels: scene.scene_row_labels.clone(),
         scene_selected_summary: scene.scene_selected_summary.clone(),
+        inspector_object_name: inspector.object_name.clone(),
+        inspector_object_kind: inspector.object_kind.clone(),
+        inspector_empty_message: if inspector.has_selection {
+            String::new()
+        } else {
+            inspector.empty_message.clone()
+        },
+        inspector_row_labels: inspector.row_labels.clone(),
+        inspector_row_values: inspector.row_values.clone(),
+        inspector_summary: inspector.summary.clone(),
         status: editor_status_bar(project, assets, scene),
     }
 }

@@ -9,8 +9,8 @@ use elcarax_platform::NativeShellSpec;
 use elcarax_project::ProjectFile;
 use elcarax_render::{Rect, RenderScene, RenderStats, batch_scene, text_stats};
 use elcarax_scene_model::{
-    ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
-    SceneObjectKind, SceneSnapshot,
+    ObjectSchema, PropertyGroup, PropertyKind, PropertyPath, PropertySchema, PropertyValue,
+    SceneObject, SceneObjectKind, SceneSnapshot,
 };
 use elcarax_ui::{
     CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey, PaintContext,
@@ -20,6 +20,10 @@ use elcarax_ui::{
 
 use crate::asset_state::{
     ASSET_CLEAR_SELECTION_COMMAND, ASSET_SCAN_DEMO_COMMAND, ASSET_SELECT_FIRST_COMMAND, AssetState,
+};
+use crate::inspector_state::{
+    INSPECTOR_CLEAR_COMMAND, INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND,
+    INSPECTOR_SHOW_SELECTED_COMMAND, InspectorState,
 };
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_NEW_DEMO_COMMAND, PROJECT_VALIDATE_COMMAND, ProjectState,
@@ -40,6 +44,7 @@ pub fn run_console_proof() -> Result<()> {
         position_path.clone(),
         "Position",
         PropertyKind::Vec3,
+        PropertyGroup::new("Transform"),
     ));
     let mut object = SceneObject::new("Player", SceneObjectKind::Character, schema.type_id);
     object.set_property(position_path.clone(), PropertyValue::Vec3([0.0, 1.0, 0.0]));
@@ -138,6 +143,18 @@ pub fn run_console_proof() -> Result<()> {
         proof.scene_clear_selection_executed, proof.scene_cleared_summary
     );
     println!(
+        "inspector_command: show_selected_executed={} summary=\"{}\"",
+        proof.inspector_show_selected_executed, proof.inspector_selected_summary
+    );
+    println!(
+        "inspector_command: property_count={} object=\"{}\"",
+        proof.inspector_property_count, proof.inspector_selected_summary
+    );
+    println!(
+        "inspector_command: clear_executed={} summary=\"{}\"",
+        proof.inspector_clear_executed, proof.inspector_cleared_summary
+    );
+    println!(
         "asset_command: clear_selection_executed={} selected=\"{}\"",
         proof.asset_clear_selection_executed, proof.asset_cleared_summary
     );
@@ -176,6 +193,11 @@ struct ConsoleUiProof {
     scene_collapsed_count: usize,
     scene_selected_summary: String,
     scene_cleared_summary: String,
+    inspector_show_selected_executed: bool,
+    inspector_clear_executed: bool,
+    inspector_property_count: usize,
+    inspector_selected_summary: String,
+    inspector_cleared_summary: String,
 }
 
 fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
@@ -187,10 +209,12 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     let mut project_state = ProjectState::default();
     let mut asset_state = AssetState::default();
     let mut scene_state = SceneState::default();
+    let mut inspector_state = InspectorState::default();
     let initial_content = shell_content_from_editor_state(
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
     );
     let shell = build_editor_shell_with_content(&context, &initial_content).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to build UI shell: {error}"))
@@ -253,6 +277,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -275,6 +300,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -296,6 +322,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -317,6 +344,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -339,6 +367,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -347,6 +376,62 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         ))
     })?;
     let scene_selected_summary = scene_state.ui_snapshot().scene_selected_summary;
+    inspector_state.on_scene_selection_changed();
+
+    let inspector_show_selected_executed = execute_inspector_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        &mut inspector_state,
+        INSPECTOR_SHOW_SELECTED_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply inspector selection to UI: {error}"
+        ))
+    })?;
+    let inspector_selected_summary = inspector_state.ui_snapshot(&scene_state).summary;
+    let inspector_property_count = inspector_state.ui_snapshot(&scene_state).property_count;
+
+    let _inspector_property_count_command = execute_inspector_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        &mut inspector_state,
+        INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND,
+    )?;
+
+    let inspector_clear_executed = execute_inspector_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        &mut inspector_state,
+        INSPECTOR_CLEAR_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply cleared inspector to UI: {error}"
+        ))
+    })?;
+    let inspector_cleared_summary = inspector_state.ui_snapshot(&scene_state).summary;
 
     let scene_expand_all_executed = execute_scene_command_from_palette(
         &registry,
@@ -360,6 +445,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -381,6 +467,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -402,6 +489,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -424,6 +512,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -445,6 +534,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -470,6 +560,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
         bounds,
     )
     .map_err(|error| {
@@ -513,6 +604,11 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         scene_collapsed_count,
         scene_selected_summary,
         scene_cleared_summary,
+        inspector_show_selected_executed,
+        inspector_clear_executed,
+        inspector_property_count,
+        inspector_selected_summary,
+        inspector_cleared_summary,
     })
 }
 
@@ -554,6 +650,21 @@ fn execute_scene_command_from_palette(
         return Ok(false);
     };
     Ok(scene_state.execute_command_id(id.as_str()).is_some())
+}
+
+fn execute_inspector_command_from_palette(
+    registry: &CommandRegistry,
+    palette: &mut CommandPaletteState,
+    scene_state: &mut SceneState,
+    inspector_state: &mut InspectorState,
+    query: &str,
+) -> Result<bool> {
+    let Some(id) = execute_palette_query(registry, palette, query)? else {
+        return Ok(false);
+    };
+    Ok(inspector_state
+        .execute_command_id(id.as_str(), scene_state)
+        .is_some())
 }
 
 fn execute_palette_query(

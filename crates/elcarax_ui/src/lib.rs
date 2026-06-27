@@ -14,6 +14,7 @@ pub type WidgetId = Id<WidgetMarker>;
 
 pub const MAX_VISIBLE_ASSET_ROWS: usize = 8;
 pub const MAX_VISIBLE_SCENE_ROWS: usize = 12;
+pub const MAX_VISIBLE_INSPECTOR_ROWS: usize = 14;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirtyFlags(u32);
@@ -940,6 +941,32 @@ impl UiTree {
         Ok(())
     }
 
+    pub fn set_sized_label_text(
+        &mut self,
+        id: WidgetId,
+        text: impl Into<String>,
+        row_height: f32,
+    ) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        let text = text.into();
+        let visible = !text.is_empty();
+        node.kind = WidgetKind::Label(text);
+        node.layout.height = if visible {
+            SizePolicy::Fixed(row_height)
+        } else {
+            SizePolicy::Fixed(0.0)
+        };
+        node.interaction.disabled = !visible;
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
     pub fn set_button_text(
         &mut self,
         id: WidgetId,
@@ -1353,6 +1380,12 @@ pub struct EditorShellIds {
     pub scene_expand_rows: [WidgetId; MAX_VISIBLE_SCENE_ROWS],
     pub scene_rows: [WidgetId; MAX_VISIBLE_SCENE_ROWS],
     pub scene_selected_summary: WidgetId,
+    pub inspector_object_name: WidgetId,
+    pub inspector_object_kind: WidgetId,
+    pub inspector_empty_message: WidgetId,
+    pub inspector_row_labels: [WidgetId; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub inspector_row_values: [WidgetId; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub inspector_summary: WidgetId,
     pub status_label: WidgetId,
 }
 
@@ -1375,10 +1408,20 @@ pub struct EditorShellContent {
     pub scene_expand_labels: [String; MAX_VISIBLE_SCENE_ROWS],
     pub scene_row_labels: [String; MAX_VISIBLE_SCENE_ROWS],
     pub scene_selected_summary: String,
+    pub inspector_object_name: String,
+    pub inspector_object_kind: String,
+    pub inspector_empty_message: String,
+    pub inspector_row_labels: [String; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub inspector_row_values: [String; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub inspector_summary: String,
     pub status: String,
 }
 
 fn empty_scene_row_labels() -> [String; MAX_VISIBLE_SCENE_ROWS] {
+    std::array::from_fn(|_| String::new())
+}
+
+fn empty_inspector_row_labels() -> [String; MAX_VISIBLE_INSPECTOR_ROWS] {
     std::array::from_fn(|_| String::new())
 }
 
@@ -1406,6 +1449,12 @@ impl EditorShellContent {
             scene_expand_labels: empty_scene_row_labels(),
             scene_row_labels: empty_scene_row_labels(),
             scene_selected_summary: "Selected: None".to_string(),
+            inspector_object_name: String::new(),
+            inspector_object_kind: String::new(),
+            inspector_empty_message: "No object selected".to_string(),
+            inspector_row_labels: empty_inspector_row_labels(),
+            inspector_row_values: empty_inspector_row_labels(),
+            inspector_summary: String::new(),
             status: "Project: None".to_string(),
         }
     }
@@ -1501,6 +1550,38 @@ pub fn build_editor_shell_with_content(
     let scene_row_10 = WidgetId::new(59).ok_or(UiError::MissingRoot)?;
     let scene_row_11 = WidgetId::new(60).ok_or(UiError::MissingRoot)?;
     let scene_selected_summary = WidgetId::new(61).ok_or(UiError::MissingRoot)?;
+    let inspector_object_name = WidgetId::new(62).ok_or(UiError::MissingRoot)?;
+    let inspector_object_kind = WidgetId::new(63).ok_or(UiError::MissingRoot)?;
+    let inspector_empty_message = WidgetId::new(64).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_0 = WidgetId::new(65).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_1 = WidgetId::new(66).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_2 = WidgetId::new(67).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_3 = WidgetId::new(68).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_4 = WidgetId::new(69).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_5 = WidgetId::new(70).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_6 = WidgetId::new(71).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_7 = WidgetId::new(72).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_8 = WidgetId::new(73).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_9 = WidgetId::new(74).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_10 = WidgetId::new(75).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_11 = WidgetId::new(76).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_12 = WidgetId::new(77).ok_or(UiError::MissingRoot)?;
+    let inspector_row_label_13 = WidgetId::new(78).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_0 = WidgetId::new(79).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_1 = WidgetId::new(80).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_2 = WidgetId::new(81).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_3 = WidgetId::new(82).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_4 = WidgetId::new(83).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_5 = WidgetId::new(84).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_6 = WidgetId::new(85).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_7 = WidgetId::new(86).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_8 = WidgetId::new(87).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_9 = WidgetId::new(88).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_10 = WidgetId::new(89).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_11 = WidgetId::new(90).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_12 = WidgetId::new(91).ok_or(UiError::MissingRoot)?;
+    let inspector_row_value_13 = WidgetId::new(92).ok_or(UiError::MissingRoot)?;
+    let inspector_summary = WidgetId::new(93).ok_or(UiError::MissingRoot)?;
     let scene_expand_rows = [
         scene_expand_0,
         scene_expand_1,
@@ -1528,6 +1609,38 @@ pub fn build_editor_shell_with_content(
         scene_row_9,
         scene_row_10,
         scene_row_11,
+    ];
+    let inspector_row_labels = [
+        inspector_row_label_0,
+        inspector_row_label_1,
+        inspector_row_label_2,
+        inspector_row_label_3,
+        inspector_row_label_4,
+        inspector_row_label_5,
+        inspector_row_label_6,
+        inspector_row_label_7,
+        inspector_row_label_8,
+        inspector_row_label_9,
+        inspector_row_label_10,
+        inspector_row_label_11,
+        inspector_row_label_12,
+        inspector_row_label_13,
+    ];
+    let inspector_row_values = [
+        inspector_row_value_0,
+        inspector_row_value_1,
+        inspector_row_value_2,
+        inspector_row_value_3,
+        inspector_row_value_4,
+        inspector_row_value_5,
+        inspector_row_value_6,
+        inspector_row_value_7,
+        inspector_row_value_8,
+        inspector_row_value_9,
+        inspector_row_value_10,
+        inspector_row_value_11,
+        inspector_row_value_12,
+        inspector_row_value_13,
     ];
 
     tree.set_root(UiNode::new(
@@ -1860,6 +1973,85 @@ pub fn build_editor_shell_with_content(
         ),
     )?;
     tree.insert_child(
+        inspector,
+        UiNode::new(
+            inspector_object_name,
+            WidgetKind::Label(content.inspector_object_name.clone()),
+            UiStyle::LABEL,
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        inspector,
+        UiNode::new(
+            inspector_object_kind,
+            WidgetKind::Label(content.inspector_object_kind.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        inspector,
+        UiNode::new(
+            inspector_empty_message,
+            WidgetKind::Label(content.inspector_empty_message.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    for index in 0..MAX_VISIBLE_INSPECTOR_ROWS {
+        let has_row = !content.inspector_row_labels[index].is_empty();
+        tree.insert_child(
+            inspector,
+            UiNode::new(
+                inspector_row_labels[index],
+                if has_row {
+                    WidgetKind::Label(content.inspector_row_labels[index].clone())
+                } else {
+                    WidgetKind::Label(String::new())
+                },
+                UiStyle::LABEL,
+                LayoutNode::leaf().with_height(if has_row {
+                    SizePolicy::Fixed(20.0)
+                } else {
+                    SizePolicy::Fixed(0.0)
+                }),
+            ),
+        )?;
+        if !has_row {
+            tree.set_disabled(inspector_row_labels[index], true)?;
+        }
+        tree.insert_child(
+            inspector,
+            UiNode::new(
+                inspector_row_values[index],
+                if has_row {
+                    WidgetKind::Label(content.inspector_row_values[index].clone())
+                } else {
+                    WidgetKind::Label(String::new())
+                },
+                UiStyle::LABEL.muted_text(),
+                LayoutNode::leaf().with_height(if has_row {
+                    SizePolicy::Fixed(20.0)
+                } else {
+                    SizePolicy::Fixed(0.0)
+                }),
+            ),
+        )?;
+        if !has_row {
+            tree.set_disabled(inspector_row_values[index], true)?;
+        }
+    }
+    tree.insert_child(
+        inspector,
+        UiNode::new(
+            inspector_summary,
+            WidgetKind::Label(content.inspector_summary.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
         status,
         UiNode::new(
             status_label,
@@ -1892,6 +2084,12 @@ pub fn build_editor_shell_with_content(
             scene_expand_rows,
             scene_rows,
             scene_selected_summary,
+            inspector_object_name,
+            inspector_object_kind,
+            inspector_empty_message,
+            inspector_row_labels,
+            inspector_row_values,
+            inspector_summary,
             status_label,
         },
     })
@@ -3172,6 +3370,56 @@ mod tests {
         assert!(texts.contains(
             &"Project: Demo Project | Asset: cube.glb | Scene: Demo Scene | Object: Player"
         ));
+    }
+
+    #[test]
+    fn inspector_empty_state_paints_no_object_selected() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            inspector_empty_message: "No object selected".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"No object selected"));
+    }
+
+    #[test]
+    fn selected_player_inspector_paints_name_kind_and_properties() {
+        let theme = Theme::editor_dark();
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        let mut row_values = std::array::from_fn(|_| String::new());
+        row_labels[0] = "Gameplay".to_string();
+        row_labels[1] = "Health".to_string();
+        row_values[1] = "100".to_string();
+        row_labels[2] = "Speed".to_string();
+        row_values[2] = "6.50".to_string();
+        row_labels[3] = "Transform".to_string();
+        row_labels[4] = "Position".to_string();
+        row_values[4] = "0.00, 1.00, 0.00".to_string();
+        let content = EditorShellContent {
+            inspector_object_name: "Player".to_string(),
+            inspector_object_kind: "Kind: Character".to_string(),
+            inspector_row_labels: row_labels,
+            inspector_row_values: row_values,
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Player"));
+        assert!(texts.contains(&"Kind: Character"));
+        assert!(texts.contains(&"Health"));
+        assert!(texts.contains(&"100"));
+        assert!(texts.contains(&"6.50"));
+        assert!(texts.contains(&"0.00, 1.00, 0.00"));
     }
 
     fn palette_entries() -> Vec<CommandPaletteEntry> {

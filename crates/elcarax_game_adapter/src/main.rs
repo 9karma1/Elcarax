@@ -4,8 +4,8 @@ use elcarax_adapter_api::{
 use elcarax_adapter_sdk::ElcaraxAdapter;
 use elcarax_core::{Diagnostic, DiagnosticSource, ElcaraxError, Result};
 use elcarax_scene_model::{
-    ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
-    SceneObjectKind, SceneSnapshot,
+    ObjectSchema, PropertyGroup, PropertyKind, PropertyPath, PropertySchema, PropertyValue,
+    SceneObject, SceneObjectKind, SceneSnapshot,
 };
 
 struct MockGameAdapter {
@@ -21,11 +21,13 @@ impl MockGameAdapter {
                 position_path.clone(),
                 "Position",
                 PropertyKind::Vec3,
+                PropertyGroup::new("Transform"),
             ))
             .with_property(PropertySchema::editable(
                 name_path.clone(),
                 "Name",
                 PropertyKind::String,
+                PropertyGroup::new("General"),
             ));
         let mut object = SceneObject::new("Player", SceneObjectKind::Character, schema.type_id);
         object.set_property(position_path, PropertyValue::Vec3([0.0, 1.0, 0.0]));

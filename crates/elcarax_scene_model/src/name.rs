@@ -1,20 +1,19 @@
-use crate::error::SceneError;
+use elcarax_core::{ElcaraxError, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SceneName(String);
 
 impl SceneName {
-    pub fn new(value: impl Into<String>) -> Result<Self, SceneError> {
-        let value = value.into();
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return Err(SceneError::EmptySceneName);
-        }
-        Ok(Self(trimmed.to_owned()))
-    }
-
     pub fn from_unvalidated(value: impl Into<String>) -> Self {
         Self(value.into())
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(ElcaraxError::invalid_input("scene name cannot be empty"));
+        }
+        Ok(Self(trimmed.to_string()))
     }
 
     pub fn as_str(&self) -> &str {
@@ -22,21 +21,43 @@ impl SceneName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SceneObjectName(String);
 
 impl SceneObjectName {
-    pub fn new(value: impl Into<String>) -> Result<Self, SceneError> {
-        let value = value.into();
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return Err(SceneError::EmptyObjectName);
-        }
-        Ok(Self(trimmed.to_owned()))
-    }
-
     pub fn from_unvalidated(value: impl Into<String>) -> Self {
         Self(value.into())
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(ElcaraxError::invalid_input(
+                "scene object name cannot be empty",
+            ));
+        }
+        Ok(Self(trimmed.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PropertyName(String);
+
+impl PropertyName {
+    pub fn from_unvalidated(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(ElcaraxError::invalid_input("property name cannot be empty"));
+        }
+        Ok(Self(trimmed.to_string()))
     }
 
     pub fn as_str(&self) -> &str {
