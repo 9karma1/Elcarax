@@ -42,7 +42,9 @@ After loading a demo project, `asset.scan_demo`, `asset.select_first`, `asset.cl
 
 `scene.load_demo`, `scene.select_player`, `scene.expand_all`, `scene.collapse_all`, `scene.clear_selection`, and `scene.show_selected` should update the scene tree, selected summary, expand markers, and status bar. Scene row and expand buttons in the project panel should be clickable in the native shell.
 
-The console proof runs `project.new_demo`, asset scan/select commands, scene load/select/expand/collapse/clear commands, and prints asset and scene summary lines.
+`inspector.show_selected`, `inspector.inspect_player`, `inspector.clear`, and `inspector.show_property_count` should update the right inspector panel with read-only grouped property rows derived from scene selection.
+
+The console proof runs `project.new_demo`, asset scan/select commands, scene load/select commands, inspector show/clear commands, and prints asset, scene, and inspector summary lines.
 
 CI should compile the native-shell feature but should not require opening a desktop window.
 
@@ -64,7 +66,7 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_text` owns `cosmic-text` shaping, layout cache, and system-font rasterization.
 - `elcarax_render` owns editor render primitives, batching, render stats, and GPU draw submission.
 - `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, command palette state/painting, dirty flags, theme/style resolution, and paint output.
-- `elcarax_app` owns app-level project, asset, and scene state composition and pushes display text into the UI tree.
+- `elcarax_app` owns app-level project, asset, scene, and inspector state composition and pushes display text into the UI tree.
 
 ## Current Exclusions
 

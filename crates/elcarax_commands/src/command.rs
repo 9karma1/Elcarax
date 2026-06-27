@@ -75,6 +75,7 @@ pub enum CommandCategory {
     Project,
     Asset,
     Scene,
+    Inspector,
     Status,
     Demo,
 }
@@ -86,6 +87,7 @@ impl CommandCategory {
             Self::Project => "Project",
             Self::Asset => "Asset",
             Self::Scene => "Scene",
+            Self::Inspector => "Inspector",
             Self::Status => "Status",
             Self::Demo => "Demo",
         }
@@ -349,6 +351,36 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Scene,
         )?,
         registered(
+            "inspector.show_selected",
+            "Show Selected Inspector",
+            "Build inspector rows from the current scene selection",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "inspector.clear",
+            "Clear Inspector",
+            "Clear the inspector view",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "inspector.inspect_player",
+            "Inspect Player",
+            "Select and inspect the Player object",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "inspector.inspect_root",
+            "Inspect Root Object",
+            "Select and inspect the root scene object",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "inspector.show_property_count",
+            "Show Inspector Property Count",
+            "Report the visible inspector property count",
+            CommandCategory::Inspector,
+        )?,
+        registered(
             "elcarax.status.show_renderer_stats",
             "Show Renderer Stats",
             "Show current primitive, text, and glyph counts",
@@ -496,6 +528,11 @@ mod tests {
                 "scene.expand_all",
                 "scene.collapse_all",
                 "scene.show_selected",
+                "inspector.show_selected",
+                "inspector.clear",
+                "inspector.inspect_player",
+                "inspector.inspect_root",
+                "inspector.show_property_count",
                 "elcarax.status.show_renderer_stats",
                 "elcarax.status.show_ready",
                 "elcarax.demo.run"
@@ -534,6 +571,22 @@ mod tests {
         assert!(ids.contains(&"scene.load_demo"));
         assert!(ids.contains(&"scene.select_player"));
         assert!(ids.contains(&"scene.expand_all"));
+    }
+
+    #[test]
+    fn inspector_commands_are_discoverable() {
+        let registry = match built_in_commands() {
+            Ok(registry) => registry,
+            Err(error) => panic!("built-ins should register: {error}"),
+        };
+        let matches = registry.filter("inspector");
+        let ids: Vec<_> = matches
+            .into_iter()
+            .map(|command| command.id().as_str())
+            .collect();
+        assert!(ids.contains(&"inspector.show_selected"));
+        assert!(ids.contains(&"inspector.inspect_player"));
+        assert!(ids.contains(&"inspector.show_property_count"));
     }
 
     #[test]

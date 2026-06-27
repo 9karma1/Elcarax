@@ -20,6 +20,7 @@ use elcarax_ui::{
 
 use crate::asset_state::AssetState;
 use crate::asset_ui::asset_row_index_for_widget;
+use crate::inspector_state::InspectorState;
 use crate::project_state::ProjectState;
 use crate::project_ui::apply_editor_snapshot;
 use crate::scene_state::SceneState;
@@ -58,6 +59,7 @@ struct UiState {
     project_state: ProjectState,
     asset_state: AssetState,
     scene_state: SceneState,
+    inspector_state: InspectorState,
     bounds: Rect,
 }
 
@@ -212,10 +214,12 @@ fn build_ui_state(
     let project_state = ProjectState::default();
     let asset_state = AssetState::default();
     let scene_state = SceneState::default();
+    let inspector_state = InspectorState::default();
     let content = shell_content_from_editor_state(
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
     );
     let shell = build_editor_shell_with_content(&context, &content)
         .map_err(|error| NativeAppError::Window(format!("failed to build UI shell: {error}")))?;
@@ -235,6 +239,7 @@ fn build_ui_state(
         project_state,
         asset_state,
         scene_state,
+        inspector_state,
         bounds,
     };
     repaint_ui_scene(&mut ui)?;
@@ -379,6 +384,15 @@ fn apply_command_invocation(
         .execute_command_id(invocation.id.as_str())
         .is_some()
     {
+        ui.inspector_state.on_scene_selection_changed();
+        apply_editor_snapshot_to_ui(ui)?;
+        return Ok(());
+    }
+    if ui
+        .inspector_state
+        .execute_command_id(invocation.id.as_str(), &mut ui.scene_state)
+        .is_some()
+    {
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
@@ -477,6 +491,7 @@ fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), Nati
         &ui.project_state.ui_snapshot(),
         &ui.asset_state.ui_snapshot(),
         &ui.scene_state.ui_snapshot(),
+        &ui.inspector_state.ui_snapshot(&ui.scene_state),
         ui.bounds,
     )
     .map_err(|error| NativeAppError::Window(format!("failed to update editor UI: {error}")))
@@ -516,6 +531,7 @@ fn apply_ui_events(
             if let Some(object_id) = object_id
                 && ui.scene_state.select_object(object_id)
             {
+                ui.inspector_state.on_scene_selection_changed();
                 apply_editor_snapshot_to_ui(ui)?;
                 changed = true;
             }

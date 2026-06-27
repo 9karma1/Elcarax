@@ -19,6 +19,7 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - project-domain model, recent project list, validation diagnostics, and project commands
 - asset browser foundation with demo asset index, scan/selection commands, and clickable asset rows
 - scene tree foundation with engine-neutral scene model, demo snapshot, hierarchy display, selection/expand state, and scene commands
+- read-only inspector foundation with property formatting, grouped rows, selection-driven updates, and inspector commands
 - project, asset, accessibility placeholder, and devtools modules
 - architecture decision records and milestone documentation
 
@@ -66,7 +67,7 @@ Default console proof flow:
 cargo run -p elcarax_app
 ```
 
-The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project/asset/scene commands, updates editor UI state, and prints project, asset, scene, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, and command palette proof output.
+The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project/asset/scene/inspector commands, updates editor UI state, and prints project, asset, scene, inspector, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, and command palette proof output.
 
 Manual native shell smoke test:
 
@@ -85,7 +86,9 @@ Suggested manual flow:
 5. Confirm the left panel shows demo assets and the demo scene hierarchy
 6. Select `Player` via `scene.select_player` or by clicking the row
 7. Confirm the selected row highlights and the status bar reports the selected object
-8. Run `scene.expand_all` and `scene.collapse_all`
+8. Confirm the right inspector shows Player read-only properties
+9. Run `inspector.clear` and confirm the inspector returns to the empty state
+10. Run `scene.expand_all` and `scene.collapse_all`
 
 The command palette shows eight rows at a time; filter with query text to reach scene commands below the asset section. Clicking the toolbar `Run` button updates the status text to `Status: Run clicked`.
 
@@ -119,8 +122,9 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 7: project system UI
 - Milestone 8: asset browser foundation
 - Milestone 9: scene tree foundation
+- Milestone 10: read-only inspector foundation
 
 See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 
-- `docs/MILESTONE_8_ASSET_BROWSER_FOUNDATION.md`
 - `docs/MILESTONE_9_SCENE_TREE_FOUNDATION.md`
+- `docs/MILESTONE_10_READ_ONLY_INSPECTOR.md`

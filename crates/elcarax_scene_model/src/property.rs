@@ -21,6 +21,23 @@ impl PropertyPath {
         Ok(Self(parts))
     }
 
+    pub fn from_static_segments(segments: &[&str]) -> Result<Self> {
+        if segments.is_empty() {
+            return Err(ElcaraxError::invalid_input("property path cannot be empty"));
+        }
+        let joined = segments.join(".");
+        Self::parse(&joined)
+    }
+
+    pub(crate) fn demo_from_segments(segments: &[&str]) -> Self {
+        Self(
+            segments
+                .iter()
+                .map(|segment| (*segment).to_string())
+                .collect(),
+        )
+    }
+
     pub fn parts(&self) -> &[String] {
         &self.0
     }
@@ -44,10 +61,18 @@ pub enum PropertyValue {
     Enum { variant: String },
     AssetRef(String),
     ObjectRef(u64),
+    Unknown,
     List(Vec<PropertyValue>),
 }
 
 impl PropertyValue {
+    pub fn format_display(&self, snapshot: &crate::snapshot::SceneSnapshot) -> String {
+        crate::property_display::format_property_value(
+            self,
+            crate::property_display::PropertyFormatContext { snapshot },
+        )
+    }
+
     pub fn display_label(&self) -> String {
         match self {
             Self::Bool(value) => value.to_string(),
@@ -64,6 +89,7 @@ impl PropertyValue {
             Self::AssetRef(value) => value.clone(),
             Self::ObjectRef(value) => value.to_string(),
             Self::List(values) => format!("{} item(s)", values.len()),
+            Self::Unknown => "<unsupported>".to_string(),
         }
     }
 }
@@ -71,6 +97,8 @@ impl PropertyValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::property_display::{PropertyFormatContext, format_property_value};
+    use crate::snapshot::SceneSnapshot;
 
     #[test]
     fn property_path_rejects_empty_input() {
@@ -82,5 +110,17 @@ mod tests {
         let path = PropertyPath::parse("transform.position.x")?;
         assert_eq!(path.to_string(), "transform.position.x");
         Ok(())
+    }
+
+    #[test]
+    fn property_value_formatting_covers_string_kind() {
+        let snapshot = SceneSnapshot::empty();
+        let context = PropertyFormatContext {
+            snapshot: &snapshot,
+        };
+        assert_eq!(
+            format_property_value(&PropertyValue::String("demo".to_string()), context),
+            "demo"
+        );
     }
 }

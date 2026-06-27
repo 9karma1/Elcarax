@@ -1,6 +1,7 @@
 use elcarax_core::{Id, IdGenerator};
 
 use crate::PropertyPath;
+use crate::property_display::PropertyGroup;
 
 pub enum ObjectTypeMarker {}
 pub type ObjectTypeId = Id<ObjectTypeMarker>;
@@ -25,19 +26,37 @@ pub struct PropertySchema {
     pub path: PropertyPath,
     pub display_name: String,
     pub kind: PropertyKind,
+    pub group: PropertyGroup,
     pub read_only: bool,
 }
 
 impl PropertySchema {
-    pub fn editable(
+    pub fn read_only(
         path: PropertyPath,
         display_name: impl Into<String>,
         kind: PropertyKind,
+        group: PropertyGroup,
     ) -> Self {
         Self {
             path,
             display_name: display_name.into(),
             kind,
+            group,
+            read_only: true,
+        }
+    }
+
+    pub fn editable(
+        path: PropertyPath,
+        display_name: impl Into<String>,
+        kind: PropertyKind,
+        group: PropertyGroup,
+    ) -> Self {
+        Self {
+            path,
+            display_name: display_name.into(),
+            kind,
+            group,
             read_only: false,
         }
     }
