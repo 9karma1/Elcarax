@@ -1,3 +1,6 @@
+mod asset_display;
+mod asset_state;
+mod asset_ui;
 #[cfg(not(feature = "native-shell"))]
 mod console;
 #[cfg(feature = "native-shell")]

@@ -58,7 +58,8 @@ jobs:
             crates/elcarax_scene_model \
             crates/elcarax_commands \
             crates/elcarax_adapter_api \
-            crates/elcarax_project
+            crates/elcarax_project \
+            crates/elcarax_assets
 
       - name: Guard crates against unfinished shortcuts
         run: '! rg "unwrap\(|todo!\(" crates -n'

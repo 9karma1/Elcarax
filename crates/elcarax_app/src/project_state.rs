@@ -39,6 +39,10 @@ impl ProjectState {
         )
     }
 
+    pub(crate) fn is_project_loaded(&self) -> bool {
+        self.current_project.is_some()
+    }
+
     fn create_new_demo_project(&mut self) -> ProjectCommandResult {
         let project = Project::demo();
         self.validation = project.validate();

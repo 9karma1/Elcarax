@@ -18,10 +18,13 @@ use elcarax_ui::{
     build_editor_shell_with_content,
 };
 
+use crate::asset_state::{
+    ASSET_CLEAR_SELECTION_COMMAND, ASSET_SCAN_DEMO_COMMAND, ASSET_SELECT_FIRST_COMMAND, AssetState,
+};
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_NEW_DEMO_COMMAND, PROJECT_VALIDATE_COMMAND, ProjectState,
 };
-use crate::project_ui::{apply_project_snapshot, shell_content_from_project};
+use crate::project_ui::{apply_editor_snapshot, shell_content_from_editor_state};
 
 pub fn run_console_proof() -> Result<()> {
     let shell = NativeShellSpec::default_editor();
@@ -100,6 +103,19 @@ pub fn run_console_proof() -> Result<()> {
         "project_command: close_executed={} status=\"{}\"",
         proof.project_close_executed, proof.project_closed_status
     );
+    println!(
+        "asset_command: scan_demo_executed={} count={}",
+        proof.asset_scan_demo_executed, proof.asset_count
+    );
+    println!("asset_kinds: {}", proof.asset_kinds_summary);
+    println!(
+        "asset_command: select_first_executed={} selected=\"{}\"",
+        proof.asset_select_first_executed, proof.asset_selected_summary
+    );
+    println!(
+        "asset_command: clear_selection_executed={} selected=\"{}\"",
+        proof.asset_clear_selection_executed, proof.asset_cleared_summary
+    );
     Ok(())
 }
 
@@ -118,6 +134,13 @@ struct ConsoleUiProof {
     project_new_demo_executed: bool,
     project_validate_executed: bool,
     project_close_executed: bool,
+    asset_scan_demo_executed: bool,
+    asset_select_first_executed: bool,
+    asset_clear_selection_executed: bool,
+    asset_count: usize,
+    asset_kinds_summary: String,
+    asset_selected_summary: String,
+    asset_cleared_summary: String,
 }
 
 fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
@@ -127,7 +150,9 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         Rect::new(0.0, 0.0, shell.width as f32, shell.height as f32),
     );
     let mut project_state = ProjectState::default();
-    let initial_content = shell_content_from_project(&project_state.ui_snapshot());
+    let mut asset_state = AssetState::default();
+    let initial_content =
+        shell_content_from_editor_state(&project_state.ui_snapshot(), &asset_state.ui_snapshot());
     let shell = build_editor_shell_with_content(&context, &initial_content).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to build UI shell: {error}"))
     })?;
@@ -183,14 +208,81 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &mut project_state,
         PROJECT_NEW_DEMO_COMMAND,
     )?;
-    apply_project_snapshot(&mut tree, shell.ids, &project_state.ui_snapshot(), bounds).map_err(
-        |error| {
-            elcarax_core::ElcaraxError::Internal(format!(
-                "failed to apply project state to UI: {error}"
-            ))
-        },
-    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply project state to UI: {error}"
+        ))
+    })?;
     let project_loaded_status = project_state.ui_snapshot().status;
+
+    let asset_scan_demo_executed = execute_asset_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut project_state,
+        &mut asset_state,
+        ASSET_SCAN_DEMO_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to apply asset scan to UI: {error}"))
+    })?;
+    let asset_count = asset_state.index().len();
+    let asset_kinds_summary = asset_state.kind_summary();
+
+    let asset_select_first_executed = execute_asset_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut project_state,
+        &mut asset_state,
+        ASSET_SELECT_FIRST_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply asset selection to UI: {error}"
+        ))
+    })?;
+    let asset_selected_summary = asset_state.ui_snapshot().asset_selected_summary;
+
+    let asset_clear_selection_executed = execute_asset_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut project_state,
+        &mut asset_state,
+        ASSET_CLEAR_SELECTION_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply cleared asset selection to UI: {error}"
+        ))
+    })?;
+    let asset_cleared_summary = asset_state.ui_snapshot().asset_selected_summary;
 
     let project_validate_executed = execute_project_command_from_palette(
         &registry,
@@ -198,13 +290,18 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &mut project_state,
         PROJECT_VALIDATE_COMMAND,
     )?;
-    apply_project_snapshot(&mut tree, shell.ids, &project_state.ui_snapshot(), bounds).map_err(
-        |error| {
-            elcarax_core::ElcaraxError::Internal(format!(
-                "failed to apply project validation to UI: {error}"
-            ))
-        },
-    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply project validation to UI: {error}"
+        ))
+    })?;
     let project_validation_summary = project_state
         .ui_snapshot()
         .project_diagnostics
@@ -217,13 +314,18 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         &mut project_state,
         PROJECT_CLOSE_COMMAND,
     )?;
-    apply_project_snapshot(&mut tree, shell.ids, &project_state.ui_snapshot(), bounds).map_err(
-        |error| {
-            elcarax_core::ElcaraxError::Internal(format!(
-                "failed to apply closed project state to UI: {error}"
-            ))
-        },
-    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply closed project state to UI: {error}"
+        ))
+    })?;
     let project_closed_status = project_state.ui_snapshot().status;
     let scene = tree.paint(&PaintContext::new(theme)).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to paint UI shell: {error}"))
@@ -243,6 +345,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         project_new_demo_executed,
         project_validate_executed,
         project_close_executed,
+        asset_scan_demo_executed,
+        asset_select_first_executed,
+        asset_clear_selection_executed,
+        asset_count,
+        asset_kinds_summary,
+        asset_selected_summary,
+        asset_cleared_summary,
     })
 }
 
@@ -256,6 +365,22 @@ fn execute_project_command_from_palette(
         return Ok(false);
     };
     Ok(project_state.execute_command_id(id.as_str()).is_some())
+}
+
+fn execute_asset_command_from_palette(
+    registry: &CommandRegistry,
+    palette: &mut CommandPaletteState,
+    project_state: &ProjectState,
+    asset_state: &mut AssetState,
+    query: &str,
+) -> Result<bool> {
+    let Some(id) = execute_palette_query(registry, palette, query)? else {
+        return Ok(false);
+    };
+    let project_loaded = project_state.is_project_loaded();
+    Ok(asset_state
+        .execute_command_id(id.as_str(), project_loaded)
+        .is_some())
 }
 
 fn execute_palette_query(

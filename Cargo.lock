@@ -438,6 +438,7 @@ name = "elcarax_app"
 version = "0.1.0"
 dependencies = [
  "elcarax_adapter_api",
+ "elcarax_assets",
  "elcarax_commands",
  "elcarax_core",
  "elcarax_devtools",
