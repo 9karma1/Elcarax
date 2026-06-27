@@ -13,6 +13,7 @@ pub enum WidgetMarker {}
 pub type WidgetId = Id<WidgetMarker>;
 
 pub const MAX_VISIBLE_ASSET_ROWS: usize = 8;
+pub const MAX_VISIBLE_SCENE_ROWS: usize = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirtyFlags(u32);
@@ -970,6 +971,42 @@ impl UiTree {
         Ok(())
     }
 
+    pub fn set_icon_button_text(
+        &mut self,
+        id: WidgetId,
+        text: impl Into<String>,
+    ) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        let text = text.into();
+        let has_label = !text.is_empty();
+        node.kind = if has_label {
+            WidgetKind::IconButton(text)
+        } else {
+            WidgetKind::Label(String::new())
+        };
+        node.layout.height = if has_label {
+            SizePolicy::Fixed(24.0)
+        } else {
+            SizePolicy::Fixed(0.0)
+        };
+        node.layout.width = if has_label {
+            SizePolicy::Fixed(24.0)
+        } else {
+            SizePolicy::Fixed(0.0)
+        };
+        node.interaction.disabled = !has_label;
+        node.interaction.interactive = has_label;
+        node.interaction.focusable = has_label;
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
     pub fn set_text_role(&mut self, id: WidgetId, role: TextRole) -> Result<(), UiError> {
         let Some(node) = self.nodes.get_mut(&id) else {
             return Err(UiError::MissingNode(id));
@@ -1311,6 +1348,11 @@ pub struct EditorShellIds {
     pub asset_count: WidgetId,
     pub asset_rows: [WidgetId; MAX_VISIBLE_ASSET_ROWS],
     pub asset_selected_summary: WidgetId,
+    pub scene_section_title: WidgetId,
+    pub scene_name: WidgetId,
+    pub scene_expand_rows: [WidgetId; MAX_VISIBLE_SCENE_ROWS],
+    pub scene_rows: [WidgetId; MAX_VISIBLE_SCENE_ROWS],
+    pub scene_selected_summary: WidgetId,
     pub status_label: WidgetId,
 }
 
@@ -1328,7 +1370,16 @@ pub struct EditorShellContent {
     pub asset_count: String,
     pub asset_row_labels: [String; MAX_VISIBLE_ASSET_ROWS],
     pub asset_selected_summary: String,
+    pub scene_section_title: String,
+    pub scene_name: String,
+    pub scene_expand_labels: [String; MAX_VISIBLE_SCENE_ROWS],
+    pub scene_row_labels: [String; MAX_VISIBLE_SCENE_ROWS],
+    pub scene_selected_summary: String,
     pub status: String,
+}
+
+fn empty_scene_row_labels() -> [String; MAX_VISIBLE_SCENE_ROWS] {
+    std::array::from_fn(|_| String::new())
 }
 
 fn empty_asset_row_labels() -> [String; MAX_VISIBLE_ASSET_ROWS] {
@@ -1350,6 +1401,11 @@ impl EditorShellContent {
             asset_count: "Assets: 0".to_string(),
             asset_row_labels: empty_asset_row_labels(),
             asset_selected_summary: "Selected: None".to_string(),
+            scene_section_title: "Scene".to_string(),
+            scene_name: "No scene".to_string(),
+            scene_expand_labels: empty_scene_row_labels(),
+            scene_row_labels: empty_scene_row_labels(),
+            scene_selected_summary: "Selected: None".to_string(),
             status: "Project: None".to_string(),
         }
     }
@@ -1417,6 +1473,61 @@ pub fn build_editor_shell_with_content(
         asset_row_5,
         asset_row_6,
         asset_row_7,
+    ];
+    let scene_section_title = WidgetId::new(35).ok_or(UiError::MissingRoot)?;
+    let scene_name = WidgetId::new(36).ok_or(UiError::MissingRoot)?;
+    let scene_expand_0 = WidgetId::new(37).ok_or(UiError::MissingRoot)?;
+    let scene_expand_1 = WidgetId::new(38).ok_or(UiError::MissingRoot)?;
+    let scene_expand_2 = WidgetId::new(39).ok_or(UiError::MissingRoot)?;
+    let scene_expand_3 = WidgetId::new(40).ok_or(UiError::MissingRoot)?;
+    let scene_expand_4 = WidgetId::new(41).ok_or(UiError::MissingRoot)?;
+    let scene_expand_5 = WidgetId::new(42).ok_or(UiError::MissingRoot)?;
+    let scene_expand_6 = WidgetId::new(43).ok_or(UiError::MissingRoot)?;
+    let scene_expand_7 = WidgetId::new(44).ok_or(UiError::MissingRoot)?;
+    let scene_expand_8 = WidgetId::new(45).ok_or(UiError::MissingRoot)?;
+    let scene_expand_9 = WidgetId::new(46).ok_or(UiError::MissingRoot)?;
+    let scene_expand_10 = WidgetId::new(47).ok_or(UiError::MissingRoot)?;
+    let scene_expand_11 = WidgetId::new(48).ok_or(UiError::MissingRoot)?;
+    let scene_row_0 = WidgetId::new(49).ok_or(UiError::MissingRoot)?;
+    let scene_row_1 = WidgetId::new(50).ok_or(UiError::MissingRoot)?;
+    let scene_row_2 = WidgetId::new(51).ok_or(UiError::MissingRoot)?;
+    let scene_row_3 = WidgetId::new(52).ok_or(UiError::MissingRoot)?;
+    let scene_row_4 = WidgetId::new(53).ok_or(UiError::MissingRoot)?;
+    let scene_row_5 = WidgetId::new(54).ok_or(UiError::MissingRoot)?;
+    let scene_row_6 = WidgetId::new(55).ok_or(UiError::MissingRoot)?;
+    let scene_row_7 = WidgetId::new(56).ok_or(UiError::MissingRoot)?;
+    let scene_row_8 = WidgetId::new(57).ok_or(UiError::MissingRoot)?;
+    let scene_row_9 = WidgetId::new(58).ok_or(UiError::MissingRoot)?;
+    let scene_row_10 = WidgetId::new(59).ok_or(UiError::MissingRoot)?;
+    let scene_row_11 = WidgetId::new(60).ok_or(UiError::MissingRoot)?;
+    let scene_selected_summary = WidgetId::new(61).ok_or(UiError::MissingRoot)?;
+    let scene_expand_rows = [
+        scene_expand_0,
+        scene_expand_1,
+        scene_expand_2,
+        scene_expand_3,
+        scene_expand_4,
+        scene_expand_5,
+        scene_expand_6,
+        scene_expand_7,
+        scene_expand_8,
+        scene_expand_9,
+        scene_expand_10,
+        scene_expand_11,
+    ];
+    let scene_rows = [
+        scene_row_0,
+        scene_row_1,
+        scene_row_2,
+        scene_row_3,
+        scene_row_4,
+        scene_row_5,
+        scene_row_6,
+        scene_row_7,
+        scene_row_8,
+        scene_row_9,
+        scene_row_10,
+        scene_row_11,
     ];
 
     tree.set_root(UiNode::new(
@@ -1658,6 +1769,79 @@ pub fn build_editor_shell_with_content(
         ),
     )?;
     tree.insert_child(
+        project,
+        UiNode::new(
+            scene_section_title,
+            WidgetKind::Label(content.scene_section_title.clone()),
+            UiStyle::LABEL,
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            scene_name,
+            WidgetKind::Label(content.scene_name.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    for index in 0..MAX_VISIBLE_SCENE_ROWS {
+        let expand_label = content.scene_expand_labels[index].clone();
+        let row_label = content.scene_row_labels[index].clone();
+        let has_expand = !expand_label.is_empty();
+        let has_row = !row_label.is_empty();
+        tree.insert_child(
+            project,
+            UiNode::new(
+                scene_expand_rows[index],
+                if has_expand {
+                    WidgetKind::IconButton(expand_label)
+                } else {
+                    WidgetKind::Label(String::new())
+                },
+                UiStyle::BUTTON,
+                LayoutNode::leaf().with_height(if has_expand {
+                    SizePolicy::Fixed(24.0)
+                } else {
+                    SizePolicy::Fixed(0.0)
+                }),
+            ),
+        )?;
+        if !has_expand {
+            tree.set_disabled(scene_expand_rows[index], true)?;
+        }
+        tree.insert_child(
+            project,
+            UiNode::new(
+                scene_rows[index],
+                if has_row {
+                    WidgetKind::Button(row_label)
+                } else {
+                    WidgetKind::Label(String::new())
+                },
+                UiStyle::BUTTON,
+                LayoutNode::leaf().with_height(if has_row {
+                    SizePolicy::Fixed(24.0)
+                } else {
+                    SizePolicy::Fixed(0.0)
+                }),
+            ),
+        )?;
+        if !has_row {
+            tree.set_disabled(scene_rows[index], true)?;
+        }
+    }
+    tree.insert_child(
+        project,
+        UiNode::new(
+            scene_selected_summary,
+            WidgetKind::Label(content.scene_selected_summary.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
         viewport,
         UiNode::new(
             viewport_label,
@@ -1703,6 +1887,11 @@ pub fn build_editor_shell_with_content(
             asset_count,
             asset_rows,
             asset_selected_summary,
+            scene_section_title,
+            scene_name,
+            scene_expand_rows,
+            scene_rows,
+            scene_selected_summary,
             status_label,
         },
     })
@@ -2862,6 +3051,127 @@ mod tests {
         let scene = must(tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
         assert!(texts.contains(&"Selected: demo.scene | Scene | assets/scenes/demo.scene"));
+    }
+
+    #[test]
+    fn scene_panel_paints_scene_name_and_rows() {
+        let theme = Theme::editor_dark();
+        let mut expand_labels = std::array::from_fn(|_| String::new());
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        expand_labels[0] = "v".to_string();
+        row_labels[0] = "World (World)".to_string();
+        row_labels[1] = "  Directional Light (Light)".to_string();
+        let content = EditorShellContent {
+            scene_section_title: "Scene".to_string(),
+            scene_name: "Demo Scene".to_string(),
+            scene_expand_labels: expand_labels,
+            scene_row_labels: row_labels,
+            scene_selected_summary: "Selected: None".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Scene"));
+        assert!(texts.contains(&"Demo Scene"));
+        assert!(texts.contains(&"World (World)"));
+        assert!(texts.contains(&"  Directional Light (Light)"));
+    }
+
+    #[test]
+    fn scene_row_indentation_increases_with_depth() {
+        let theme = Theme::editor_dark();
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        row_labels[0] = "World (World)".to_string();
+        row_labels[1] = "  Player (Character)".to_string();
+        row_labels[2] = "    Player Mesh (Mesh)".to_string();
+        let content = EditorShellContent {
+            scene_row_labels: row_labels,
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        assert!(shell.tree.get(shell.ids.scene_rows[0]).is_some_and(|node| {
+            matches!(&node.kind, WidgetKind::Button(text) if text == "World (World)")
+        }));
+        assert!(shell.tree.get(shell.ids.scene_rows[1]).is_some_and(|node| {
+            matches!(&node.kind, WidgetKind::Button(text) if text == "  Player (Character)")
+        }));
+        assert!(shell.tree.get(shell.ids.scene_rows[2]).is_some_and(|node| {
+            matches!(&node.kind, WidgetKind::Button(text) if text == "    Player Mesh (Mesh)")
+        }));
+    }
+
+    #[test]
+    fn selected_scene_row_can_gain_focus_and_summary() {
+        let theme = Theme::editor_dark();
+        let shell = must(build_editor_shell_with_ids(&UiContext::new(
+            theme,
+            Rect::new(0.0, 0.0, 1440.0, 900.0),
+        )));
+        let mut tree = shell.tree;
+        assert!(
+            tree.set_button_text(shell.ids.scene_rows[1], "  Player (Character)")
+                .is_ok()
+        );
+        assert!(tree.set_focused(Some(shell.ids.scene_rows[1])).is_ok());
+        assert!(
+            tree.set_label_text(
+                shell.ids.scene_selected_summary,
+                "Selected: Player (Character)"
+            )
+            .is_ok()
+        );
+        assert!(tree.get(shell.ids.scene_rows[1]).is_some_and(|node| {
+            node.interaction.focused
+                && matches!(&node.kind, WidgetKind::Button(text) if text == "  Player (Character)")
+        }));
+    }
+
+    #[test]
+    fn collapsed_scene_row_hides_descendant_labels() {
+        let theme = Theme::editor_dark();
+        let mut expand_labels = std::array::from_fn(|_| String::new());
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        expand_labels[0] = ">".to_string();
+        row_labels[0] = "World (World)".to_string();
+        let content = EditorShellContent {
+            scene_expand_labels: expand_labels,
+            scene_row_labels: row_labels,
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"World (World)"));
+        assert!(!texts.iter().any(|text| text.contains("Player")));
+    }
+
+    #[test]
+    fn status_text_includes_selected_scene_object() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            status: "Project: Demo Project | Asset: cube.glb | Scene: Demo Scene | Object: Player"
+                .to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(
+            &"Project: Demo Project | Asset: cube.glb | Scene: Demo Scene | Object: Player"
+        ));
     }
 
     fn palette_entries() -> Vec<CommandPaletteEntry> {

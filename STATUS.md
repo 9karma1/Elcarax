@@ -14,6 +14,7 @@ Generated: 2026-06-27
 - Command palette shell with query filtering, keyboard selection, execution, cancel behavior, and status feedback
 - Project system UI with project status, recent project count, validation diagnostics, project panel metadata, and command-palette project commands
 - Asset browser foundation with file-based asset index, demo scan, asset panel rows, selection state, and command-palette asset commands
+- Scene tree foundation with engine-neutral scene model, demo snapshot, scene panel hierarchy, selection/expand state, and command-palette scene commands
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -26,7 +27,7 @@ Generated: 2026-06-27
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive shell and project-status foundation
-- Docking, drag resizing, tree views, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, or drag-and-drop asset behavior
+- Docking, drag resizing, inspector editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, hierarchy drag/drop, scene object creation/deletion, property inspector editing, viewport scene rendering, or scene save/writeback
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
@@ -109,3 +110,11 @@ cargo run -p elcarax_app
 - Added app-owned asset state separate from UI widgets and project-panel asset rows with clickable selection in the native shell.
 - Updated the console proof to load a demo project, scan demo assets, select the first asset, and clear selection.
 - Documented explicit asset browser exclusions in `docs/MILESTONE_8_ASSET_BROWSER_FOUNDATION.md`.
+
+## Milestone 9: Scene Tree Foundation
+
+- Added engine-neutral scene domain types, hierarchy flattening, selection/expansion helpers, and deterministic demo snapshot in `elcarax_scene_model`.
+- Added command-palette scene commands for demo load, root/player selection, clear selection, expand/collapse all, and show selected.
+- Added app-owned scene state separate from UI widgets and project-panel scene rows with clickable selection and expand toggles in the native shell.
+- Updated the console proof to load the demo scene, select Player, expand/collapse all, and clear selection.
+- Documented explicit scene tree exclusions in `docs/MILESTONE_9_SCENE_TREE_FOUNDATION.md`.

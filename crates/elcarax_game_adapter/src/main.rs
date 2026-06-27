@@ -5,7 +5,7 @@ use elcarax_adapter_sdk::ElcaraxAdapter;
 use elcarax_core::{Diagnostic, DiagnosticSource, ElcaraxError, Result};
 use elcarax_scene_model::{
     ObjectSchema, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneObject,
-    SceneSnapshot,
+    SceneObjectKind, SceneSnapshot,
 };
 
 struct MockGameAdapter {
@@ -27,7 +27,7 @@ impl MockGameAdapter {
                 "Name",
                 PropertyKind::String,
             ));
-        let mut object = SceneObject::new("Player", schema.type_id);
+        let mut object = SceneObject::new("Player", SceneObjectKind::Character, schema.type_id);
         object.set_property(position_path, PropertyValue::Vec3([0.0, 1.0, 0.0]));
         object.set_property(name_path, PropertyValue::String("Player".to_owned()));
 
@@ -52,7 +52,7 @@ impl ElcaraxAdapter for MockGameAdapter {
                 display_name: "Mock Game Project".to_owned(),
             }),
             EditorToAdapter::ListScenes => {
-                Ok(AdapterToEditor::SceneList(vec![self.scene.scene_id]))
+                Ok(AdapterToEditor::SceneList(vec![self.scene.scene_id()]))
             }
             EditorToAdapter::GetSceneSnapshot { .. } => {
                 Ok(AdapterToEditor::SceneSnapshot(self.scene.clone()))

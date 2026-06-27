@@ -74,6 +74,7 @@ pub enum CommandCategory {
     Palette,
     Project,
     Asset,
+    Scene,
     Status,
     Demo,
 }
@@ -84,6 +85,7 @@ impl CommandCategory {
             Self::Palette => "Palette",
             Self::Project => "Project",
             Self::Asset => "Asset",
+            Self::Scene => "Scene",
             Self::Status => "Status",
             Self::Demo => "Demo",
         }
@@ -305,6 +307,48 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Asset,
         )?,
         registered(
+            "scene.load_demo",
+            "Load Demo Scene",
+            "Load the deterministic demo scene snapshot",
+            CommandCategory::Scene,
+        )?,
+        registered(
+            "scene.select_root",
+            "Select Root Object",
+            "Select the root scene object",
+            CommandCategory::Scene,
+        )?,
+        registered(
+            "scene.select_player",
+            "Select Player Object",
+            "Select the Player scene object",
+            CommandCategory::Scene,
+        )?,
+        registered(
+            "scene.clear_selection",
+            "Clear Scene Selection",
+            "Clear the current scene object selection",
+            CommandCategory::Scene,
+        )?,
+        registered(
+            "scene.expand_all",
+            "Expand Scene Tree",
+            "Expand all scene tree nodes",
+            CommandCategory::Scene,
+        )?,
+        registered(
+            "scene.collapse_all",
+            "Collapse Scene Tree",
+            "Collapse all scene tree nodes",
+            CommandCategory::Scene,
+        )?,
+        registered(
+            "scene.show_selected",
+            "Show Selected Scene Object",
+            "Report the currently selected scene object",
+            CommandCategory::Scene,
+        )?,
+        registered(
             "elcarax.status.show_renderer_stats",
             "Show Renderer Stats",
             "Show current primitive, text, and glyph counts",
@@ -445,6 +489,13 @@ mod tests {
                 "asset.select_first",
                 "asset.clear_selection",
                 "asset.show_selected",
+                "scene.load_demo",
+                "scene.select_root",
+                "scene.select_player",
+                "scene.clear_selection",
+                "scene.expand_all",
+                "scene.collapse_all",
+                "scene.show_selected",
                 "elcarax.status.show_renderer_stats",
                 "elcarax.status.show_ready",
                 "elcarax.demo.run"
@@ -467,6 +518,22 @@ mod tests {
         assert!(ids.contains(&"asset.select_first"));
         assert!(ids.contains(&"asset.clear_selection"));
         assert!(ids.contains(&"asset.show_selected"));
+    }
+
+    #[test]
+    fn scene_commands_are_discoverable() {
+        let registry = match built_in_commands() {
+            Ok(registry) => registry,
+            Err(error) => panic!("built-ins should register: {error}"),
+        };
+        let matches = registry.filter("scene");
+        let ids: Vec<_> = matches
+            .into_iter()
+            .map(|command| command.id().as_str())
+            .collect();
+        assert!(ids.contains(&"scene.load_demo"));
+        assert!(ids.contains(&"scene.select_player"));
+        assert!(ids.contains(&"scene.expand_all"));
     }
 
     #[test]
