@@ -15,12 +15,14 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - `wgpu` surface/context and rectangle primitive rendering
 - `cosmic-text` shaping and system-font rasterization through `elcarax_text`
 - retained UI tree, layout primitives, hit testing, interaction state, dirty flags, style/theme resolution, and paint output
-- interactive editor shell foundation with toolbar, Run button, project panel, viewport, inspector, status bar, command palette, and project status display
+- interactive editor shell foundation with toolbar, Run button, project panel, asset browser, scene tree, viewport, inspector, status bar, and command palette
 - project-domain model, recent project list, validation diagnostics, and project commands
+- asset browser foundation with demo asset index, scan/selection commands, and clickable asset rows
+- scene tree foundation with engine-neutral scene model, demo snapshot, hierarchy display, selection/expand state, and scene commands
 - project, asset, accessibility placeholder, and devtools modules
 - architecture decision records and milestone documentation
 
-This is not a full editor yet. Docking, drag resizing, tree views, asset browser behavior, inspector editing, editable text fields, IME, selection, scroll views, real accessibility integration, file dialogs, file watching, process IPC, adapter loading, and real engine binding are intentionally out of scope for the current milestone.
+This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, inspector editing, editable text fields, IME, selection, scroll views, real accessibility integration, file dialogs, file watching, process IPC, adapter loading, asset import pipeline, scene save/writeback, viewport scene rendering, and real engine binding are intentionally out of scope for the current milestone.
 
 ## Requirements
 
@@ -64,7 +66,7 @@ Default console proof flow:
 cargo run -p elcarax_app
 ```
 
-The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project commands, updates project UI state, and prints project, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, command palette, and project proof counts.
+The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project/asset/scene commands, updates editor UI state, and prints project, asset, scene, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, and command palette proof output.
 
 Manual native shell smoke test:
 
@@ -72,7 +74,20 @@ Manual native shell smoke test:
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree and command palette, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close. Clicking the toolbar `Run` button updates the status text to `Status: Run clicked`; project commands update the toolbar, status bar, and project panel.
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree and command palette, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close.
+
+Suggested manual flow:
+
+1. Open the native shell
+2. Press Ctrl+K and run `project.new_demo` (type `new demo`)
+3. Run `asset.scan_demo` (type `scan`)
+4. Run `scene.load_demo` (type `scene` or `load demo`)
+5. Confirm the left panel shows demo assets and the demo scene hierarchy
+6. Select `Player` via `scene.select_player` or by clicking the row
+7. Confirm the selected row highlights and the status bar reports the selected object
+8. Run `scene.expand_all` and `scene.collapse_all`
+
+The command palette shows eight rows at a time; filter with query text to reach scene commands below the asset section. Clicking the toolbar `Run` button updates the status text to `Status: Run clicked`.
 
 ## Architecture
 
@@ -82,6 +97,7 @@ Elcarax keeps external systems behind crate boundaries:
 - `elcarax_scene_model`: engine-neutral scene/property/schema model
 - `elcarax_commands`: command and undo/redo behavior
 - `elcarax_project`: project model, validation, status, and recent-project domain types
+- `elcarax_assets`: asset index, scan, selection, and extension-based kind detection
 - `elcarax_adapter_api`: stable adapter boundary
 - `elcarax_platform`: platform event loop and native window integration
 - `elcarax_gpu`: `wgpu` context, surface, and render-pass helpers
@@ -101,5 +117,10 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 5: input and interaction foundation
 - Milestone 6: command palette shell
 - Milestone 7: project system UI
+- Milestone 8: asset browser foundation
+- Milestone 9: scene tree foundation
 
-See `docs/` for detailed milestone notes and ADRs.
+See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
+
+- `docs/MILESTONE_8_ASSET_BROWSER_FOUNDATION.md`
+- `docs/MILESTONE_9_SCENE_TREE_FOUNDATION.md`
