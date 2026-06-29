@@ -79,7 +79,7 @@ fn build_selected_snapshot(inspector: InspectorObject) -> InspectorUiSnapshot {
             row_labels[index] = row.label.as_str().to_string();
             row_values[index] = inspector_value_label(row);
             row_editable[index] = row.editable;
-            row_command_ids[index] = inspector_command_for_row(row).unwrap_or_default();
+            row_command_ids[index] = inspector_command_for_row(row);
             index += 1;
         }
     }
@@ -146,37 +146,25 @@ fn inspector_value_label(row: &elcarax_scene_model::InspectorRow) -> String {
     }
 }
 
-fn inspector_command_for_row(row: &elcarax_scene_model::InspectorRow) -> Option<String> {
-    match row.path.to_string().as_str() {
-        "gameplay.health" => {
-            Some(crate::inspector_state::INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND.to_string())
-        }
-        "gameplay.speed" => {
-            Some(crate::inspector_state::INSPECTOR_SET_PLAYER_SPEED_DEMO_COMMAND.to_string())
-        }
-        "general.name" => {
-            Some(crate::inspector_state::INSPECTOR_RENAME_PLAYER_DEMO_COMMAND.to_string())
-        }
-        "transform.position" | "transform.rotation" | "transform.scale" => {
-            Some(crate::inspector_state::INSPECTOR_RESET_PLAYER_TRANSFORM_DEMO_COMMAND.to_string())
-        }
-        _ => None,
-    }
+fn inspector_command_for_row(_row: &elcarax_scene_model::InspectorRow) -> String {
+    String::new()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene_state::{SCENE_LOAD_DEMO_COMMAND, SCENE_SELECT_PLAYER_COMMAND, SceneState};
+    use crate::scene_state::SceneState;
+    use elcarax_scene_model::{
+        ObjectSchema, PropertyGroup, PropertyKind, PropertyPath, PropertySchema, PropertyValue,
+        SceneName, SceneObject, SceneObjectKind, SceneSnapshot,
+    };
 
     #[test]
-    fn selected_player_snapshot_contains_property_labels() {
-        let mut scene = SceneState::default();
-        let _ = scene.execute_command_id(SCENE_LOAD_DEMO_COMMAND);
-        let _ = scene.execute_command_id(SCENE_SELECT_PLAYER_COMMAND);
+    fn selected_fixture_snapshot_contains_property_labels() {
+        let scene = selected_fixture_scene();
         let snapshot = inspector_ui_snapshot(&scene, false, None);
         assert!(snapshot.has_selection);
-        assert_eq!(snapshot.object_name, "Player");
+        assert_eq!(snapshot.object_name, "Fixture Actor");
         assert!(snapshot.row_labels.iter().any(|label| label == "Health"));
         assert!(
             snapshot
@@ -185,5 +173,33 @@ mod tests {
                 .any(|value| value == "100  [Set]")
         );
         assert!(snapshot.row_editable.iter().any(|editable| *editable));
+    }
+
+    fn selected_fixture_scene() -> SceneState {
+        let health_path = fixture_path("gameplay.health");
+        let schema = ObjectSchema::new("Actor").with_property(PropertySchema::editable(
+            health_path.clone(),
+            "Health",
+            PropertyKind::I64,
+            PropertyGroup::new("Gameplay"),
+        ));
+        let mut object =
+            SceneObject::new("Fixture Actor", SceneObjectKind::Character, schema.type_id);
+        object.set_property(health_path, PropertyValue::I64(100));
+        let object_id = object.id;
+        let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
+        snapshot.add_schema(schema);
+        snapshot.add_root_object(object);
+        let mut scene = SceneState::default();
+        scene.load_fixture_snapshot(snapshot);
+        assert!(scene.select_object(object_id));
+        scene
+    }
+
+    fn fixture_path(value: &str) -> PropertyPath {
+        match PropertyPath::parse(value) {
+            Ok(path) => path,
+            Err(error) => panic!("fixture path should parse: {error}"),
+        }
     }
 }

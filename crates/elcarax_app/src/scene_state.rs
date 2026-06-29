@@ -1,18 +1,15 @@
+#![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
+
 use elcarax_adapter_api::AdapterId;
 use elcarax_scene_model::{
     SceneDiagnostic, SceneExpansion, SceneObjectId, SceneSelection, SceneSnapshot,
-    demo_scene_snapshot,
 };
 
 use crate::scene_display::{SceneUiSnapshot, scene_ui_snapshot};
 
-pub(crate) const SCENE_LOAD_DEMO_COMMAND: &str = "scene.load_demo";
-pub(crate) const SCENE_SELECT_ROOT_COMMAND: &str = "scene.select_root";
-pub(crate) const SCENE_SELECT_PLAYER_COMMAND: &str = "scene.select_player";
+pub(crate) const SCENE_LOAD_COMMAND: &str = "scene.load";
+pub(crate) const SCENE_CLEAR_COMMAND: &str = "scene.clear";
 pub(crate) const SCENE_CLEAR_SELECTION_COMMAND: &str = "scene.clear_selection";
-pub(crate) const SCENE_EXPAND_ALL_COMMAND: &str = "scene.expand_all";
-pub(crate) const SCENE_COLLAPSE_ALL_COMMAND: &str = "scene.collapse_all";
-pub(crate) const SCENE_SHOW_SELECTED_COMMAND: &str = "scene.show_selected";
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SceneState {
@@ -28,13 +25,9 @@ impl SceneState {
     pub(crate) fn execute_command_id(&mut self, id: &str) -> Option<SceneCommandResult> {
         let command = SceneCommand::from_id(id)?;
         let result = match command {
-            SceneCommand::LoadDemo => self.load_demo(),
-            SceneCommand::SelectRoot => self.select_root(),
-            SceneCommand::SelectPlayer => self.select_player(),
+            SceneCommand::Load => self.load(),
+            SceneCommand::Clear => self.clear(),
             SceneCommand::ClearSelection => self.clear_selection(),
-            SceneCommand::ExpandAll => self.expand_all(),
-            SceneCommand::CollapseAll => self.collapse_all(),
-            SceneCommand::ShowSelected => self.show_selected(),
         };
         self.last_command_result = Some(result.clone());
         Some(result)
@@ -93,6 +86,7 @@ impl SceneState {
         self.snapshot.as_mut()
     }
 
+    #[cfg(test)]
     pub(crate) const fn source(&self) -> &SceneSource {
         &self.source
     }
@@ -101,7 +95,9 @@ impl SceneState {
     pub(crate) fn adapter_id(&self) -> Option<&AdapterId> {
         match &self.source {
             SceneSource::Adapter(id) => Some(id),
-            SceneSource::LocalDemo | SceneSource::None => None,
+            #[cfg(test)]
+            SceneSource::Local => None,
+            SceneSource::None => None,
         }
     }
 
@@ -119,6 +115,7 @@ impl SceneState {
         self.last_command_result = Some(SceneCommandResult::new(command_id, message));
     }
 
+    #[allow(dead_code)]
     pub(crate) fn load_external_snapshot(
         &mut self,
         snapshot: SceneSnapshot,
@@ -134,53 +131,17 @@ impl SceneState {
         self.last_command_result = Some(SceneCommandResult::new(command_id, message));
     }
 
-    fn load_demo(&mut self) -> SceneCommandResult {
-        let snapshot = demo_scene_snapshot();
-        let count = snapshot.object_count();
-        self.snapshot = Some(snapshot);
-        self.source = SceneSource::LocalDemo;
+    fn load(&mut self) -> SceneCommandResult {
+        SceneCommandResult::new(SCENE_LOAD_COMMAND, "No scene source configured")
+    }
+
+    fn clear(&mut self) -> SceneCommandResult {
+        self.snapshot = None;
+        self.source = SceneSource::None;
         self.selection.clear();
         self.expansion.collapse_all();
         self.diagnostics.clear();
-        SceneCommandResult::new(
-            SCENE_LOAD_DEMO_COMMAND,
-            format!("Loaded demo scene with {count} objects"),
-        )
-    }
-
-    fn select_root(&mut self) -> SceneCommandResult {
-        let Some(snapshot) = &self.snapshot else {
-            return SceneCommandResult::new(SCENE_SELECT_ROOT_COMMAND, "No scene loaded");
-        };
-        let Some(root_id) = snapshot.root_object_id() else {
-            return SceneCommandResult::new(SCENE_SELECT_ROOT_COMMAND, "No root object");
-        };
-        if self.selection.select_existing(snapshot, root_id).is_err() {
-            return SceneCommandResult::new(SCENE_SELECT_ROOT_COMMAND, "Root object not found");
-        }
-        let Ok(object) = snapshot.object(root_id) else {
-            return SceneCommandResult::new(SCENE_SELECT_ROOT_COMMAND, "Root object not found");
-        };
-        SceneCommandResult::new(
-            SCENE_SELECT_ROOT_COMMAND,
-            format!("Selected {} ({})", object.display_name, object.kind.label()),
-        )
-    }
-
-    fn select_player(&mut self) -> SceneCommandResult {
-        let Some(snapshot) = &self.snapshot else {
-            return SceneCommandResult::new(SCENE_SELECT_PLAYER_COMMAND, "No scene loaded");
-        };
-        let Some(player) = snapshot.object_by_name("Player") else {
-            return SceneCommandResult::new(SCENE_SELECT_PLAYER_COMMAND, "Player object not found");
-        };
-        if self.selection.select_existing(snapshot, player.id).is_err() {
-            return SceneCommandResult::new(SCENE_SELECT_PLAYER_COMMAND, "Player object not found");
-        }
-        SceneCommandResult::new(
-            SCENE_SELECT_PLAYER_COMMAND,
-            format!("Selected {} ({})", player.display_name, player.kind.label()),
-        )
+        SceneCommandResult::new(SCENE_CLEAR_COMMAND, "Cleared loaded scene")
     }
 
     fn clear_selection(&mut self) -> SceneCommandResult {
@@ -188,36 +149,32 @@ impl SceneState {
         SceneCommandResult::new(SCENE_CLEAR_SELECTION_COMMAND, "Cleared scene selection")
     }
 
+    #[cfg(test)]
+    pub(crate) fn load_fixture_snapshot(&mut self, snapshot: SceneSnapshot) {
+        self.snapshot = Some(snapshot);
+        self.source = SceneSource::Local;
+        self.selection.clear();
+        self.expansion.collapse_all();
+        self.diagnostics.clear();
+        self.last_command_result = None;
+    }
+
+    #[cfg(test)]
     fn expand_all(&mut self) -> SceneCommandResult {
         let Some(snapshot) = &self.snapshot else {
-            return SceneCommandResult::new(SCENE_EXPAND_ALL_COMMAND, "No scene loaded");
+            return SceneCommandResult::new("scene.expand_all", "No scene loaded");
         };
         self.expansion.expand_all(snapshot);
         SceneCommandResult::new(
-            SCENE_EXPAND_ALL_COMMAND,
+            "scene.expand_all",
             format!("Expanded {} nodes", self.expansion.len()),
         )
     }
 
+    #[cfg(test)]
     fn collapse_all(&mut self) -> SceneCommandResult {
         self.expansion.collapse_all();
-        SceneCommandResult::new(SCENE_COLLAPSE_ALL_COMMAND, "Collapsed scene tree")
-    }
-
-    fn show_selected(&self) -> SceneCommandResult {
-        let Some(snapshot) = &self.snapshot else {
-            return SceneCommandResult::new(SCENE_SHOW_SELECTED_COMMAND, "No scene loaded");
-        };
-        let Some(id) = self.selection.selected() else {
-            return SceneCommandResult::new(SCENE_SHOW_SELECTED_COMMAND, "No object selected");
-        };
-        let Ok(object) = snapshot.object(id) else {
-            return SceneCommandResult::new(SCENE_SHOW_SELECTED_COMMAND, "No object selected");
-        };
-        SceneCommandResult::new(
-            SCENE_SHOW_SELECTED_COMMAND,
-            format!("{} ({})", object.display_name, object.kind.label()),
-        )
+        SceneCommandResult::new("scene.collapse_all", "Collapsed scene tree")
     }
 }
 
@@ -237,31 +194,25 @@ impl Default for SceneState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SceneSource {
     None,
-    LocalDemo,
+    #[cfg(test)]
+    Local,
+    #[allow(dead_code)]
     Adapter(AdapterId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SceneCommand {
-    LoadDemo,
-    SelectRoot,
-    SelectPlayer,
+    Load,
+    Clear,
     ClearSelection,
-    ExpandAll,
-    CollapseAll,
-    ShowSelected,
 }
 
 impl SceneCommand {
     fn from_id(id: &str) -> Option<Self> {
         match id {
-            SCENE_LOAD_DEMO_COMMAND => Some(Self::LoadDemo),
-            SCENE_SELECT_ROOT_COMMAND => Some(Self::SelectRoot),
-            SCENE_SELECT_PLAYER_COMMAND => Some(Self::SelectPlayer),
+            SCENE_LOAD_COMMAND => Some(Self::Load),
+            SCENE_CLEAR_COMMAND => Some(Self::Clear),
             SCENE_CLEAR_SELECTION_COMMAND => Some(Self::ClearSelection),
-            SCENE_EXPAND_ALL_COMMAND => Some(Self::ExpandAll),
-            SCENE_COLLAPSE_ALL_COMMAND => Some(Self::CollapseAll),
-            SCENE_SHOW_SELECTED_COMMAND => Some(Self::ShowSelected),
             _ => None,
         }
     }
@@ -290,50 +241,50 @@ impl SceneCommandResult {
 mod tests {
     use super::*;
     use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
+    use elcarax_scene_model::{
+        ObjectSchema, PropertyGroup, PropertyKind, PropertyPath, PropertySchema, PropertyValue,
+        SceneName, SceneObject, SceneObjectKind,
+    };
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
 
     #[test]
-    fn scene_load_demo_populates_scene_snapshot() {
+    fn scene_load_reports_missing_source_without_fixture_data() {
         let mut state = SceneState::default();
-        let result = state.execute_command_id(SCENE_LOAD_DEMO_COMMAND);
+        let result = state.execute_command_id(SCENE_LOAD_COMMAND);
         assert_eq!(
             result.as_ref().map(SceneCommandResult::message),
-            Some("Loaded demo scene with 10 objects")
+            Some("No scene source configured")
         );
-        assert_eq!(state.snapshot().map(|scene| scene.object_count()), Some(10));
+        assert!(state.snapshot().is_none());
     }
 
     #[test]
-    fn scene_select_player_updates_scene_selection() {
-        let mut state = SceneState::default();
-        let _ = state.execute_command_id(SCENE_LOAD_DEMO_COMMAND);
-        let _ = state.execute_command_id(SCENE_SELECT_PLAYER_COMMAND);
+    fn scene_object_selection_updates_scene_selection() {
+        let (mut state, object_id) = loaded_fixture_scene();
+        assert!(state.select_object(object_id));
         assert!(state.selection.selected().is_some());
     }
 
     #[test]
     fn scene_clear_selection_clears_scene_selection() {
-        let mut state = SceneState::default();
-        let _ = state.execute_command_id(SCENE_LOAD_DEMO_COMMAND);
-        let _ = state.execute_command_id(SCENE_SELECT_PLAYER_COMMAND);
+        let (mut state, object_id) = loaded_fixture_scene();
+        assert!(state.select_object(object_id));
         let _ = state.execute_command_id(SCENE_CLEAR_SELECTION_COMMAND);
         assert_eq!(state.selection.selected(), None);
     }
 
     #[test]
     fn scene_expand_all_updates_expanded_set() {
-        let mut state = SceneState::default();
-        let _ = state.execute_command_id(SCENE_LOAD_DEMO_COMMAND);
-        let _ = state.execute_command_id(SCENE_EXPAND_ALL_COMMAND);
-        assert_eq!(state.expansion.len(), 3);
+        let (mut state, _) = loaded_fixture_scene();
+        let _ = state.expand_all();
+        assert_eq!(state.expansion.len(), 0);
     }
 
     #[test]
     fn scene_collapse_all_clears_expanded_set() {
-        let mut state = SceneState::default();
-        let _ = state.execute_command_id(SCENE_LOAD_DEMO_COMMAND);
-        let _ = state.execute_command_id(SCENE_EXPAND_ALL_COMMAND);
-        let _ = state.execute_command_id(SCENE_COLLAPSE_ALL_COMMAND);
+        let (mut state, _) = loaded_fixture_scene();
+        let _ = state.expand_all();
+        let _ = state.collapse_all();
         assert!(state.expansion.is_empty());
     }
 
@@ -343,7 +294,7 @@ mod tests {
             Ok(registry) => registry,
             Err(error) => panic!("built-ins should register: {error}"),
         };
-        let id = match CommandId::new(SCENE_LOAD_DEMO_COMMAND) {
+        let id = match CommandId::new(SCENE_LOAD_COMMAND) {
             Ok(id) => id,
             Err(error) => panic!("scene command ID should be valid: {error}"),
         };
@@ -351,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_can_execute_scene_load_demo() {
+    fn command_palette_can_execute_scene_load() {
         let registry = match built_in_commands() {
             Ok(registry) => registry,
             Err(error) => panic!("built-ins should register: {error}"),
@@ -364,7 +315,7 @@ mod tests {
                 .collect(),
         );
         palette.open();
-        for character in SCENE_LOAD_DEMO_COMMAND.chars() {
+        for character in SCENE_LOAD_COMMAND.chars() {
             assert_eq!(
                 palette.handle_key(KeyboardKey::Character(character.to_string())),
                 CommandPaletteAction::None
@@ -381,7 +332,34 @@ mod tests {
             },
             None => panic!("scene command should be selected"),
         };
-        assert_eq!(selected_id.as_str(), SCENE_LOAD_DEMO_COMMAND);
+        assert_eq!(selected_id.as_str(), SCENE_LOAD_COMMAND);
+    }
+
+    fn loaded_fixture_scene() -> (SceneState, SceneObjectId) {
+        let path = fixture_path("general.name");
+        let schema = ObjectSchema::new("Entity").with_property(PropertySchema::editable(
+            path.clone(),
+            "Name",
+            PropertyKind::String,
+            PropertyGroup::new("General"),
+        ));
+        let mut object =
+            SceneObject::new("Fixture Object", SceneObjectKind::Character, schema.type_id);
+        object.set_property(path, PropertyValue::String("Fixture Object".to_string()));
+        let object_id = object.id;
+        let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
+        snapshot.add_schema(schema);
+        snapshot.add_root_object(object);
+        let mut state = SceneState::default();
+        state.load_fixture_snapshot(snapshot);
+        (state, object_id)
+    }
+
+    fn fixture_path(value: &str) -> PropertyPath {
+        match PropertyPath::parse(value) {
+            Ok(path) => path,
+            Err(error) => panic!("fixture path should parse: {error}"),
+        }
     }
 
     fn palette_entry_from_command(command: &RegisteredCommand) -> CommandPaletteEntry {

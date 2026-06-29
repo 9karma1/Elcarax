@@ -75,17 +75,17 @@ fn no_project_snapshot(
 ) -> ProjectUiSnapshot {
     let status = if last_command_result.is_some() {
         format!(
-            "Project: None | Command: {}",
+            "Project: No project open | Command: {}",
             command_id_label(last_command_result)
         )
     } else {
-        "Project: None".to_string()
+        "Project: No project open".to_string()
     };
     ProjectUiSnapshot {
-        toolbar_title: "Elcarax - No Project".to_string(),
-        project_name: "Name: No project".to_string(),
-        project_path: "Path: None".to_string(),
-        project_status: format!("Status: {}", ProjectStatus::NoProject.label()),
+        toolbar_title: "Elcarax - No project open".to_string(),
+        project_name: "No project open".to_string(),
+        project_path: "Open Project | Create Project".to_string(),
+        project_status: "Status: No project open".to_string(),
         project_recent: format!("Recent: {}", recent_projects.len()),
         project_diagnostics: "Diagnostics: No diagnostics".to_string(),
         project_command: command,

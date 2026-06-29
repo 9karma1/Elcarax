@@ -423,8 +423,10 @@ fn apply_command_invocation(
         "elcarax.status.show_renderer_stats" => {
             set_status_text(ui, renderer_stats_status(&ui.scene))?
         }
-        "elcarax.status.show_ready" => set_status_text(ui, "Status: Ready".to_string())?,
-        "elcarax.demo.run" => set_status_text(ui, "Status: Run clicked".to_string())?,
+        "elcarax.status.show_ready" => set_status_text(
+            ui,
+            "Ready - open a project or connect an adapter".to_string(),
+        )?,
         _ => {}
     }
     Ok(())
@@ -528,7 +530,7 @@ fn apply_ui_events(
     let mut changed = false;
     for event in events {
         if matches!(event, UiEvent::Clicked { id } if *id == ui.ids.run_button) {
-            set_status_text(ui, "Status: Run clicked".to_string())?;
+            set_status_text(ui, "Not implemented yet: project opening".to_string())?;
             changed = true;
             continue;
         }

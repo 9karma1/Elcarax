@@ -1,44 +1,44 @@
-use std::path::Path;
+#![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 
 use elcarax_adapter_api::{
-    AdapterCapabilities, AdapterDiagnostic, AdapterEditSource, AdapterId, AdapterName,
-    AdapterVersion, GetSceneSnapshotRequest, HandshakeRequest, LoadProjectRequest,
+    AdapterCapabilities, AdapterDiagnostic, AdapterEditSource, AdapterName, AdapterVersion,
     SetPropertyRequest, SetPropertyResponse,
 };
 #[cfg(test)]
+use elcarax_adapter_api::{
+    AdapterId, GetSceneSnapshotRequest, HandshakeRequest, LoadProjectRequest,
+};
+#[cfg(test)]
+use elcarax_adapter_host::AdapterHostError;
+use elcarax_adapter_host::AdapterHostState;
+#[cfg(test)]
 use elcarax_adapter_host::AdapterSession;
-use elcarax_adapter_host::{AdapterHost, AdapterHostError, AdapterHostState, AdapterProcessSpec};
 
 use crate::adapter_display::{AdapterUiSnapshot, adapter_ui_snapshot};
-use elcarax_scene_model::{
-    PropertyChange, PropertyPath, PropertyValue, ScenePatch, prepare_property_change,
-};
+#[cfg(test)]
+use crate::scene_state::SceneSource;
+use elcarax_scene_model::{PropertyChange, ScenePatch};
+#[cfg(test)]
+use elcarax_scene_model::{PropertyPath, PropertyValue, prepare_property_change};
 
-use crate::inspector_state::{
-    EDIT_REDO_COMMAND, EDIT_UNDO_COMMAND, INSPECTOR_RENAME_PLAYER_DEMO_COMMAND,
-    INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND, INSPECTOR_SET_PLAYER_SPEED_DEMO_COMMAND,
-};
-use crate::scene_state::{SceneSource, SceneState};
+use crate::inspector_state::{EDIT_REDO_COMMAND, EDIT_UNDO_COMMAND};
+use crate::scene_state::SceneState;
 
-pub(crate) const ADAPTER_START_MOCK_COMMAND: &str = "adapter.start_mock";
+pub(crate) const ADAPTER_CONNECT_COMMAND: &str = "adapter.connect";
 pub(crate) const ADAPTER_HANDSHAKE_COMMAND: &str = "adapter.handshake";
-pub(crate) const ADAPTER_LOAD_DEMO_PROJECT_COMMAND: &str = "adapter.load_demo_project";
-pub(crate) const ADAPTER_LOAD_DEMO_SCENE_COMMAND: &str = "adapter.load_demo_scene";
+pub(crate) const ADAPTER_LOAD_PROJECT_COMMAND: &str = "adapter.load_project";
+pub(crate) const ADAPTER_LOAD_SCENE_COMMAND: &str = "adapter.load_scene";
 pub(crate) const ADAPTER_SHOW_STATUS_COMMAND: &str = "adapter.show_status";
 pub(crate) const ADAPTER_SHOW_DIAGNOSTICS_COMMAND: &str = "adapter.show_diagnostics";
-pub(crate) const ADAPTER_STOP_MOCK_COMMAND: &str = "adapter.stop_mock";
-pub(crate) const ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND: &str =
-    "adapter.inspector.set_player_health_demo";
-pub(crate) const ADAPTER_INSPECTOR_SET_PLAYER_SPEED_DEMO_COMMAND: &str =
-    "adapter.inspector.set_player_speed_demo";
-pub(crate) const ADAPTER_INSPECTOR_RENAME_PLAYER_DEMO_COMMAND: &str =
-    "adapter.inspector.rename_player_demo";
+pub(crate) const ADAPTER_DISCONNECT_COMMAND: &str = "adapter.disconnect";
 pub(crate) const ADAPTER_EDIT_UNDO_COMMAND: &str = "adapter.edit.undo";
 pub(crate) const ADAPTER_EDIT_REDO_COMMAND: &str = "adapter.edit.redo";
 
 pub(crate) struct AdapterState {
+    #[cfg(test)]
     connection: AdapterConnection,
     status: AdapterHostState,
+    #[cfg(test)]
     id: Option<AdapterId>,
     name: Option<AdapterName>,
     version: Option<AdapterVersion>,
@@ -48,10 +48,9 @@ pub(crate) struct AdapterState {
     last_result: Option<AdapterCommandResult>,
 }
 
+#[cfg(test)]
 enum AdapterConnection {
     None,
-    Process(AdapterHost),
-    #[cfg(test)]
     Fake(AdapterSession<elcarax_adapter_host::FakeAdapterTransport>),
 }
 
@@ -63,34 +62,13 @@ impl AdapterState {
     ) -> Option<AdapterCommandResult> {
         let command = AdapterCommand::from_id(id)?;
         let result = match command {
-            AdapterCommand::StartMock => self.start_mock(),
+            AdapterCommand::Connect => self.connect(),
             AdapterCommand::Handshake => self.handshake(),
-            AdapterCommand::LoadDemoProject => self.load_demo_project(),
-            AdapterCommand::LoadDemoScene => self.load_demo_scene(scene_state),
+            AdapterCommand::LoadProject => self.load_project(),
+            AdapterCommand::LoadScene => self.load_scene(scene_state),
             AdapterCommand::ShowStatus => self.show_status(),
             AdapterCommand::ShowDiagnostics => self.show_diagnostics(),
-            AdapterCommand::StopMock => self.stop_mock(),
-            AdapterCommand::SetPlayerHealthDemo => self.set_property_demo(
-                scene_state,
-                ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND,
-                "gameplay.health",
-                PropertyValue::I64(65),
-                "Set Adapter Player Health",
-            ),
-            AdapterCommand::SetPlayerSpeedDemo => self.set_property_demo(
-                scene_state,
-                ADAPTER_INSPECTOR_SET_PLAYER_SPEED_DEMO_COMMAND,
-                "gameplay.speed",
-                PropertyValue::F64(9.0),
-                "Set Adapter Player Speed",
-            ),
-            AdapterCommand::RenamePlayerDemo => self.set_property_demo(
-                scene_state,
-                ADAPTER_INSPECTOR_RENAME_PLAYER_DEMO_COMMAND,
-                "general.name",
-                PropertyValue::String("Adapter Hero".to_string()),
-                "Rename Adapter Player",
-            ),
+            AdapterCommand::Disconnect => self.disconnect(),
             AdapterCommand::Undo => self.undo(scene_state),
             AdapterCommand::Redo => self.redo(scene_state),
         };
@@ -109,27 +87,15 @@ impl AdapterState {
         )
     }
 
-    fn start_mock(&mut self) -> AdapterCommandResult {
-        self.status = AdapterHostState::Starting;
-        let spec = AdapterProcessSpec::cargo_mock_adapter();
-        match AdapterHost::spawn(spec, Some(Path::new("."))) {
-            Ok(host) => {
-                self.connection = AdapterConnection::Process(host);
-                let result = self.handshake();
-                AdapterCommandResult::new(
-                    ADAPTER_START_MOCK_COMMAND,
-                    format!("started mock adapter; {}", result.message()),
-                )
-            }
-            Err(error) => self.fail(ADAPTER_START_MOCK_COMMAND, error),
-        }
+    fn connect(&mut self) -> AdapterCommandResult {
+        AdapterCommandResult::new(ADAPTER_CONNECT_COMMAND, "No adapter configured")
     }
 
     fn handshake(&mut self) -> AdapterCommandResult {
-        match &mut self.connection {
-            AdapterConnection::Process(host) => {
-                let result = host.handshake(HandshakeRequest::current("elcarax-app", None));
-                match result {
+        #[cfg(test)]
+        {
+            if let AdapterConnection::Fake(session) = &mut self.connection {
+                return match session.handshake(HandshakeRequest::current("elcarax-app", None)) {
                     Ok(info) => {
                         self.name = Some(info.name);
                         self.version = Some(info.version);
@@ -139,87 +105,71 @@ impl AdapterState {
                         AdapterCommandResult::new(ADAPTER_HANDSHAKE_COMMAND, "handshake succeeded")
                     }
                     Err(error) => self.fail(ADAPTER_HANDSHAKE_COMMAND, error),
-                }
+                };
             }
-            #[cfg(test)]
-            AdapterConnection::Fake(session) => {
-                match session.handshake(HandshakeRequest::current("elcarax-app", None)) {
-                    Ok(info) => {
-                        self.name = Some(info.name);
-                        self.version = Some(info.version);
-                        self.id = Some(info.id);
-                        self.capabilities = Some(info.capabilities);
-                        self.status = AdapterHostState::Connected;
-                        AdapterCommandResult::new(ADAPTER_HANDSHAKE_COMMAND, "handshake succeeded")
-                    }
-                    Err(error) => self.fail(ADAPTER_HANDSHAKE_COMMAND, error),
-                }
-            }
-            AdapterConnection::None => AdapterCommandResult::new(
-                ADAPTER_HANDSHAKE_COMMAND,
-                "Diagnostic: adapter is not running",
-            ),
         }
+        AdapterCommandResult::new(
+            ADAPTER_HANDSHAKE_COMMAND,
+            "Diagnostic: adapter is not running",
+        )
     }
 
-    fn load_demo_project(&mut self) -> AdapterCommandResult {
-        let request = LoadProjectRequest { project_path: None };
-        let result = match &mut self.connection {
-            AdapterConnection::Process(host) => host.load_project(request),
-            #[cfg(test)]
-            AdapterConnection::Fake(session) => session.load_project(request),
-            AdapterConnection::None => {
-                return AdapterCommandResult::new(
-                    ADAPTER_LOAD_DEMO_PROJECT_COMMAND,
-                    "Diagnostic: adapter is not running",
-                );
-            }
-        };
-        match result {
-            Ok(project) => AdapterCommandResult::new(
-                ADAPTER_LOAD_DEMO_PROJECT_COMMAND,
-                format!("loaded adapter project {}", project.display_name),
-            ),
-            Err(error) => self.fail(ADAPTER_LOAD_DEMO_PROJECT_COMMAND, error),
-        }
-    }
-
-    fn load_demo_scene(&mut self, scene_state: &mut SceneState) -> AdapterCommandResult {
-        let request = GetSceneSnapshotRequest { scene_id: None };
-        let result = match &mut self.connection {
-            AdapterConnection::Process(host) => host.get_scene_snapshot(request),
-            #[cfg(test)]
-            AdapterConnection::Fake(session) => session.get_scene_snapshot(request),
-            AdapterConnection::None => {
-                return AdapterCommandResult::new(
-                    ADAPTER_LOAD_DEMO_SCENE_COMMAND,
-                    "Diagnostic: adapter is not running",
-                );
-            }
-        };
-        match result {
-            Ok(response) => {
-                let count = response.snapshot.object_count();
-                let adapter_id = self
-                    .id
-                    .clone()
-                    .unwrap_or_else(|| AdapterId::new("unknown-adapter"));
-                scene_state.load_external_snapshot(
-                    response.snapshot,
-                    adapter_id,
-                    ADAPTER_LOAD_DEMO_SCENE_COMMAND,
-                    format!(
-                        "Loaded adapter scene from {} with {count} objects",
-                        response.source_label
+    fn load_project(&mut self) -> AdapterCommandResult {
+        #[cfg(test)]
+        {
+            if let AdapterConnection::Fake(session) = &mut self.connection {
+                let request = LoadProjectRequest { project_path: None };
+                return match session.load_project(request) {
+                    Ok(project) => AdapterCommandResult::new(
+                        ADAPTER_LOAD_PROJECT_COMMAND,
+                        format!("loaded adapter project {}", project.display_name),
                     ),
-                );
-                AdapterCommandResult::new(
-                    ADAPTER_LOAD_DEMO_SCENE_COMMAND,
-                    format!("loaded adapter scene with {count} objects"),
-                )
+                    Err(error) => self.fail(ADAPTER_LOAD_PROJECT_COMMAND, error),
+                };
             }
-            Err(error) => self.fail(ADAPTER_LOAD_DEMO_SCENE_COMMAND, error),
         }
+        AdapterCommandResult::new(
+            ADAPTER_LOAD_PROJECT_COMMAND,
+            "Diagnostic: adapter is not running",
+        )
+    }
+
+    fn load_scene(&mut self, scene_state: &mut SceneState) -> AdapterCommandResult {
+        #[cfg(not(test))]
+        let _ = scene_state;
+        #[cfg(test)]
+        {
+            if let AdapterConnection::Fake(session) = &mut self.connection {
+                let request = GetSceneSnapshotRequest { scene_id: None };
+                return match session.get_scene_snapshot(request) {
+                    Ok(response) => {
+                        let count = response.snapshot.object_count();
+                        let adapter_id = self
+                            .id
+                            .clone()
+                            .unwrap_or_else(|| AdapterId::new("unknown-adapter"));
+                        scene_state.load_external_snapshot(
+                            response.snapshot,
+                            adapter_id,
+                            ADAPTER_LOAD_SCENE_COMMAND,
+                            format!(
+                                "Loaded adapter scene from {} with {count} objects",
+                                response.source_label
+                            ),
+                        );
+                        AdapterCommandResult::new(
+                            ADAPTER_LOAD_SCENE_COMMAND,
+                            format!("loaded adapter scene with {count} objects"),
+                        )
+                    }
+                    Err(error) => self.fail(ADAPTER_LOAD_SCENE_COMMAND, error),
+                };
+            }
+        }
+        AdapterCommandResult::new(
+            ADAPTER_LOAD_SCENE_COMMAND,
+            "Diagnostic: adapter is not running",
+        )
     }
 
     fn show_status(&self) -> AdapterCommandResult {
@@ -230,58 +180,58 @@ impl AdapterState {
     }
 
     fn show_diagnostics(&mut self) -> AdapterCommandResult {
-        let result = match &mut self.connection {
-            AdapterConnection::Process(host) => host.get_diagnostics(),
-            #[cfg(test)]
-            AdapterConnection::Fake(session) => {
-                session.get_diagnostics(elcarax_adapter_api::GetDiagnosticsRequest)
+        #[cfg(test)]
+        {
+            if let AdapterConnection::Fake(session) = &mut self.connection {
+                let result = session.get_diagnostics(elcarax_adapter_api::GetDiagnosticsRequest);
+                return match result {
+                    Ok(response) => {
+                        self.diagnostics = response.diagnostics;
+                        AdapterCommandResult::new(
+                            ADAPTER_SHOW_DIAGNOSTICS_COMMAND,
+                            format!("{} adapter diagnostic(s)", self.diagnostics.len()),
+                        )
+                    }
+                    Err(error) => self.fail(ADAPTER_SHOW_DIAGNOSTICS_COMMAND, error),
+                };
             }
-            AdapterConnection::None => {
-                return AdapterCommandResult::new(
-                    ADAPTER_SHOW_DIAGNOSTICS_COMMAND,
-                    "Diagnostic: adapter is not running",
-                );
-            }
-        };
-        match result {
-            Ok(response) => {
-                self.diagnostics = response.diagnostics;
-                AdapterCommandResult::new(
-                    ADAPTER_SHOW_DIAGNOSTICS_COMMAND,
-                    format!("{} adapter diagnostic(s)", self.diagnostics.len()),
-                )
-            }
-            Err(error) => self.fail(ADAPTER_SHOW_DIAGNOSTICS_COMMAND, error),
         }
+        AdapterCommandResult::new(
+            ADAPTER_SHOW_DIAGNOSTICS_COMMAND,
+            "Diagnostic: adapter is not running",
+        )
     }
 
-    fn stop_mock(&mut self) -> AdapterCommandResult {
-        let result = match &mut self.connection {
-            AdapterConnection::Process(host) => host.shutdown(),
-            #[cfg(test)]
-            AdapterConnection::Fake(session) => session
-                .shutdown_request(elcarax_adapter_api::ShutdownRequest)
-                .and_then(|response| {
-                    session.shutdown_transport()?;
-                    Ok(response)
-                }),
-            AdapterConnection::None => {
-                self.status = AdapterHostState::Stopped;
-                return AdapterCommandResult::new(ADAPTER_STOP_MOCK_COMMAND, "adapter stopped");
+    fn disconnect(&mut self) -> AdapterCommandResult {
+        #[cfg(test)]
+        {
+            if let AdapterConnection::Fake(session) = &mut self.connection {
+                let result = session
+                    .shutdown_request(elcarax_adapter_api::ShutdownRequest)
+                    .and_then(|response| {
+                        session.shutdown_transport()?;
+                        Ok(response)
+                    });
+                return match result {
+                    Ok(_) => {
+                        self.status = AdapterHostState::Stopped;
+                        self.connection = AdapterConnection::None;
+                        self.edit_history.clear();
+                        AdapterCommandResult::new(
+                            ADAPTER_DISCONNECT_COMMAND,
+                            "adapter disconnected",
+                        )
+                    }
+                    Err(error) => self.fail(ADAPTER_DISCONNECT_COMMAND, error),
+                };
             }
-        };
-        match result {
-            Ok(_) => {
-                self.status = AdapterHostState::Stopped;
-                self.connection = AdapterConnection::None;
-                self.edit_history.clear();
-                AdapterCommandResult::new(ADAPTER_STOP_MOCK_COMMAND, "adapter stopped")
-            }
-            Err(error) => self.fail(ADAPTER_STOP_MOCK_COMMAND, error),
         }
+        self.status = AdapterHostState::Stopped;
+        AdapterCommandResult::new(ADAPTER_DISCONNECT_COMMAND, "adapter disconnected")
     }
 
-    fn set_property_demo(
+    #[cfg(test)]
+    fn set_fixture_property(
         &mut self,
         scene_state: &mut SceneState,
         command_id: &str,
@@ -428,18 +378,20 @@ impl AdapterState {
         &mut self,
         request: SetPropertyRequest,
     ) -> Result<SetPropertyResponse, String> {
-        let result = match &mut self.connection {
-            AdapterConnection::Process(host) => host.set_property(request),
-            #[cfg(test)]
-            AdapterConnection::Fake(session) => session.set_property(request),
-            AdapterConnection::None => return Err("adapter not connected".to_string()),
-        };
-        result.map_err(|error| {
-            self.status = AdapterHostState::Failed;
-            format!("{error}")
-        })
+        #[cfg(test)]
+        {
+            if let AdapterConnection::Fake(session) = &mut self.connection {
+                return session.set_property(request).map_err(|error| {
+                    self.status = AdapterHostState::Failed;
+                    format!("{error}")
+                });
+            }
+        }
+        let _ = request;
+        Err("adapter not connected".to_string())
     }
 
+    #[cfg(test)]
     fn fail(&mut self, command_id: &str, error: AdapterHostError) -> AdapterCommandResult {
         self.status = AdapterHostState::Failed;
         AdapterCommandResult::new(command_id, format!("Diagnostic: {error}"))
@@ -452,6 +404,7 @@ impl AdapterState {
         Self {
             connection: AdapterConnection::Fake(session),
             status: AdapterHostState::Starting,
+            #[cfg(test)]
             id: None,
             name: None,
             version: None,
@@ -466,7 +419,7 @@ impl AdapterState {
     fn fake_writes(&self) -> &[String] {
         match &self.connection {
             AdapterConnection::Fake(session) => session.transport().writes(),
-            AdapterConnection::None | AdapterConnection::Process(_) => {
+            AdapterConnection::None => {
                 panic!("expected fake adapter connection")
             }
         }
@@ -476,8 +429,10 @@ impl AdapterState {
 impl Default for AdapterState {
     fn default() -> Self {
         Self {
+            #[cfg(test)]
             connection: AdapterConnection::None,
             status: AdapterHostState::Disconnected,
+            #[cfg(test)]
             id: None,
             name: None,
             version: None,
@@ -510,16 +465,13 @@ impl AdapterCommandResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AdapterCommand {
-    StartMock,
+    Connect,
     Handshake,
-    LoadDemoProject,
-    LoadDemoScene,
+    LoadProject,
+    LoadScene,
     ShowStatus,
     ShowDiagnostics,
-    StopMock,
-    SetPlayerHealthDemo,
-    SetPlayerSpeedDemo,
-    RenamePlayerDemo,
+    Disconnect,
     Undo,
     Redo,
 }
@@ -527,16 +479,13 @@ enum AdapterCommand {
 impl AdapterCommand {
     fn from_id(id: &str) -> Option<Self> {
         match id {
-            ADAPTER_START_MOCK_COMMAND => Some(Self::StartMock),
+            ADAPTER_CONNECT_COMMAND => Some(Self::Connect),
             ADAPTER_HANDSHAKE_COMMAND => Some(Self::Handshake),
-            ADAPTER_LOAD_DEMO_PROJECT_COMMAND => Some(Self::LoadDemoProject),
-            ADAPTER_LOAD_DEMO_SCENE_COMMAND => Some(Self::LoadDemoScene),
+            ADAPTER_LOAD_PROJECT_COMMAND => Some(Self::LoadProject),
+            ADAPTER_LOAD_SCENE_COMMAND => Some(Self::LoadScene),
             ADAPTER_SHOW_STATUS_COMMAND => Some(Self::ShowStatus),
             ADAPTER_SHOW_DIAGNOSTICS_COMMAND => Some(Self::ShowDiagnostics),
-            ADAPTER_STOP_MOCK_COMMAND => Some(Self::StopMock),
-            ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND => Some(Self::SetPlayerHealthDemo),
-            ADAPTER_INSPECTOR_SET_PLAYER_SPEED_DEMO_COMMAND => Some(Self::SetPlayerSpeedDemo),
-            ADAPTER_INSPECTOR_RENAME_PLAYER_DEMO_COMMAND => Some(Self::RenamePlayerDemo),
+            ADAPTER_DISCONNECT_COMMAND => Some(Self::Disconnect),
             ADAPTER_EDIT_UNDO_COMMAND => Some(Self::Undo),
             ADAPTER_EDIT_REDO_COMMAND => Some(Self::Redo),
             _ => None,
@@ -547,13 +496,6 @@ impl AdapterCommand {
 #[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 pub(crate) fn adapter_command_for_inspector_edit(id: &str) -> Option<&'static str> {
     match id {
-        INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND => {
-            Some(ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND)
-        }
-        INSPECTOR_SET_PLAYER_SPEED_DEMO_COMMAND => {
-            Some(ADAPTER_INSPECTOR_SET_PLAYER_SPEED_DEMO_COMMAND)
-        }
-        INSPECTOR_RENAME_PLAYER_DEMO_COMMAND => Some(ADAPTER_INSPECTOR_RENAME_PLAYER_DEMO_COMMAND),
         EDIT_UNDO_COMMAND => Some(ADAPTER_EDIT_UNDO_COMMAND),
         EDIT_REDO_COMMAND => Some(ADAPTER_EDIT_REDO_COMMAND),
         _ => None,
@@ -567,6 +509,7 @@ struct AdapterEditHistory {
 }
 
 impl AdapterEditHistory {
+    #[cfg(test)]
     fn push(&mut self, change: PropertyChange, _label: &str) {
         self.undo_stack.push(AdapterEditEntry { change });
         self.redo_stack.clear();
@@ -592,6 +535,7 @@ impl AdapterEditHistory {
         }
     }
 
+    #[cfg(test)]
     fn clear(&mut self) {
         self.undo_stack.clear();
         self.redo_stack.clear();
@@ -615,6 +559,7 @@ impl AdapterEditEntry {
     }
 }
 
+#[cfg(test)]
 fn adapter_property_change(
     scene_state: &SceneState,
     path: &PropertyPath,
@@ -645,19 +590,19 @@ fn writeback_failure_message(response: &SetPropertyResponse) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inspector_state::{INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND, InspectorState};
     use elcarax_adapter_api::{
         AdapterEvent, AdapterId, AdapterLog, AdapterRequestId, AdapterResponseMessage,
-        GetDiagnosticsResponse, GetSceneSnapshotResponse, HandshakeResponse, LoadProjectResponse,
-        ProtocolVersion, SetPropertyResponse, SetPropertyStatus, ShutdownResponse,
-        decode_request_line,
+        GetDiagnosticsResponse, GetSceneSnapshotResponse, HandshakeResponse, ProtocolVersion,
+        SetPropertyResponse, SetPropertyStatus, ShutdownResponse, decode_request_line,
     };
     use elcarax_adapter_host::{FakeAdapterTransport, event_line, response_line};
-    use elcarax_commands::CommandHistory;
-    use elcarax_scene_model::{ScenePatch, demo_scene_snapshot};
+    use elcarax_scene_model::{
+        ObjectSchema, PropertyGroup, PropertyKind, PropertySchema, SceneName, SceneObject,
+        SceneObjectId, SceneObjectKind, ScenePatch, SceneSnapshot,
+    };
 
     #[test]
-    fn fake_handshake_command_changes_status() {
+    fn fake_transport_handshake_command_changes_status() {
         let mut state = state_with_lines(vec![response(
             AdapterRequestId(1),
             AdapterResponseMessage::Handshake(handshake_response()),
@@ -669,22 +614,22 @@ mod tests {
     }
 
     #[test]
-    fn adapter_load_demo_scene_updates_scene_snapshot() {
+    fn adapter_load_scene_updates_scene_snapshot() {
         let mut state = state_with_lines(vec![response(
             AdapterRequestId(1),
             AdapterResponseMessage::GetSceneSnapshot(GetSceneSnapshotResponse {
-                snapshot: demo_scene_snapshot(),
-                source_label: "mock-adapter".to_string(),
+                snapshot: fixture_scene().0,
+                source_label: "fixture-adapter".to_string(),
             }),
         )]);
         let mut scene = SceneState::default();
-        let result = state.execute_command_id(ADAPTER_LOAD_DEMO_SCENE_COMMAND, &mut scene);
+        let result = state.execute_command_id(ADAPTER_LOAD_SCENE_COMMAND, &mut scene);
         assert!(result.is_some());
         assert_eq!(
             scene.snapshot().map(|snapshot| snapshot.object_count()),
-            Some(10)
+            Some(1)
         );
-        assert_eq!(scene.ui_snapshot().scene_name, "Demo Scene".to_string());
+        assert_eq!(scene.ui_snapshot().scene_name, "Fixture Scene".to_string());
     }
 
     #[test]
@@ -694,7 +639,7 @@ mod tests {
             response(
                 AdapterRequestId(1),
                 AdapterResponseMessage::GetDiagnostics(GetDiagnosticsResponse {
-                    diagnostics: vec![AdapterDiagnostic::info("mock", "ready")],
+                    diagnostics: vec![AdapterDiagnostic::info("fixture", "ready")],
                 }),
             ),
         ]);
@@ -708,31 +653,36 @@ mod tests {
     }
 
     #[test]
-    fn adapter_stop_mock_clears_connection() {
+    fn adapter_disconnect_clears_connection() {
         let mut state = state_with_lines(vec![response(
             AdapterRequestId(1),
             AdapterResponseMessage::Shutdown(ShutdownResponse { accepted: true }),
         )]);
         let mut scene = SceneState::default();
-        let result = state.execute_command_id(ADAPTER_STOP_MOCK_COMMAND, &mut scene);
+        let result = state.execute_command_id(ADAPTER_DISCONNECT_COMMAND, &mut scene);
         assert_eq!(
             result.map(|result| result.message().to_string()),
-            Some("adapter stopped".to_string())
+            Some("adapter disconnected".to_string())
         );
         assert_eq!(state.status, AdapterHostState::Stopped);
     }
 
     #[test]
     fn adapter_backed_edit_sends_request_and_updates_scene() {
-        let mut scene = adapter_player_scene();
+        let mut scene = adapter_fixture_scene();
         let mut state = state_with_lines(vec![response(
             AdapterRequestId(1),
-            accepted_health_response(PropertyValue::I64(100), PropertyValue::I64(65)),
+            accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
         )]);
-        let result =
-            state.execute_command_id(ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND, &mut scene);
-        assert!(result.is_some());
-        assert_eq!(player_health(&scene), PropertyValue::I64(65));
+        let result = state.set_fixture_property(
+            &mut scene,
+            "test.adapter.set_fixture_health",
+            "gameplay.health",
+            PropertyValue::I64(65),
+            "Set Fixture Health",
+        );
+        assert!(result.message().contains("confirmed"));
+        assert_eq!(fixture_health(&scene), PropertyValue::I64(65));
         let request = match state.fake_writes().first() {
             Some(line) => match decode_request_line(line) {
                 Ok(request) => request,
@@ -748,93 +698,98 @@ mod tests {
 
     #[test]
     fn failed_adapter_edit_records_diagnostic_and_does_not_mutate_value() {
-        let mut scene = adapter_player_scene();
+        let mut scene = adapter_fixture_scene();
         let mut state = state_with_lines(vec![response(
             AdapterRequestId(1),
-            rejected_health_response(),
+            rejected_health_response(&scene),
         )]);
-        let result =
-            state.execute_command_id(ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND, &mut scene);
-        assert!(result.is_some_and(|result| result.message().contains("Diagnostic:")));
-        assert_eq!(player_health(&scene), PropertyValue::I64(100));
+        let result = state.set_fixture_property(
+            &mut scene,
+            "test.adapter.set_fixture_health",
+            "gameplay.health",
+            PropertyValue::I64(65),
+            "Set Fixture Health",
+        );
+        assert!(result.message().contains("Diagnostic:"));
+        assert_eq!(fixture_health(&scene), PropertyValue::I64(100));
     }
 
     #[test]
     fn adapter_backed_undo_and_redo_send_writebacks() {
-        let mut scene = adapter_player_scene();
+        let mut scene = adapter_fixture_scene();
         let mut state = state_with_lines(vec![
             response(
                 AdapterRequestId(1),
-                accepted_health_response(PropertyValue::I64(100), PropertyValue::I64(65)),
+                accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
             ),
             response(
                 AdapterRequestId(2),
-                accepted_health_response(PropertyValue::I64(65), PropertyValue::I64(100)),
+                accepted_health_response(&scene, PropertyValue::I64(65), PropertyValue::I64(100)),
             ),
             response(
                 AdapterRequestId(3),
-                accepted_health_response(PropertyValue::I64(100), PropertyValue::I64(65)),
+                accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
             ),
         ]);
-        let _ =
-            state.execute_command_id(ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND, &mut scene);
+        let _ = state.set_fixture_property(
+            &mut scene,
+            "test.adapter.set_fixture_health",
+            "gameplay.health",
+            PropertyValue::I64(65),
+            "Set Fixture Health",
+        );
         let _ = state.execute_command_id(ADAPTER_EDIT_UNDO_COMMAND, &mut scene);
-        assert_eq!(player_health(&scene), PropertyValue::I64(100));
+        assert_eq!(fixture_health(&scene), PropertyValue::I64(100));
         let _ = state.execute_command_id(ADAPTER_EDIT_REDO_COMMAND, &mut scene);
-        assert_eq!(player_health(&scene), PropertyValue::I64(65));
+        assert_eq!(fixture_health(&scene), PropertyValue::I64(65));
         assert_eq!(state.fake_writes().len(), 3);
     }
 
     #[test]
     fn disconnected_adapter_edit_fails_clearly() {
-        let mut scene = adapter_player_scene();
+        let mut scene = adapter_fixture_scene();
         let mut state = AdapterState::default();
-        let result =
-            state.execute_command_id(ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND, &mut scene);
-        assert!(result.is_some_and(|result| result.message().contains("adapter not connected")));
-        assert_eq!(player_health(&scene), PropertyValue::I64(100));
-    }
-
-    #[test]
-    fn local_demo_edit_path_still_works() {
-        let mut scene = SceneState::default();
-        let _ = scene.execute_command_id(crate::scene_state::SCENE_LOAD_DEMO_COMMAND);
-        let _ = scene.execute_command_id(crate::scene_state::SCENE_SELECT_PLAYER_COMMAND);
-        let mut inspector = InspectorState::default();
-        let mut history = CommandHistory::new();
-        let result = inspector.execute_edit_command_id(
-            INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND,
+        let result = state.set_fixture_property(
             &mut scene,
-            &mut history,
+            "test.adapter.set_fixture_health",
+            "gameplay.health",
+            PropertyValue::I64(65),
+            "Set Fixture Health",
         );
-        assert!(result.is_some());
-        assert_eq!(history.undo_count(), 1);
+        assert!(result.message().contains("adapter not connected"));
+        assert_eq!(fixture_health(&scene), PropertyValue::I64(100));
     }
 
     fn state_with_lines(lines: Vec<String>) -> AdapterState {
         AdapterState::with_fake_session(AdapterSession::new(FakeAdapterTransport::new(lines)))
     }
 
-    fn adapter_player_scene() -> SceneState {
-        let snapshot = demo_scene_snapshot();
+    fn adapter_fixture_scene() -> SceneState {
+        let (snapshot, object_id) = fixture_scene();
         let mut scene = SceneState::default();
         scene.load_external_snapshot(
             snapshot,
-            AdapterId::new("mock"),
+            AdapterId::new("fixture-adapter"),
             "test",
             "Loaded adapter scene",
         );
-        let _ = scene.execute_command_id(crate::scene_state::SCENE_SELECT_PLAYER_COMMAND);
+        assert!(scene.select_object(object_id));
         scene
     }
 
     fn handshake_response() -> HandshakeResponse {
         HandshakeResponse {
-            adapter_id: AdapterId::new("mock"),
-            adapter_name: AdapterName::new("Mock Adapter"),
+            adapter_id: AdapterId::new("fixture-adapter"),
+            adapter_name: AdapterName::new("Fixture Adapter"),
             adapter_version: AdapterVersion::new("0.1.0"),
             protocol_version: ProtocolVersion::V0,
-            capabilities: AdapterCapabilities::mock_milestone_12(),
+            capabilities: AdapterCapabilities {
+                provides_project_info: true,
+                provides_scene_snapshot: true,
+                provides_diagnostics: true,
+                supports_property_writeback: false,
+                supports_viewport_preview: false,
+            },
         }
     }
 
@@ -846,42 +801,35 @@ mod tests {
     }
 
     fn accepted_health_response(
+        scene: &SceneState,
         old_value: PropertyValue,
         new_value: PropertyValue,
     ) -> AdapterResponseMessage {
-        let snapshot = demo_scene_snapshot();
-        let player = match snapshot.object_by_name("Player") {
-            Some(player) => player,
-            None => panic!("player should exist"),
-        };
+        let (scene_id, object_id) = scene_ids(scene);
         let path = path("gameplay.health");
         AdapterResponseMessage::SetProperty(SetPropertyResponse {
             status: SetPropertyStatus::Accepted,
-            scene_id: snapshot.scene_id(),
-            object_id: player.id,
+            scene_id,
+            object_id,
             path: path.clone(),
             old_value: Some(old_value),
             confirmed_new_value: Some(new_value.clone()),
-            patch: Some(ScenePatch::property_updated(player.id, path, new_value)),
+            patch: Some(ScenePatch::property_updated(object_id, path, new_value)),
             diagnostics: Vec::new(),
         })
     }
 
-    fn rejected_health_response() -> AdapterResponseMessage {
-        let snapshot = demo_scene_snapshot();
-        let player = match snapshot.object_by_name("Player") {
-            Some(player) => player,
-            None => panic!("player should exist"),
-        };
+    fn rejected_health_response(scene: &SceneState) -> AdapterResponseMessage {
+        let (scene_id, object_id) = scene_ids(scene);
         AdapterResponseMessage::SetProperty(SetPropertyResponse {
             status: SetPropertyStatus::Rejected,
-            scene_id: snapshot.scene_id(),
-            object_id: player.id,
+            scene_id,
+            object_id,
             path: path("gameplay.health"),
             old_value: None,
             confirmed_new_value: None,
             patch: None,
-            diagnostics: vec![AdapterDiagnostic::info("mock", "rejected")],
+            diagnostics: vec![AdapterDiagnostic::info("fixture", "rejected")],
         })
     }
 
@@ -892,14 +840,6 @@ mod tests {
         }
     }
 
-    #[allow(dead_code)]
-    fn project_response() -> AdapterResponseMessage {
-        AdapterResponseMessage::LoadProject(LoadProjectResponse {
-            display_name: "Mock Adapter Demo Project".to_string(),
-            root_path: None,
-        })
-    }
-
     fn path(value: &str) -> PropertyPath {
         match PropertyPath::parse(value) {
             Ok(path) => path,
@@ -907,16 +847,46 @@ mod tests {
         }
     }
 
-    fn player_health(scene: &SceneState) -> PropertyValue {
+    fn fixture_scene() -> (SceneSnapshot, SceneObjectId) {
+        let health_path = path("gameplay.health");
+        let schema = ObjectSchema::new("Actor").with_property(PropertySchema::editable(
+            health_path.clone(),
+            "Health",
+            PropertyKind::I64,
+            PropertyGroup::new("Gameplay"),
+        ));
+        let mut object =
+            SceneObject::new("Fixture Actor", SceneObjectKind::Character, schema.type_id);
+        object.set_property(health_path, PropertyValue::I64(100));
+        let object_id = object.id;
+        let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
+        snapshot.add_schema(schema);
+        snapshot.add_root_object(object);
+        (snapshot, object_id)
+    }
+
+    fn scene_ids(scene: &SceneState) -> (elcarax_scene_model::SceneId, SceneObjectId) {
         let snapshot = match scene.snapshot() {
             Some(snapshot) => snapshot,
             None => panic!("scene should be loaded"),
         };
-        let player = match snapshot.object_by_name("Player") {
-            Some(player) => player,
-            None => panic!("player should exist"),
+        let actor = match snapshot.object_by_name("Fixture Actor") {
+            Some(actor) => actor,
+            None => panic!("fixture actor should exist"),
         };
-        match player.property(&path("gameplay.health")) {
+        (snapshot.scene_id(), actor.id)
+    }
+
+    fn fixture_health(scene: &SceneState) -> PropertyValue {
+        let snapshot = match scene.snapshot() {
+            Some(snapshot) => snapshot,
+            None => panic!("scene should be loaded"),
+        };
+        let actor = match snapshot.object_by_name("Fixture Actor") {
+            Some(actor) => actor,
+            None => panic!("fixture actor should exist"),
+        };
+        match actor.property(&path("gameplay.health")) {
             Some(value) => value.clone(),
             None => panic!("health should exist"),
         }

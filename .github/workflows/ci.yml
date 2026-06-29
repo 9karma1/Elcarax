@@ -63,3 +63,10 @@ jobs:
 
       - name: Guard crates against unfinished shortcuts
         run: '! rg "unwrap\(|todo!\(" crates -n'
+
+      - name: Guard runtime against fixture naming
+        run: |
+          ! rg -n "demo|mock|placeholder|sample" \
+            crates/elcarax_app/src \
+            crates/elcarax_commands/src \
+            crates/elcarax_ui/src/lib.rs

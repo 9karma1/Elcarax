@@ -41,7 +41,7 @@ pub(crate) fn scene_ui_snapshot(
         scene_section_title: "Scene".to_string(),
         scene_name: snapshot
             .map(|scene| scene.name().as_str().to_string())
-            .unwrap_or_else(|| "No scene".to_string()),
+            .unwrap_or_else(|| "No scene loaded".to_string()),
         scene_expand_labels,
         scene_row_labels,
         scene_selected_summary: selected_object_summary(snapshot, selection),
@@ -101,7 +101,7 @@ fn status_scene_suffix(
     }
     let scene_name = snapshot
         .map(|scene| scene.name().as_str().to_string())
-        .unwrap_or_else(|| "None".to_string());
+        .unwrap_or_else(|| "No scene loaded".to_string());
     let object = match selection
         .selected()
         .and_then(|id| snapshot.and_then(|scene| scene.object(id).ok()))

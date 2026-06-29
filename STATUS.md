@@ -19,6 +19,7 @@ Generated: 2026-06-29
 - Editable inspector undo foundation with primitive property edit metadata, model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo
 - Adapter host integration with JSON-line protocol, mock process spawning, versioned handshake, request/response correlation, diagnostics/logs, scene snapshot import, status UI, and command-palette adapter commands
 - Adapter property writeback foundation with mock adapter set-property protocol, confirmed scene patches, adapter-backed inspector edits, adapter undo/redo writeback, and diagnostics for rejected writes
+- Productionized normal runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -30,8 +31,9 @@ Generated: 2026-06-29
 ## Not included yet
 
 - Icons, images, and full vector paths
-- Full editor UI system beyond the interactive shell and project-status foundation
+- Full editor UI system beyond the interactive empty shell and project-status foundation
 - Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, viewport scene rendering, viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
+- Normal runtime fixture commands, automatic fake data loading, and mock adapter startup as user-facing editor behavior
 - Real `AccessKit` adapter integration
 - Real game engine binding
 - CI execution of the native window path
@@ -63,6 +65,14 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo run -p elcarax_app
 ```
+
+## Milestone 14A: Productionize Runtime
+
+- Removed normal runtime registration of demo project, asset, scene, inspector edit, and mock-adapter startup commands.
+- Replaced startup behavior with honest empty states: no project open, no asset root loaded, no scene loaded, no object selected, no viewport source, and adapter disconnected.
+- Replaced fake-workflow console proof with a startup validation summary that builds the empty UI shell and prints state/render/undo readiness.
+- Kept property editing, adapter writeback, and scene/asset/project behavior covered through tests, fixtures, and the mock adapter boundary instead of normal user-facing commands.
+- Updated current docs and build notes so manual smoke tests validate the empty editor shell and explicit diagnostics.
 
 ## Milestone 3: Text Rendering Foundation
 
