@@ -1441,11 +1441,11 @@ fn empty_asset_row_labels() -> [String; MAX_VISIBLE_ASSET_ROWS] {
 impl EditorShellContent {
     pub fn no_project() -> Self {
         Self {
-            toolbar_title: "Elcarax - No Project".to_string(),
+            toolbar_title: "Elcarax - No project open".to_string(),
             project_title: "Project".to_string(),
-            project_name: "Name: No project".to_string(),
-            project_path: "Path: None".to_string(),
-            project_status: "Status: None".to_string(),
+            project_name: "No project open".to_string(),
+            project_path: "Open Project | Create Project".to_string(),
+            project_status: "Status: No project open".to_string(),
             project_recent: "Recent: 0".to_string(),
             project_diagnostics: "Diagnostics: No diagnostics".to_string(),
             project_command: "Command: None".to_string(),
@@ -1453,11 +1453,11 @@ impl EditorShellContent {
             adapter_diagnostics: "Adapter Diagnostics: 0".to_string(),
             adapter_command: "Adapter Command: None".to_string(),
             asset_section_title: "Assets".to_string(),
-            asset_count: "Assets: 0".to_string(),
+            asset_count: "Assets: No asset root loaded".to_string(),
             asset_row_labels: empty_asset_row_labels(),
             asset_selected_summary: "Selected: None".to_string(),
             scene_section_title: "Scene".to_string(),
-            scene_name: "No scene".to_string(),
+            scene_name: "No scene loaded".to_string(),
             scene_expand_labels: empty_scene_row_labels(),
             scene_row_labels: empty_scene_row_labels(),
             scene_selected_summary: "Selected: None".to_string(),
@@ -1468,7 +1468,7 @@ impl EditorShellContent {
             inspector_row_values: empty_inspector_row_labels(),
             inspector_row_editable: [false; MAX_VISIBLE_INSPECTOR_ROWS],
             inspector_summary: String::new(),
-            status: "Project: None".to_string(),
+            status: "Ready - open a project or connect an adapter".to_string(),
         }
     }
 }
@@ -1727,7 +1727,7 @@ pub fn build_editor_shell_with_content(
         toolbar,
         UiNode::new(
             run_button,
-            WidgetKind::Button("Run".to_string()),
+            WidgetKind::Button("Open".to_string()),
             UiStyle::BUTTON,
             LayoutNode::leaf().with_width(SizePolicy::Content),
         ),
@@ -2001,7 +2001,7 @@ pub fn build_editor_shell_with_content(
         viewport,
         UiNode::new(
             viewport_label,
-            WidgetKind::Label("Viewport".to_string()),
+            WidgetKind::Label("No viewport source".to_string()),
             UiStyle::LABEL,
             LayoutNode::leaf(),
         ),
@@ -2673,7 +2673,7 @@ mod tests {
                 id(1),
                 UiNode::new(
                     id(2),
-                    WidgetKind::Button("Run".to_string()),
+                    WidgetKind::Button("Open".to_string()),
                     UiStyle::BUTTON,
                     LayoutNode::fixed(80.0, 32.0)
                 )
@@ -3178,13 +3178,16 @@ mod tests {
                 id: shell.ids.run_button,
             }) {
                 assert!(
-                    tree.set_label_text(shell.ids.status_label, "Status: Run clicked")
-                        .is_ok()
+                    tree.set_label_text(
+                        shell.ids.status_label,
+                        "Not implemented yet: project opening"
+                    )
+                    .is_ok()
                 );
             }
         }
         assert!(tree.get(shell.ids.status_label).is_some_and(|node| {
-            matches!(&node.kind, WidgetKind::Label(text) if text == "Status: Run clicked")
+            matches!(&node.kind, WidgetKind::Label(text) if text == "Not implemented yet: project opening")
         }));
     }
 
@@ -3197,23 +3200,23 @@ mod tests {
         )));
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
-        assert!(texts.contains(&"Elcarax - No Project"));
-        assert!(texts.contains(&"Name: No project"));
-        assert!(texts.contains(&"Project: None"));
+        assert!(texts.contains(&"Elcarax - No project open"));
+        assert!(texts.contains(&"No project open"));
+        assert!(texts.contains(&"Ready - open a project or connect an adapter"));
     }
 
     #[test]
     fn loaded_project_shell_paints_project_metadata() {
         let theme = Theme::editor_dark();
         let content = EditorShellContent {
-            toolbar_title: "Elcarax - Demo Project".to_string(),
-            project_name: "Name: Demo Project".to_string(),
-            project_path: "Path: samples/demo_project.elcarax".to_string(),
+            toolbar_title: "Elcarax - Fixture Project".to_string(),
+            project_name: "Name: Fixture Project".to_string(),
+            project_path: "Path: fixtures/project.elcarax".to_string(),
             project_status: "Status: Loaded".to_string(),
             project_recent: "Recent: 1".to_string(),
             project_diagnostics: "Diagnostics: No diagnostics".to_string(),
-            project_command: "Command: project.new_demo".to_string(),
-            status: "Project: Loaded | Diagnostics: 0 | Command: project.new_demo".to_string(),
+            project_command: "Command: project.open".to_string(),
+            status: "Project: Loaded | Diagnostics: 0 | Command: project.open".to_string(),
             ..EditorShellContent::default()
         };
         let shell = must(build_editor_shell_with_content(
@@ -3222,10 +3225,10 @@ mod tests {
         ));
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
-        assert!(texts.contains(&"Elcarax - Demo Project"));
-        assert!(texts.contains(&"Name: Demo Project"));
+        assert!(texts.contains(&"Elcarax - Fixture Project"));
+        assert!(texts.contains(&"Name: Fixture Project"));
         assert!(texts.contains(&"Diagnostics: No diagnostics"));
-        assert!(texts.contains(&"Project: Loaded | Diagnostics: 0 | Command: project.new_demo"));
+        assert!(texts.contains(&"Project: Loaded | Diagnostics: 0 | Command: project.open"));
     }
 
     #[test]
@@ -3257,8 +3260,8 @@ mod tests {
     fn asset_panel_paints_asset_count_and_rows() {
         let theme = Theme::editor_dark();
         let mut row_labels = std::array::from_fn(|_| String::new());
-        row_labels[0] = "demo.scene (Scene)".to_string();
-        row_labels[1] = "cube.glb (Model)".to_string();
+        row_labels[0] = "level.scene (Scene)".to_string();
+        row_labels[1] = "hero.glb (Model)".to_string();
         let content = EditorShellContent {
             asset_section_title: "Assets".to_string(),
             asset_count: "Assets: 2".to_string(),
@@ -3274,8 +3277,8 @@ mod tests {
         let texts = painted_texts(&scene);
         assert!(texts.contains(&"Assets"));
         assert!(texts.contains(&"Assets: 2"));
-        assert!(texts.contains(&"demo.scene (Scene)"));
-        assert!(texts.contains(&"cube.glb (Model)"));
+        assert!(texts.contains(&"level.scene (Scene)"));
+        assert!(texts.contains(&"hero.glb (Model)"));
     }
 
     #[test]
@@ -3287,24 +3290,24 @@ mod tests {
         )));
         let mut tree = shell.tree;
         assert!(
-            tree.set_button_text(shell.ids.asset_rows[0], "demo.scene (Scene)")
+            tree.set_button_text(shell.ids.asset_rows[0], "level.scene (Scene)")
                 .is_ok()
         );
         assert!(tree.set_focused(Some(shell.ids.asset_rows[0])).is_ok());
         assert!(
             tree.set_label_text(
                 shell.ids.asset_selected_summary,
-                "Selected: demo.scene | Scene | assets/scenes/demo.scene"
+                "Selected: level.scene | Scene | fixtures/scenes/level.scene"
             )
             .is_ok()
         );
         assert!(tree.get(shell.ids.asset_rows[0]).is_some_and(|node| {
             node.interaction.focused
-                && matches!(&node.kind, WidgetKind::Button(text) if text == "demo.scene (Scene)")
+                && matches!(&node.kind, WidgetKind::Button(text) if text == "level.scene (Scene)")
         }));
         let scene = must(tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
-        assert!(texts.contains(&"Selected: demo.scene | Scene | assets/scenes/demo.scene"));
+        assert!(texts.contains(&"Selected: level.scene | Scene | fixtures/scenes/level.scene"));
     }
 
     #[test]
@@ -3317,7 +3320,7 @@ mod tests {
         row_labels[1] = "  Directional Light (Light)".to_string();
         let content = EditorShellContent {
             scene_section_title: "Scene".to_string(),
-            scene_name: "Demo Scene".to_string(),
+            scene_name: "Fixture Scene".to_string(),
             scene_expand_labels: expand_labels,
             scene_row_labels: row_labels,
             scene_selected_summary: "Selected: None".to_string(),
@@ -3330,7 +3333,7 @@ mod tests {
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
         assert!(texts.contains(&"Scene"));
-        assert!(texts.contains(&"Demo Scene"));
+        assert!(texts.contains(&"Fixture Scene"));
         assert!(texts.contains(&"World (World)"));
         assert!(texts.contains(&"  Directional Light (Light)"));
     }
@@ -3413,8 +3416,9 @@ mod tests {
     fn status_text_includes_selected_scene_object() {
         let theme = Theme::editor_dark();
         let content = EditorShellContent {
-            status: "Project: Demo Project | Asset: cube.glb | Scene: Demo Scene | Object: Player"
-                .to_string(),
+            status:
+                "Project: Fixture Project | Asset: hero.glb | Scene: Fixture Scene | Object: Actor"
+                    .to_string(),
             ..EditorShellContent::default()
         };
         let shell = must(build_editor_shell_with_content(
@@ -3424,7 +3428,7 @@ mod tests {
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
         assert!(texts.contains(
-            &"Project: Demo Project | Asset: cube.glb | Scene: Demo Scene | Object: Player"
+            &"Project: Fixture Project | Asset: hero.glb | Scene: Fixture Scene | Object: Actor"
         ));
     }
 
@@ -3434,7 +3438,7 @@ mod tests {
         let content = EditorShellContent {
             adapter_status: "Adapter: Disconnected".to_string(),
             adapter_diagnostics: "Adapter Diagnostics: 0".to_string(),
-            status: "Project: None | Adapter: Disconnected".to_string(),
+            status: "Ready - open a project or connect an adapter".to_string(),
             ..EditorShellContent::default()
         };
         let shell = must(build_editor_shell_with_content(
@@ -3451,11 +3455,12 @@ mod tests {
     fn adapter_connected_status_and_diagnostics_paint() {
         let theme = Theme::editor_dark();
         let content = EditorShellContent {
-            adapter_status: "Adapter: Mock Adapter 0.1.0 Connected".to_string(),
+            adapter_status: "Adapter: Fixture Adapter 0.1.0 Connected".to_string(),
             adapter_diagnostics: "Adapter Diagnostics: 1".to_string(),
             adapter_command: "Adapter Command: loaded adapter scene with 10 objects".to_string(),
-            scene_name: "Demo Scene".to_string(),
-            status: "Project: None | Adapter: Mock Adapter 0.1.0 Connected".to_string(),
+            scene_name: "Fixture Scene".to_string(),
+            status: "Project: No project open | Adapter: Fixture Adapter 0.1.0 Connected"
+                .to_string(),
             ..EditorShellContent::default()
         };
         let shell = must(build_editor_shell_with_content(
@@ -3464,9 +3469,9 @@ mod tests {
         ));
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
-        assert!(texts.contains(&"Adapter: Mock Adapter 0.1.0 Connected"));
+        assert!(texts.contains(&"Adapter: Fixture Adapter 0.1.0 Connected"));
         assert!(texts.contains(&"Adapter Diagnostics: 1"));
-        assert!(texts.contains(&"Demo Scene"));
+        assert!(texts.contains(&"Fixture Scene"));
     }
 
     #[test]
@@ -3570,7 +3575,7 @@ mod tests {
         row_values[1] = "65  [Set]".to_string();
         row_editable[1] = true;
         let content = EditorShellContent {
-            adapter_status: "Adapter: Mock Adapter 0.1.0 Connected".to_string(),
+            adapter_status: "Adapter: Fixture Adapter 0.1.0 Connected".to_string(),
             inspector_object_name: "Player".to_string(),
             inspector_object_kind: "Kind: Character".to_string(),
             inspector_row_labels: row_labels,
@@ -3584,7 +3589,7 @@ mod tests {
         ));
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
-        assert!(texts.contains(&"Adapter: Mock Adapter 0.1.0 Connected"));
+        assert!(texts.contains(&"Adapter: Fixture Adapter 0.1.0 Connected"));
         assert!(texts.contains(&"Player"));
         assert!(
             shell
@@ -3634,7 +3639,7 @@ mod tests {
             adapter_status: "Adapter: Disconnected".to_string(),
             adapter_command: "Adapter Command: Diagnostic: adapter not connected".to_string(),
             status:
-                "Project: None | Adapter: Disconnected | Scene: Diagnostic: adapter not connected"
+                "Project: No project open | Adapter: Disconnected | Scene: Diagnostic: adapter not connected"
                     .to_string(),
             ..EditorShellContent::default()
         };
@@ -3647,7 +3652,7 @@ mod tests {
         assert!(texts.contains(&"Adapter: Disconnected"));
         assert!(texts.contains(&"Adapter Command: Diagnostic: adapter not connected"));
         assert!(texts.contains(
-            &"Project: None | Adapter: Disconnected | Scene: Diagnostic: adapter not connected"
+            &"Project: No project open | Adapter: Disconnected | Scene: Diagnostic: adapter not connected"
         ));
     }
 
@@ -3703,10 +3708,10 @@ mod tests {
                 true,
             ),
             CommandPaletteEntry::new(
-                "elcarax.demo.run",
-                "Run Demo Action",
-                "Demo",
-                Some("Run demo".to_string()),
+                "project.open",
+                "Open Project",
+                "Project",
+                Some("Open project".to_string()),
                 true,
             ),
         ]
@@ -3790,7 +3795,7 @@ mod tests {
         palette.open();
         assert_eq!(palette.filtered_entries().len(), 2);
         assert_eq!(palette.filtered_entries()[0].name, "Show Ready Status");
-        assert_eq!(palette.filtered_entries()[1].name, "Run Demo Action");
+        assert_eq!(palette.filtered_entries()[1].name, "Open Project");
     }
 
     #[test]

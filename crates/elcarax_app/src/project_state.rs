@@ -1,12 +1,13 @@
+#![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
+
 use elcarax_project::{Project, ProjectValidation, RecentProjects};
 
 use crate::project_display::{ProjectUiSnapshot, project_ui_snapshot};
 
-pub(crate) const PROJECT_NEW_DEMO_COMMAND: &str = "project.new_demo";
-pub(crate) const PROJECT_OPEN_DEMO_COMMAND: &str = "project.open_demo";
+pub(crate) const PROJECT_CREATE_COMMAND: &str = "project.create";
+pub(crate) const PROJECT_OPEN_COMMAND: &str = "project.open";
 pub(crate) const PROJECT_CLOSE_COMMAND: &str = "project.close";
 pub(crate) const PROJECT_VALIDATE_COMMAND: &str = "project.validate";
-pub(crate) const PROJECT_SHOW_RECENT_COMMAND: &str = "project.show_recent";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectState {
@@ -20,11 +21,10 @@ impl ProjectState {
     pub(crate) fn execute_command_id(&mut self, id: &str) -> Option<ProjectCommandResult> {
         let command = ProjectCommand::from_id(id)?;
         let result = match command {
-            ProjectCommand::NewDemo => self.create_new_demo_project(),
-            ProjectCommand::OpenDemo => self.open_demo_project(),
+            ProjectCommand::Create => self.create_project(),
+            ProjectCommand::Open => self.open_project(),
             ProjectCommand::Close => self.close_project(),
             ProjectCommand::Validate => self.validate_current_project(),
-            ProjectCommand::ShowRecent => self.show_recent_projects(),
         };
         self.last_command_result = Some(result.clone());
         Some(result)
@@ -43,20 +43,15 @@ impl ProjectState {
         self.current_project.is_some()
     }
 
-    fn create_new_demo_project(&mut self) -> ProjectCommandResult {
-        let project = Project::demo();
-        self.validation = project.validate();
-        self.recent_projects.record(&project);
-        self.current_project = Some(project);
-        ProjectCommandResult::new(PROJECT_NEW_DEMO_COMMAND, "Created demo project")
+    fn create_project(&self) -> ProjectCommandResult {
+        ProjectCommandResult::new(
+            PROJECT_CREATE_COMMAND,
+            "Not implemented yet: project creation",
+        )
     }
 
-    fn open_demo_project(&mut self) -> ProjectCommandResult {
-        let project = Project::sample();
-        self.validation = project.validate();
-        self.recent_projects.record(&project);
-        self.current_project = Some(project);
-        ProjectCommandResult::new(PROJECT_OPEN_DEMO_COMMAND, "Opened sample project")
+    fn open_project(&self) -> ProjectCommandResult {
+        ProjectCommandResult::new(PROJECT_OPEN_COMMAND, "Not implemented yet: project opening")
     }
 
     fn close_project(&mut self) -> ProjectCommandResult {
@@ -78,22 +73,11 @@ impl ProjectState {
         }
     }
 
-    fn show_recent_projects(&self) -> ProjectCommandResult {
-        let count = self.recent_projects.len();
-        if count == 0 {
-            return ProjectCommandResult::new(PROJECT_SHOW_RECENT_COMMAND, "No recent projects");
-        }
-        let names = self
-            .recent_projects
-            .entries()
-            .iter()
-            .map(|project| project.name().as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        ProjectCommandResult::new(
-            PROJECT_SHOW_RECENT_COMMAND,
-            format!("Recent projects ({count}): {names}"),
-        )
+    #[cfg(test)]
+    fn load_fixture_project(&mut self, project: Project) {
+        self.validation = project.validate();
+        self.recent_projects.record(&project);
+        self.current_project = Some(project);
     }
 }
 
@@ -110,21 +94,19 @@ impl Default for ProjectState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProjectCommand {
-    NewDemo,
-    OpenDemo,
+    Create,
+    Open,
     Close,
     Validate,
-    ShowRecent,
 }
 
 impl ProjectCommand {
     fn from_id(id: &str) -> Option<Self> {
         match id {
-            PROJECT_NEW_DEMO_COMMAND => Some(Self::NewDemo),
-            PROJECT_OPEN_DEMO_COMMAND => Some(Self::OpenDemo),
+            PROJECT_CREATE_COMMAND => Some(Self::Create),
+            PROJECT_OPEN_COMMAND => Some(Self::Open),
             PROJECT_CLOSE_COMMAND => Some(Self::Close),
             PROJECT_VALIDATE_COMMAND => Some(Self::Validate),
-            PROJECT_SHOW_RECENT_COMMAND => Some(Self::ShowRecent),
             _ => None,
         }
     }
@@ -158,26 +140,27 @@ mod tests {
     use super::*;
     use crate::project_display::DiagnosticTone;
     use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
-    use elcarax_project::ProjectStatus;
+    use elcarax_project::{ProjectId, ProjectStatus};
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
+    use std::num::NonZeroU64;
+    use std::path::PathBuf;
 
     #[test]
-    fn project_new_demo_changes_project_state() {
+    fn project_create_reports_unimplemented_without_loading_project() {
         let mut state = ProjectState::default();
-        let result = state.execute_command_id(PROJECT_NEW_DEMO_COMMAND);
+        let result = state.execute_command_id(PROJECT_CREATE_COMMAND);
         assert_eq!(
             result.as_ref().map(ProjectCommandResult::command_id),
-            Some(PROJECT_NEW_DEMO_COMMAND)
+            Some(PROJECT_CREATE_COMMAND)
         );
-        assert!(state.current_project.is_some());
-        assert_eq!(state.recent_projects.len(), 1);
-        assert_eq!(state.validation.diagnostic_count(), 0);
+        assert!(result.is_some_and(|value| value.message().contains("Not implemented yet")));
+        assert!(state.current_project.is_none());
     }
 
     #[test]
     fn project_close_clears_project_state() {
         let mut state = ProjectState::default();
-        let _ = state.execute_command_id(PROJECT_NEW_DEMO_COMMAND);
+        state.load_fixture_project(fixture_project());
         let _ = state.execute_command_id(PROJECT_CLOSE_COMMAND);
         assert!(state.current_project.is_none());
         assert_eq!(state.validation.status(), ProjectStatus::NoProject);
@@ -193,7 +176,7 @@ mod tests {
     #[test]
     fn project_validate_records_diagnostics() {
         let mut state = ProjectState::default();
-        let _ = state.execute_command_id(PROJECT_NEW_DEMO_COMMAND);
+        state.load_fixture_project(fixture_project());
         let result = state.execute_command_id(PROJECT_VALIDATE_COMMAND);
         assert_eq!(
             result.as_ref().map(ProjectCommandResult::message),
@@ -205,7 +188,7 @@ mod tests {
     #[test]
     fn unknown_command_does_not_mutate_project_state() {
         let mut state = ProjectState::default();
-        assert_eq!(state.execute_command_id("elcarax.demo.run"), None);
+        assert_eq!(state.execute_command_id("elcarax.unknown"), None);
         assert!(state.current_project.is_none());
         assert!(state.last_command_result.is_none());
     }
@@ -213,10 +196,13 @@ mod tests {
     #[test]
     fn ui_snapshot_formats_no_project_and_loaded_states() {
         let mut state = ProjectState::default();
-        assert_eq!(state.ui_snapshot().toolbar_title, "Elcarax - No Project");
-        let _ = state.execute_command_id(PROJECT_NEW_DEMO_COMMAND);
+        assert_eq!(
+            state.ui_snapshot().toolbar_title,
+            "Elcarax - No project open"
+        );
+        state.load_fixture_project(fixture_project());
         let snapshot = state.ui_snapshot();
-        assert_eq!(snapshot.toolbar_title, "Elcarax - Demo Project");
+        assert_eq!(snapshot.toolbar_title, "Elcarax - Fixture Project");
         assert_eq!(snapshot.project_recent, "Recent: 1");
         assert_eq!(snapshot.diagnostic_tone, DiagnosticTone::Success);
     }
@@ -235,7 +221,7 @@ mod tests {
                 .collect(),
         );
         palette.open();
-        for character in PROJECT_NEW_DEMO_COMMAND.chars() {
+        for character in PROJECT_CREATE_COMMAND.chars() {
             assert_eq!(
                 palette.handle_key(KeyboardKey::Character(character.to_string())),
                 CommandPaletteAction::None
@@ -258,7 +244,16 @@ mod tests {
         ));
         let mut state = ProjectState::default();
         assert!(state.execute_command_id(selected_id.as_str()).is_some());
-        assert!(state.current_project.is_some());
+        assert!(state.current_project.is_none());
+    }
+
+    fn fixture_project() -> Project {
+        Project::from_loaded_data(
+            ProjectId::from_non_zero(NonZeroU64::MIN),
+            "Fixture Project",
+            PathBuf::from("fixtures/project.elcarax"),
+            "fixture-adapter",
+        )
     }
 
     fn palette_entry_from_command(command: &RegisteredCommand) -> CommandPaletteEntry {

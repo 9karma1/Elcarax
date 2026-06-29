@@ -33,7 +33,7 @@ pub(crate) fn asset_ui_snapshot(
     let status_asset_suffix = status_asset_suffix(index, selection, scan, last_command_message);
     AssetUiSnapshot {
         asset_section_title: "Assets".to_string(),
-        asset_count: format!("Assets: {}", index.len()),
+        asset_count: asset_count_label(index),
         asset_row_labels,
         asset_selected_summary: selected_summary,
         selected_row_index,
@@ -92,7 +92,15 @@ fn status_asset_suffix(
         return format!("Asset: {} ({})", record.name.as_str(), record.kind.label());
     }
     if index.is_empty() {
-        "Asset: None".to_string()
+        "Asset: No asset root loaded".to_string()
+    } else {
+        format!("Assets: {}", index.len())
+    }
+}
+
+fn asset_count_label(index: &AssetIndex) -> String {
+    if index.is_empty() {
+        "Assets: No asset root loaded".to_string()
     } else {
         format!("Assets: {}", index.len())
     }

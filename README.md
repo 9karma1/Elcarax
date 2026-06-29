@@ -15,15 +15,16 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - `wgpu` surface/context and rectangle primitive rendering
 - `cosmic-text` shaping and system-font rasterization through `elcarax_text`
 - retained UI tree, layout primitives, hit testing, interaction state, dirty flags, style/theme resolution, and paint output
-- interactive editor shell foundation with toolbar, Run button, project panel, asset browser, scene tree, viewport, inspector, status bar, and command palette
+- interactive editor shell foundation with toolbar, project panel, asset browser, scene tree, viewport, inspector, status bar, and command palette
 - project-domain model, recent project list, validation diagnostics, and project commands
-- asset browser foundation with demo asset index, scan/selection commands, and clickable asset rows
-- scene tree foundation with engine-neutral scene model, demo snapshot, hierarchy display, selection/expand state, and scene commands
+- asset browser foundation with file-based asset indexing, scan state, selection state, and clickable asset rows
+- scene tree foundation with engine-neutral scene model, hierarchy display, selection/expand state, and scene commands
 - read-only inspector foundation with property formatting, grouped rows, selection-driven updates, and inspector commands
 - editable inspector undo foundation with command-driven primitive property edits, inspector refresh, diagnostics, and undo/redo
-- adapter host integration with JSON-line mock process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
-- adapter property writeback foundation with mock adapter set-property requests, confirmed scene patches, adapter-backed inspector edits, and adapter undo/redo
-- project, asset, accessibility placeholder, and devtools modules
+- adapter host integration with JSON-line process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
+- adapter property writeback foundation with mock-adapter-only set-property requests, confirmed scene patches, adapter-backed inspector edits, and adapter undo/redo
+- productionized empty runtime startup with fixture data kept out of normal app flow
+- project, asset, accessibility state, and devtools modules
 - architecture decision records and milestone documentation
 
 This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, real text input fields, IME/caret/selection editing, component add/remove, asset assignment editing, multi-object editing, scroll views, real accessibility integration, file dialogs, file watching, hot reload, plugin/marketplace runtime loading, asset import pipeline, scene save/writeback, viewport scene rendering or frame streaming, real engine synchronization, C++ integration, real engine writeback, and real engine binding are intentionally out of scope for the current milestone.
@@ -70,7 +71,7 @@ Default console proof flow:
 cargo run -p elcarax_app
 ```
 
-The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project/asset/scene/inspector edit and undo/redo commands, starts the mock adapter process, performs the adapter handshake, imports the adapter scene snapshot, sends adapter-backed property edits through the mock adapter, exercises adapter undo/redo, shows adapter diagnostics, stops the adapter, updates editor UI state, and prints project, asset, scene, inspector, adapter, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, and command palette proof output.
+The console flow builds the empty editor shell without opening a GPU window and prints a startup validation summary. It does not load fake project, asset, scene, inspector, or adapter data.
 
 Manual native shell smoke test:
 
@@ -83,28 +84,15 @@ The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI sh
 Suggested manual flow:
 
 1. Open the native shell
-2. Press Ctrl+K and run `project.new_demo` (type `new demo`)
-3. Run `asset.scan_demo` (type `scan`)
-4. Run `scene.load_demo` (type `scene` or `load demo`)
-5. Confirm the left panel shows demo assets and the demo scene hierarchy
-6. Select `Player` via `scene.select_player` or by clicking the row
-7. Confirm the selected row highlights and the status bar reports the selected object
-8. Confirm the right inspector shows Player properties with editable primitive rows and muted read-only rows
-9. Run `inspector.set_player_health_demo` and confirm Health changes
-10. Run `edit.undo` and confirm Health returns to its original value
-11. Run `edit.redo` and confirm Health changes again
-12. Run `inspector.clear` and confirm the inspector returns to the empty state
-13. Run `adapter.start_mock` and confirm adapter status changes to connected
-14. Run `adapter.load_demo_scene` and confirm the scene tree shows the adapter-provided demo scene
-15. Select `Player` and confirm the inspector shows adapter-backed properties
-16. Run `adapter.inspector.set_player_health_demo` and confirm Health changes after adapter confirmation
-17. Run `adapter.edit.undo` and confirm Health returns to its original value
-18. Run `adapter.edit.redo` and confirm Health changes again
-19. Run `adapter.show_diagnostics` and confirm the adapter diagnostic count updates
-20. Run `adapter.stop_mock` and confirm adapter status changes to stopped
-21. Run `scene.expand_all` and `scene.collapse_all`
+2. Confirm no project, asset root, scene, viewport source, selected object, or adapter is loaded automatically
+3. Confirm the left panel shows `No project open`, assets unavailable until a project/root exists, and `No scene loaded`
+4. Confirm the center viewport says `No viewport source`
+5. Confirm the right inspector says `No object selected`
+6. Confirm the status bar says `Ready - open a project or connect an adapter`
+7. Press Ctrl+K and confirm the palette exposes real editor commands such as `project.create`, `project.open`, `asset.scan`, `scene.load`, `inspector.clear`, `edit.undo`, `edit.redo`, `adapter.connect`, `adapter.load_scene`, and adapter status/diagnostic commands
+8. Run unimplemented setup commands such as `project.open` or `adapter.connect` and confirm they report clear diagnostics instead of creating fake data
 
-The command palette shows eight rows at a time; filter with query text to reach scene commands below the asset section. Clicking the toolbar `Run` button updates the status text to `Status: Run clicked`.
+The command palette shows eight rows at a time and filters with query text. The toolbar `Open` button reports that project opening is not implemented yet.
 
 ## Architecture
 
@@ -141,6 +129,7 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 11: editable inspector undo foundation
 - Milestone 12: adapter host integration
 - Milestone 13: adapter property writeback foundation
+- Milestone 14A: productionized empty runtime startup
 
 See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 
@@ -148,3 +137,4 @@ See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 - `docs/MILESTONE_11_EDITABLE_INSPECTOR_UNDO.md`
 - `docs/MILESTONE_12_ADAPTER_HOST_INTEGRATION.md`
 - `docs/MILESTONE_13_ADAPTER_PROPERTY_WRITEBACK.md`
+- `docs/MILESTONE_14A_PRODUCTIONIZE_RUNTIME.md`

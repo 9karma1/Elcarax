@@ -28,11 +28,11 @@ pub(crate) fn shell_content_from_project(snapshot: &ProjectUiSnapshot) -> Editor
 fn empty_asset_snapshot() -> AssetUiSnapshot {
     AssetUiSnapshot {
         asset_section_title: "Assets".to_string(),
-        asset_count: "Assets: 0".to_string(),
+        asset_count: "Assets: No asset root loaded".to_string(),
         asset_row_labels: std::array::from_fn(|_| String::new()),
         asset_selected_summary: "Selected: None".to_string(),
         selected_row_index: None,
-        status_asset_suffix: "Asset: None".to_string(),
+        status_asset_suffix: "Asset: No asset root loaded".to_string(),
     }
 }
 
@@ -40,13 +40,13 @@ fn empty_asset_snapshot() -> AssetUiSnapshot {
 fn empty_scene_snapshot() -> SceneUiSnapshot {
     SceneUiSnapshot {
         scene_section_title: "Scene".to_string(),
-        scene_name: "No scene".to_string(),
+        scene_name: "No scene loaded".to_string(),
         scene_expand_labels: std::array::from_fn(|_| String::new()),
         scene_row_labels: std::array::from_fn(|_| String::new()),
         scene_selected_summary: "Selected: None".to_string(),
         selected_row_index: None,
         visible_object_ids: std::array::from_fn(|_| None),
-        status_scene_suffix: "Scene: None | Object: None".to_string(),
+        status_scene_suffix: "Scene: No scene loaded | Object: None".to_string(),
     }
 }
 

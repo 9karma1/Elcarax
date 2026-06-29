@@ -1,13 +1,11 @@
-use elcarax_assets::{
-    AssetId, AssetIndex, AssetScan, AssetSelection, apply_selection_after_scan, scan_demo_assets,
-};
+#![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
+
+use elcarax_assets::{AssetId, AssetIndex, AssetScan, AssetSelection};
 
 use crate::asset_display::{AssetUiSnapshot, asset_ui_snapshot};
 
-pub(crate) const ASSET_SCAN_DEMO_COMMAND: &str = "asset.scan_demo";
-pub(crate) const ASSET_SELECT_FIRST_COMMAND: &str = "asset.select_first";
+pub(crate) const ASSET_SCAN_COMMAND: &str = "asset.scan";
 pub(crate) const ASSET_CLEAR_SELECTION_COMMAND: &str = "asset.clear_selection";
-pub(crate) const ASSET_SHOW_SELECTED_COMMAND: &str = "asset.show_selected";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AssetState {
@@ -25,10 +23,8 @@ impl AssetState {
     ) -> Option<AssetCommandResult> {
         let command = AssetCommand::from_id(id)?;
         let result = match command {
-            AssetCommand::ScanDemo => self.scan_demo(project_loaded),
-            AssetCommand::SelectFirst => self.select_first(),
+            AssetCommand::Scan => self.scan(project_loaded),
             AssetCommand::ClearSelection => self.clear_selection(),
-            AssetCommand::ShowSelected => self.show_selected(),
         };
         self.last_command_result = Some(result.clone());
         Some(result)
@@ -78,68 +74,22 @@ impl AssetState {
         self.index.kind_summary()
     }
 
-    fn scan_demo(&mut self, project_loaded: bool) -> AssetCommandResult {
+    fn scan(&mut self, project_loaded: bool) -> AssetCommandResult {
         if !project_loaded {
-            return AssetCommandResult::new(ASSET_SCAN_DEMO_COMMAND, "No project loaded");
+            return AssetCommandResult::new(ASSET_SCAN_COMMAND, "No project open");
         }
-        let scan = scan_demo_assets();
-        let count = scan.asset_count();
-        self.index = scan.index.clone();
-        self.last_scan = Some(scan);
-        if let Some(scan) = self.last_scan.as_ref() {
-            apply_selection_after_scan(scan, &mut self.selection);
-        }
-        AssetCommandResult::new(
-            ASSET_SCAN_DEMO_COMMAND,
-            format!("Scanned {count} demo assets"),
-        )
+        AssetCommandResult::new(ASSET_SCAN_COMMAND, "No asset root loaded")
     }
 
-    fn select_first(&mut self) -> AssetCommandResult {
-        if self.index.is_empty() {
-            return AssetCommandResult::new(ASSET_SELECT_FIRST_COMMAND, "No assets to select");
-        }
-        let selected = self.selection.select_first(&self.index);
-        if !selected {
-            return AssetCommandResult::new(ASSET_SELECT_FIRST_COMMAND, "No assets to select");
-        }
-        let record = match self.index.first() {
-            Some(record) => record,
-            None => {
-                return AssetCommandResult::new(ASSET_SELECT_FIRST_COMMAND, "No assets to select");
-            }
-        };
-        AssetCommandResult::new(
-            ASSET_SELECT_FIRST_COMMAND,
-            format!(
-                "Selected {} ({})",
-                record.name.as_str(),
-                record.kind.label()
-            ),
-        )
+    #[cfg(test)]
+    fn load_fixture_scan(&mut self, scan: AssetScan) {
+        self.index = scan.index.clone();
+        self.last_scan = Some(scan);
     }
 
     fn clear_selection(&mut self) -> AssetCommandResult {
         self.selection.clear();
         AssetCommandResult::new(ASSET_CLEAR_SELECTION_COMMAND, "Cleared asset selection")
-    }
-
-    fn show_selected(&self) -> AssetCommandResult {
-        let Some(id) = self.selection.selected() else {
-            return AssetCommandResult::new(ASSET_SHOW_SELECTED_COMMAND, "No asset selected");
-        };
-        let Some(record) = self.index.find(id) else {
-            return AssetCommandResult::new(ASSET_SHOW_SELECTED_COMMAND, "No asset selected");
-        };
-        AssetCommandResult::new(
-            ASSET_SHOW_SELECTED_COMMAND,
-            format!(
-                "{} | {} | {}",
-                record.name.as_str(),
-                record.kind.label(),
-                record.path.display()
-            ),
-        )
     }
 }
 
@@ -156,19 +106,15 @@ impl Default for AssetState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AssetCommand {
-    ScanDemo,
-    SelectFirst,
+    Scan,
     ClearSelection,
-    ShowSelected,
 }
 
 impl AssetCommand {
     fn from_id(id: &str) -> Option<Self> {
         match id {
-            ASSET_SCAN_DEMO_COMMAND => Some(Self::ScanDemo),
-            ASSET_SELECT_FIRST_COMMAND => Some(Self::SelectFirst),
+            ASSET_SCAN_COMMAND => Some(Self::Scan),
             ASSET_CLEAR_SELECTION_COMMAND => Some(Self::ClearSelection),
-            ASSET_SHOW_SELECTED_COMMAND => Some(Self::ShowSelected),
             _ => None,
         }
     }
@@ -201,41 +147,44 @@ impl AssetCommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elcarax_assets::{AssetKind, AssetRecord, stable_asset_id};
     use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
+    use std::path::PathBuf;
 
     fn project_loaded() -> bool {
         true
     }
 
     #[test]
-    fn demo_scan_kind_summary_is_stable() {
+    fn fixture_scan_kind_summary_is_stable() {
         let mut state = AssetState::default();
-        let _ = state.execute_command_id(ASSET_SCAN_DEMO_COMMAND, project_loaded());
-        assert_eq!(
-            state.kind_summary(),
-            "Audio=1, Image=1, Material=1, Model=1, Scene=1, Script=1, Text=1"
-        );
+        state.load_fixture_scan(fixture_scan());
+        assert_eq!(state.kind_summary(), "Model=1, Scene=1, Text=1");
     }
 
     #[test]
-    fn asset_scan_demo_populates_index() {
+    fn asset_scan_without_root_reports_empty_state() {
         let mut state = AssetState::default();
-        let result = state.execute_command_id(ASSET_SCAN_DEMO_COMMAND, project_loaded());
+        let result = state.execute_command_id(ASSET_SCAN_COMMAND, project_loaded());
         assert_eq!(
             result.as_ref().map(AssetCommandResult::command_id),
-            Some(ASSET_SCAN_DEMO_COMMAND)
+            Some(ASSET_SCAN_COMMAND)
         );
-        assert_eq!(state.index().len(), 7);
+        assert_eq!(
+            result.as_ref().map(AssetCommandResult::message),
+            Some("No asset root loaded")
+        );
+        assert_eq!(state.index().len(), 0);
     }
 
     #[test]
-    fn asset_scan_demo_without_project_returns_clear_result() {
+    fn asset_scan_without_project_returns_clear_result() {
         let mut state = AssetState::default();
-        let result = state.execute_command_id(ASSET_SCAN_DEMO_COMMAND, false);
+        let result = state.execute_command_id(ASSET_SCAN_COMMAND, false);
         assert_eq!(
             result.as_ref().map(AssetCommandResult::message),
-            Some("No project loaded")
+            Some("No project open")
         );
         assert!(state.index().is_empty());
     }
@@ -243,16 +192,16 @@ mod tests {
     #[test]
     fn asset_select_first_updates_selection() {
         let mut state = AssetState::default();
-        let _ = state.execute_command_id(ASSET_SCAN_DEMO_COMMAND, project_loaded());
-        let _ = state.execute_command_id(ASSET_SELECT_FIRST_COMMAND, project_loaded());
+        state.load_fixture_scan(fixture_scan());
+        assert!(state.selection.select_first(&state.index));
         assert!(state.selection().selected().is_some());
     }
 
     #[test]
     fn asset_clear_selection_clears_selection() {
         let mut state = AssetState::default();
-        let _ = state.execute_command_id(ASSET_SCAN_DEMO_COMMAND, project_loaded());
-        let _ = state.execute_command_id(ASSET_SELECT_FIRST_COMMAND, project_loaded());
+        state.load_fixture_scan(fixture_scan());
+        assert!(state.selection.select_first(&state.index));
         let _ = state.execute_command_id(ASSET_CLEAR_SELECTION_COMMAND, project_loaded());
         assert_eq!(state.selection().selected(), None);
     }
@@ -263,7 +212,7 @@ mod tests {
             Ok(registry) => registry,
             Err(error) => panic!("built-ins should register: {error}"),
         };
-        let id = match CommandId::new(ASSET_SCAN_DEMO_COMMAND) {
+        let id = match CommandId::new(ASSET_SCAN_COMMAND) {
             Ok(id) => id,
             Err(error) => panic!("asset command ID should be valid: {error}"),
         };
@@ -271,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_can_execute_asset_scan_demo() {
+    fn command_palette_can_execute_asset_scan() {
         let registry = match built_in_commands() {
             Ok(registry) => registry,
             Err(error) => panic!("built-ins should register: {error}"),
@@ -284,7 +233,7 @@ mod tests {
                 .collect(),
         );
         palette.open();
-        for character in ASSET_SCAN_DEMO_COMMAND.chars() {
+        for character in ASSET_SCAN_COMMAND.chars() {
             assert_eq!(
                 palette.handle_key(KeyboardKey::Character(character.to_string())),
                 CommandPaletteAction::None
@@ -301,7 +250,34 @@ mod tests {
             },
             None => panic!("asset command should be selected"),
         };
-        assert_eq!(selected_id.as_str(), ASSET_SCAN_DEMO_COMMAND);
+        assert_eq!(selected_id.as_str(), ASSET_SCAN_COMMAND);
+    }
+
+    fn fixture_scan() -> AssetScan {
+        AssetScan {
+            root: Some(PathBuf::from("fixtures/assets")),
+            index: AssetIndex::from_records(vec![
+                AssetRecord::from_parts(
+                    stable_asset_id(1),
+                    "README.md",
+                    PathBuf::from("README.md"),
+                    AssetKind::Text,
+                ),
+                AssetRecord::from_parts(
+                    stable_asset_id(2),
+                    "hero.glb",
+                    PathBuf::from("models/hero.glb"),
+                    AssetKind::Model,
+                ),
+                AssetRecord::from_parts(
+                    stable_asset_id(3),
+                    "level.scene",
+                    PathBuf::from("scenes/level.scene"),
+                    AssetKind::Scene,
+                ),
+            ]),
+            diagnostics: Vec::new(),
+        }
     }
 
     fn palette_entry_from_command(command: &RegisteredCommand) -> CommandPaletteEntry {

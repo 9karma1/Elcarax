@@ -78,7 +78,6 @@ pub enum CommandCategory {
     Inspector,
     Adapter,
     Status,
-    Demo,
 }
 
 impl CommandCategory {
@@ -91,7 +90,6 @@ impl CommandCategory {
             Self::Inspector => "Inspector",
             Self::Adapter => "Adapter",
             Self::Status => "Status",
-            Self::Demo => "Demo",
         }
     }
 }
@@ -257,15 +255,15 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Palette,
         )?,
         registered(
-            "project.new_demo",
-            "New Demo Project",
-            "Create an in-memory demo project",
+            "project.create",
+            "Create Project",
+            "Create a project when project creation is implemented",
             CommandCategory::Project,
         )?,
         registered(
-            "project.open_demo",
-            "Open Demo Project",
-            "Load a sample demo project path",
+            "project.open",
+            "Open Project",
+            "Open a project when file loading is implemented",
             CommandCategory::Project,
         )?,
         registered(
@@ -281,21 +279,9 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Project,
         )?,
         registered(
-            "project.show_recent",
-            "Show Recent Projects",
-            "Report recent project entries",
-            CommandCategory::Project,
-        )?,
-        registered(
-            "asset.scan_demo",
-            "Scan Demo Assets",
-            "Populate the asset index with demo assets",
-            CommandCategory::Asset,
-        )?,
-        registered(
-            "asset.select_first",
-            "Select First Asset",
-            "Select the first asset in stable order",
+            "asset.scan",
+            "Scan Assets",
+            "Scan assets when an asset root is loaded",
             CommandCategory::Asset,
         )?,
         registered(
@@ -305,27 +291,15 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Asset,
         )?,
         registered(
-            "asset.show_selected",
-            "Show Selected Asset",
-            "Report the currently selected asset",
-            CommandCategory::Asset,
-        )?,
-        registered(
-            "scene.load_demo",
-            "Load Demo Scene",
-            "Load the deterministic demo scene snapshot",
+            "scene.load",
+            "Load Scene",
+            "Load a scene from a project or adapter when available",
             CommandCategory::Scene,
         )?,
         registered(
-            "scene.select_root",
-            "Select Root Object",
-            "Select the root scene object",
-            CommandCategory::Scene,
-        )?,
-        registered(
-            "scene.select_player",
-            "Select Player Object",
-            "Select the Player scene object",
+            "scene.clear",
+            "Clear Scene",
+            "Unload the current scene",
             CommandCategory::Scene,
         )?,
         registered(
@@ -335,75 +309,9 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Scene,
         )?,
         registered(
-            "scene.expand_all",
-            "Expand Scene Tree",
-            "Expand all scene tree nodes",
-            CommandCategory::Scene,
-        )?,
-        registered(
-            "scene.collapse_all",
-            "Collapse Scene Tree",
-            "Collapse all scene tree nodes",
-            CommandCategory::Scene,
-        )?,
-        registered(
-            "scene.show_selected",
-            "Show Selected Scene Object",
-            "Report the currently selected scene object",
-            CommandCategory::Scene,
-        )?,
-        registered(
-            "inspector.show_selected",
-            "Show Selected Inspector",
-            "Build inspector rows from the current scene selection",
-            CommandCategory::Inspector,
-        )?,
-        registered(
             "inspector.clear",
             "Clear Inspector",
             "Clear the inspector view",
-            CommandCategory::Inspector,
-        )?,
-        registered(
-            "inspector.inspect_player",
-            "Inspect Player",
-            "Select and inspect the Player object",
-            CommandCategory::Inspector,
-        )?,
-        registered(
-            "inspector.inspect_root",
-            "Inspect Root Object",
-            "Select and inspect the root scene object",
-            CommandCategory::Inspector,
-        )?,
-        registered(
-            "inspector.show_property_count",
-            "Show Inspector Property Count",
-            "Report the visible inspector property count",
-            CommandCategory::Inspector,
-        )?,
-        registered(
-            "inspector.set_player_health_demo",
-            "Set Player Health Demo",
-            "Set the selected Player health property through undoable inspector edit flow",
-            CommandCategory::Inspector,
-        )?,
-        registered(
-            "inspector.set_player_speed_demo",
-            "Set Player Speed Demo",
-            "Set the selected Player speed property through undoable inspector edit flow",
-            CommandCategory::Inspector,
-        )?,
-        registered(
-            "inspector.rename_player_demo",
-            "Rename Player Demo",
-            "Rename the selected Player through undoable inspector edit flow",
-            CommandCategory::Inspector,
-        )?,
-        registered(
-            "inspector.reset_player_transform_demo",
-            "Reset Player Transform Demo",
-            "Reset selected Player transform properties through inspector edit flow",
             CommandCategory::Inspector,
         )?,
         registered(
@@ -419,27 +327,15 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Inspector,
         )?,
         registered(
-            "adapter.start_mock",
-            "Start Mock Adapter",
-            "Spawn the mock adapter process and perform the JSON-line handshake",
+            "adapter.connect",
+            "Connect Adapter",
+            "Connect an adapter when adapter configuration is available",
             CommandCategory::Adapter,
         )?,
         registered(
-            "adapter.handshake",
-            "Handshake Adapter",
-            "Perform the versioned adapter handshake",
-            CommandCategory::Adapter,
-        )?,
-        registered(
-            "adapter.load_demo_project",
-            "Load Adapter Demo Project",
-            "Request demo project information from the adapter",
-            CommandCategory::Adapter,
-        )?,
-        registered(
-            "adapter.load_demo_scene",
-            "Load Adapter Demo Scene",
-            "Request a demo scene snapshot from the adapter",
+            "adapter.disconnect",
+            "Disconnect Adapter",
+            "Disconnect the current adapter session",
             CommandCategory::Adapter,
         )?,
         registered(
@@ -455,39 +351,9 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Adapter,
         )?,
         registered(
-            "adapter.stop_mock",
-            "Stop Mock Adapter",
-            "Gracefully shut down the mock adapter process",
-            CommandCategory::Adapter,
-        )?,
-        registered(
-            "adapter.inspector.set_player_health_demo",
-            "Set Adapter Player Health Demo",
-            "Set selected adapter-backed Player health through adapter writeback",
-            CommandCategory::Adapter,
-        )?,
-        registered(
-            "adapter.inspector.set_player_speed_demo",
-            "Set Adapter Player Speed Demo",
-            "Set selected adapter-backed Player speed through adapter writeback",
-            CommandCategory::Adapter,
-        )?,
-        registered(
-            "adapter.inspector.rename_player_demo",
-            "Rename Adapter Player Demo",
-            "Rename selected adapter-backed Player through adapter writeback",
-            CommandCategory::Adapter,
-        )?,
-        registered(
-            "adapter.edit.undo",
-            "Undo Adapter Edit",
-            "Undo the last adapter-backed edit through adapter writeback",
-            CommandCategory::Adapter,
-        )?,
-        registered(
-            "adapter.edit.redo",
-            "Redo Adapter Edit",
-            "Redo the last adapter-backed edit through adapter writeback",
+            "adapter.load_scene",
+            "Load Adapter Scene",
+            "Request a scene snapshot from a connected adapter",
             CommandCategory::Adapter,
         )?,
         registered(
@@ -501,12 +367,6 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             "Show Ready Status",
             "Set the status label to ready",
             CommandCategory::Status,
-        )?,
-        registered(
-            "elcarax.demo.run",
-            "Run Demo Action",
-            "Run the demo status action",
-            CommandCategory::Demo,
         )?,
     ] {
         registry.register(command)?;
@@ -545,7 +405,7 @@ mod tests {
     use super::*;
 
     fn command(id: &str, name: &str) -> RegisteredCommand {
-        match registered(id, name, "description", CommandCategory::Demo) {
+        match registered(id, name, "description", CommandCategory::Status) {
             Ok(command) => command,
             Err(error) => panic!("test command should be valid: {error}"),
         }
@@ -601,7 +461,8 @@ mod tests {
             .into_iter()
             .map(|command| command.id().as_str())
             .collect();
-        assert!(ids.contains(&"project.new_demo"));
+        assert!(ids.contains(&"project.create"));
+        assert!(ids.contains(&"project.open"));
         assert!(ids.contains(&"project.validate"));
         assert!(ids.contains(&"project.close"));
     }
@@ -622,48 +483,25 @@ mod tests {
             vec![
                 "elcarax.palette.open",
                 "elcarax.palette.close",
-                "project.new_demo",
-                "project.open_demo",
+                "project.create",
+                "project.open",
                 "project.close",
                 "project.validate",
-                "project.show_recent",
-                "asset.scan_demo",
-                "asset.select_first",
+                "asset.scan",
                 "asset.clear_selection",
-                "asset.show_selected",
-                "scene.load_demo",
-                "scene.select_root",
-                "scene.select_player",
+                "scene.load",
+                "scene.clear",
                 "scene.clear_selection",
-                "scene.expand_all",
-                "scene.collapse_all",
-                "scene.show_selected",
-                "inspector.show_selected",
                 "inspector.clear",
-                "inspector.inspect_player",
-                "inspector.inspect_root",
-                "inspector.show_property_count",
-                "inspector.set_player_health_demo",
-                "inspector.set_player_speed_demo",
-                "inspector.rename_player_demo",
-                "inspector.reset_player_transform_demo",
                 "edit.undo",
                 "edit.redo",
-                "adapter.start_mock",
-                "adapter.handshake",
-                "adapter.load_demo_project",
-                "adapter.load_demo_scene",
+                "adapter.connect",
+                "adapter.disconnect",
                 "adapter.show_status",
                 "adapter.show_diagnostics",
-                "adapter.stop_mock",
-                "adapter.inspector.set_player_health_demo",
-                "adapter.inspector.set_player_speed_demo",
-                "adapter.inspector.rename_player_demo",
-                "adapter.edit.undo",
-                "adapter.edit.redo",
+                "adapter.load_scene",
                 "elcarax.status.show_renderer_stats",
-                "elcarax.status.show_ready",
-                "elcarax.demo.run"
+                "elcarax.status.show_ready"
             ]
         );
     }
@@ -679,10 +517,8 @@ mod tests {
             .into_iter()
             .map(|command| command.id().as_str())
             .collect();
-        assert!(ids.contains(&"asset.scan_demo"));
-        assert!(ids.contains(&"asset.select_first"));
+        assert!(ids.contains(&"asset.scan"));
         assert!(ids.contains(&"asset.clear_selection"));
-        assert!(ids.contains(&"asset.show_selected"));
     }
 
     #[test]
@@ -696,9 +532,9 @@ mod tests {
             .into_iter()
             .map(|command| command.id().as_str())
             .collect();
-        assert!(ids.contains(&"scene.load_demo"));
-        assert!(ids.contains(&"scene.select_player"));
-        assert!(ids.contains(&"scene.expand_all"));
+        assert!(ids.contains(&"scene.load"));
+        assert!(ids.contains(&"scene.clear"));
+        assert!(ids.contains(&"scene.clear_selection"));
     }
 
     #[test]
@@ -712,10 +548,7 @@ mod tests {
             .into_iter()
             .map(|command| command.id().as_str())
             .collect();
-        assert!(ids.contains(&"inspector.show_selected"));
-        assert!(ids.contains(&"inspector.inspect_player"));
-        assert!(ids.contains(&"inspector.show_property_count"));
-        assert!(ids.contains(&"inspector.set_player_health_demo"));
+        assert!(ids.contains(&"inspector.clear"));
         assert!(ids.contains(&"edit.undo"));
         assert!(ids.contains(&"edit.redo"));
     }
@@ -731,12 +564,9 @@ mod tests {
             .into_iter()
             .map(|command| command.id().as_str())
             .collect();
-        assert!(ids.contains(&"adapter.start_mock"));
-        assert!(ids.contains(&"adapter.load_demo_scene"));
-        assert!(ids.contains(&"adapter.stop_mock"));
-        assert!(ids.contains(&"adapter.inspector.set_player_health_demo"));
-        assert!(ids.contains(&"adapter.edit.undo"));
-        assert!(ids.contains(&"adapter.edit.redo"));
+        assert!(ids.contains(&"adapter.connect"));
+        assert!(ids.contains(&"adapter.load_scene"));
+        assert!(ids.contains(&"adapter.disconnect"));
     }
 
     #[test]
