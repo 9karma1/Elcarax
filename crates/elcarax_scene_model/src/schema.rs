@@ -1,4 +1,5 @@
 use elcarax_core::{Id, IdGenerator};
+use serde::{Deserialize, Serialize};
 
 use crate::PropertyPath;
 use crate::property_display::PropertyGroup;
@@ -6,7 +7,7 @@ use crate::property_display::PropertyGroup;
 pub enum ObjectTypeMarker {}
 pub type ObjectTypeId = Id<ObjectTypeMarker>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PropertyKind {
     Bool,
     I64,
@@ -21,7 +22,7 @@ pub enum PropertyKind {
     List,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PropertyEditKind {
     Bool,
     Integer,
@@ -66,7 +67,7 @@ impl PropertyEditKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct NumericEditMetadata {
     pub min: Option<f64>,
     pub max: Option<f64>,
@@ -83,7 +84,7 @@ impl NumericEditMetadata {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PropertySchema {
     pub path: PropertyPath,
     pub display_name: String,
@@ -142,7 +143,7 @@ impl PropertySchema {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObjectSchema {
     pub type_id: ObjectTypeId,
     pub display_name: String,

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use elcarax_core::{ElcaraxError, Id, IdGenerator, Result};
+use serde::{Deserialize, Serialize};
 
 use crate::kind::SceneObjectKind;
 use crate::name::{SceneName, SceneObjectName};
@@ -13,7 +14,7 @@ pub enum SceneObjectMarker {}
 pub type SceneId = Id<SceneMarker>;
 pub type SceneObjectId = Id<SceneObjectMarker>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SceneObject {
     pub id: SceneObjectId,
     pub parent: Option<SceneObjectId>,
@@ -75,7 +76,7 @@ impl SceneObject {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SceneSnapshot {
     scene_id: SceneId,
     name: SceneName,

@@ -46,7 +46,9 @@ After loading a demo project, `asset.scan_demo`, `asset.select_first`, `asset.cl
 
 `inspector.set_player_health_demo`, `inspector.set_player_speed_demo`, `inspector.rename_player_demo`, `inspector.reset_player_transform_demo`, `edit.undo`, and `edit.redo` should route edits through command history, refresh inspector rows, and update status/diagnostic text. Editable primitive rows render as simple `[Set]` controls; read-only rows remain muted.
 
-The console proof runs `project.new_demo`, asset scan/select commands, scene load/select commands, inspector show/edit/undo/redo/clear commands, and prints asset, scene, and inspector summary lines.
+`adapter.start_mock`, `adapter.handshake`, `adapter.load_demo_project`, `adapter.load_demo_scene`, `adapter.show_status`, `adapter.show_diagnostics`, and `adapter.stop_mock` should update adapter status/diagnostic UI. `adapter.load_demo_scene` imports the mock adapter scene snapshot into the scene tree without adding adapter writeback.
+
+The console proof runs `project.new_demo`, asset scan/select commands, scene load/select commands, inspector show/edit/undo/redo/clear commands, adapter start/handshake/load-scene/diagnostics/stop commands, and prints asset, scene, inspector, and adapter summary lines.
 
 CI should compile the native-shell feature but should not require opening a desktop window.
 
@@ -68,8 +70,10 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_text` owns `cosmic-text` shaping, layout cache, and system-font rasterization.
 - `elcarax_render` owns editor render primitives, batching, render stats, and GPU draw submission.
 - `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, command palette state/painting, dirty flags, theme/style resolution, and paint output.
-- `elcarax_app` owns app-level project, asset, scene, inspector state composition, and command-history composition for inspector edits, then pushes display text into the UI tree.
+- `elcarax_adapter_api` owns serializable adapter protocol messages only.
+- `elcarax_adapter_host` owns adapter process spawning, JSON-line transport, request correlation, events, and failure handling.
+- `elcarax_app` owns app-level project, asset, scene, inspector, and adapter state composition, and command-history composition for inspector edits, then pushes display text into the UI tree.
 
 ## Current Exclusions
 
-The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, file dialogs, file watching, process IPC, adapter commands, adapter writeback, async command execution, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, viewport scene rendering, scene save/writeback, real engine synchronization, and real engine adapter integration.
+The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, file dialogs, file watching, adapter writeback, async command execution, request timeouts, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, viewport scene rendering, viewport frame streaming, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.

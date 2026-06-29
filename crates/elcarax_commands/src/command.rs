@@ -76,6 +76,7 @@ pub enum CommandCategory {
     Asset,
     Scene,
     Inspector,
+    Adapter,
     Status,
     Demo,
 }
@@ -88,6 +89,7 @@ impl CommandCategory {
             Self::Asset => "Asset",
             Self::Scene => "Scene",
             Self::Inspector => "Inspector",
+            Self::Adapter => "Adapter",
             Self::Status => "Status",
             Self::Demo => "Demo",
         }
@@ -417,6 +419,48 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Inspector,
         )?,
         registered(
+            "adapter.start_mock",
+            "Start Mock Adapter",
+            "Spawn the mock adapter process and perform the JSON-line handshake",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.handshake",
+            "Handshake Adapter",
+            "Perform the versioned adapter handshake",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.load_demo_project",
+            "Load Adapter Demo Project",
+            "Request demo project information from the adapter",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.load_demo_scene",
+            "Load Adapter Demo Scene",
+            "Request a demo scene snapshot from the adapter",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.show_status",
+            "Show Adapter Status",
+            "Report the current adapter connection state",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.show_diagnostics",
+            "Show Adapter Diagnostics",
+            "Request and report adapter diagnostics",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.stop_mock",
+            "Stop Mock Adapter",
+            "Gracefully shut down the mock adapter process",
+            CommandCategory::Adapter,
+        )?,
+        registered(
             "elcarax.status.show_renderer_stats",
             "Show Renderer Stats",
             "Show current primitive, text, and glyph counts",
@@ -575,6 +619,13 @@ mod tests {
                 "inspector.reset_player_transform_demo",
                 "edit.undo",
                 "edit.redo",
+                "adapter.start_mock",
+                "adapter.handshake",
+                "adapter.load_demo_project",
+                "adapter.load_demo_scene",
+                "adapter.show_status",
+                "adapter.show_diagnostics",
+                "adapter.stop_mock",
                 "elcarax.status.show_renderer_stats",
                 "elcarax.status.show_ready",
                 "elcarax.demo.run"
@@ -632,6 +683,22 @@ mod tests {
         assert!(ids.contains(&"inspector.set_player_health_demo"));
         assert!(ids.contains(&"edit.undo"));
         assert!(ids.contains(&"edit.redo"));
+    }
+
+    #[test]
+    fn adapter_commands_are_discoverable() {
+        let registry = match built_in_commands() {
+            Ok(registry) => registry,
+            Err(error) => panic!("built-ins should register: {error}"),
+        };
+        let matches = registry.filter("adapter");
+        let ids: Vec<_> = matches
+            .into_iter()
+            .map(|command| command.id().as_str())
+            .collect();
+        assert!(ids.contains(&"adapter.start_mock"));
+        assert!(ids.contains(&"adapter.load_demo_scene"));
+        assert!(ids.contains(&"adapter.stop_mock"));
     }
 
     #[test]

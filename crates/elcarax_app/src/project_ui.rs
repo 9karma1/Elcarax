@@ -1,6 +1,7 @@
 use elcarax_render::Rect;
 use elcarax_ui::{EditorShellContent, EditorShellIds, TextRole, UiError, UiTree};
 
+use crate::adapter_display::AdapterUiSnapshot;
 use crate::asset_display::AssetUiSnapshot;
 use crate::asset_ui::apply_asset_snapshot;
 use crate::editor_status::editor_status_bar;
@@ -14,12 +15,13 @@ pub(crate) use crate::scene_ui::shell_content_from_editor_state;
 
 #[allow(dead_code)]
 pub(crate) fn shell_content_from_project(snapshot: &ProjectUiSnapshot) -> EditorShellContent {
-    shell_content_from_editor_state(
+    shell_content_from_editor_state(editor_snapshots(
         snapshot,
         &empty_asset_snapshot(),
         &empty_scene_snapshot(),
         &empty_inspector_snapshot(),
-    )
+        &empty_adapter_snapshot(),
+    ))
 }
 
 #[allow(dead_code)]
@@ -65,6 +67,16 @@ fn empty_inspector_snapshot() -> InspectorUiSnapshot {
 }
 
 #[allow(dead_code)]
+fn empty_adapter_snapshot() -> AdapterUiSnapshot {
+    AdapterUiSnapshot {
+        adapter_status: "Adapter: Disconnected".to_string(),
+        adapter_diagnostics: "Adapter Diagnostics: 0".to_string(),
+        adapter_command: "Adapter Command: None".to_string(),
+        status_adapter_suffix: "Adapter: Disconnected".to_string(),
+    }
+}
+
+#[allow(dead_code)]
 pub(crate) fn apply_project_snapshot(
     tree: &mut UiTree,
     ids: EditorShellIds,
@@ -74,23 +86,53 @@ pub(crate) fn apply_project_snapshot(
     apply_editor_snapshot(
         tree,
         ids,
-        snapshot,
-        &empty_asset_snapshot(),
-        &empty_scene_snapshot(),
-        &empty_inspector_snapshot(),
+        editor_snapshots(
+            snapshot,
+            &empty_asset_snapshot(),
+            &empty_scene_snapshot(),
+            &empty_inspector_snapshot(),
+            &empty_adapter_snapshot(),
+        ),
         bounds,
     )
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EditorSnapshotRefs<'a> {
+    pub(crate) project: &'a ProjectUiSnapshot,
+    pub(crate) assets: &'a AssetUiSnapshot,
+    pub(crate) scene: &'a SceneUiSnapshot,
+    pub(crate) inspector: &'a InspectorUiSnapshot,
+    pub(crate) adapter: &'a AdapterUiSnapshot,
+}
+
+pub(crate) const fn editor_snapshots<'a>(
+    project: &'a ProjectUiSnapshot,
+    assets: &'a AssetUiSnapshot,
+    scene: &'a SceneUiSnapshot,
+    inspector: &'a InspectorUiSnapshot,
+    adapter: &'a AdapterUiSnapshot,
+) -> EditorSnapshotRefs<'a> {
+    EditorSnapshotRefs {
+        project,
+        assets,
+        scene,
+        inspector,
+        adapter,
+    }
 }
 
 pub(crate) fn apply_editor_snapshot(
     tree: &mut UiTree,
     ids: EditorShellIds,
-    project: &ProjectUiSnapshot,
-    assets: &AssetUiSnapshot,
-    scene: &SceneUiSnapshot,
-    inspector: &InspectorUiSnapshot,
+    snapshots: EditorSnapshotRefs<'_>,
     bounds: Rect,
 ) -> Result<(), UiError> {
+    let project = snapshots.project;
+    let assets = snapshots.assets;
+    let scene = snapshots.scene;
+    let inspector = snapshots.inspector;
+    let adapter = snapshots.adapter;
     tree.set_label_text(ids.toolbar_title, project.toolbar_title.clone())?;
     tree.set_label_text(ids.project_name, project.project_name.clone())?;
     tree.set_label_text(ids.project_path, project.project_path.clone())?;
@@ -98,11 +140,14 @@ pub(crate) fn apply_editor_snapshot(
     tree.set_label_text(ids.project_recent, project.project_recent.clone())?;
     tree.set_label_text(ids.project_diagnostics, project.project_diagnostics.clone())?;
     tree.set_label_text(ids.project_command, project.project_command.clone())?;
+    tree.set_label_text(ids.adapter_status, adapter.adapter_status.clone())?;
+    tree.set_label_text(ids.adapter_diagnostics, adapter.adapter_diagnostics.clone())?;
+    tree.set_label_text(ids.adapter_command, adapter.adapter_command.clone())?;
     tree.set_text_role(
         ids.project_diagnostics,
         text_role_for_diagnostic_tone(project.diagnostic_tone),
     )?;
-    let status = editor_status_bar(project, assets, scene);
+    let status = editor_status_bar(project, assets, scene, adapter);
     apply_asset_snapshot(tree, ids, assets, &status, bounds)?;
     apply_scene_snapshot(tree, ids, scene, &status, bounds)?;
     apply_inspector_snapshot(tree, ids, inspector, bounds)?;

@@ -14,3 +14,4 @@ elcarax_adapter_api = { path = "../elcarax_adapter_api" }
 elcarax_adapter_sdk = { path = "../elcarax_adapter_sdk" }
 elcarax_core = { path = "../elcarax_core" }
 elcarax_scene_model = { path = "../elcarax_scene_model" }
+serde_json = "1.0"

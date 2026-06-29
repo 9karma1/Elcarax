@@ -1,4 +1,5 @@
 use elcarax_core::Id;
+use serde::{Deserialize, Serialize};
 
 use crate::property::{PropertyPath, PropertyValue};
 use crate::snapshot::{SceneObjectId, SceneSnapshot};
@@ -6,7 +7,7 @@ use crate::snapshot::{SceneObjectId, SceneSnapshot};
 pub enum PropertyMarker {}
 pub type PropertyId = Id<PropertyMarker>;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PropertyGroup(String);
 
 impl PropertyGroup {
@@ -19,7 +20,7 @@ impl PropertyGroup {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PropertyDisplay {
     pub path: PropertyPath,
     pub name: crate::name::PropertyName,

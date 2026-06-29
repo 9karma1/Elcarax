@@ -11,3 +11,4 @@ workspace = true
 
 [dependencies]
 elcarax_core = { path = "../elcarax_core" }
+serde = { version = "1.0", features = ["derive"] }

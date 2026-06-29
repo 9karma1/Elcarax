@@ -105,6 +105,19 @@ impl SceneState {
         self.last_command_result = Some(SceneCommandResult::new(command_id, message));
     }
 
+    pub(crate) fn load_external_snapshot(
+        &mut self,
+        snapshot: SceneSnapshot,
+        command_id: &str,
+        message: impl Into<String>,
+    ) {
+        self.snapshot = Some(snapshot);
+        self.selection.clear();
+        self.expansion.collapse_all();
+        self.diagnostics.clear();
+        self.last_command_result = Some(SceneCommandResult::new(command_id, message));
+    }
+
     fn load_demo(&mut self) -> SceneCommandResult {
         let snapshot = demo_scene_snapshot();
         let count = snapshot.object_count();
