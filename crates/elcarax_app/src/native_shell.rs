@@ -18,7 +18,7 @@ use elcarax_ui::{
     paint_command_palette_overlay,
 };
 
-use crate::adapter_state::AdapterState;
+use crate::adapter_state::{AdapterState, adapter_command_for_inspector_edit};
 use crate::asset_state::AssetState;
 use crate::asset_ui::asset_row_index_for_widget;
 use crate::inspector_state::InspectorState;
@@ -404,15 +404,7 @@ fn apply_command_invocation(
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
-    if ui
-        .inspector_state
-        .execute_edit_command_id(
-            invocation.id.as_str(),
-            &mut ui.scene_state,
-            &mut ui.edit_history,
-        )
-        .is_some()
-    {
+    if execute_editor_edit_command(ui, invocation.id.as_str())? {
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
@@ -573,22 +565,31 @@ fn apply_ui_events(
         {
             let snapshot = ui.inspector_state.ui_snapshot(&ui.scene_state);
             let command_id = snapshot.row_command_ids[row_index].clone();
-            if !command_id.is_empty()
-                && ui
-                    .inspector_state
-                    .execute_edit_command_id(
-                        command_id.as_str(),
-                        &mut ui.scene_state,
-                        &mut ui.edit_history,
-                    )
-                    .is_some()
-            {
+            if !command_id.is_empty() && execute_editor_edit_command(ui, command_id.as_str())? {
                 apply_editor_snapshot_to_ui(ui)?;
                 changed = true;
             }
         }
     }
     Ok(changed)
+}
+
+fn execute_editor_edit_command(
+    ui: &mut UiState,
+    command_id: &str,
+) -> std::result::Result<bool, NativeAppError> {
+    if ui.scene_state.adapter_id().is_some()
+        && let Some(adapter_command) = adapter_command_for_inspector_edit(command_id)
+    {
+        return Ok(ui
+            .adapter_state
+            .execute_command_id(adapter_command, &mut ui.scene_state)
+            .is_some());
+    }
+    Ok(ui
+        .inspector_state
+        .execute_edit_command_id(command_id, &mut ui.scene_state, &mut ui.edit_history)
+        .is_some())
 }
 
 fn events_affect_paint(events: &[UiEvent]) -> bool {

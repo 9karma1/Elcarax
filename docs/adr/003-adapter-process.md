@@ -14,4 +14,6 @@ The editor must later fit other engines and software domains. The game engine sh
 - Adapter protocol types live in `elcarax_adapter_api`.
 - Adapter author helpers live in `elcarax_adapter_sdk`.
 - Process spawning, JSON-line transport, request correlation, adapter events, diagnostics, and process failure handling live in `elcarax_adapter_host`.
-- Milestone 12 uses one JSON message per line. Binary protocol, shared memory, viewport frame streaming, writeback, dynamic loading, hot reload, and real engine synchronization remain future work.
+- Milestone 12 uses one JSON message per line.
+- Milestone 13 adds mock adapter property writeback through request/response messages and confirmed scene patches.
+- Binary protocol, shared memory, viewport frame streaming, dynamic loading, hot reload, persistent scene save, and real engine synchronization remain future work.

@@ -46,9 +46,11 @@ After loading a demo project, `asset.scan_demo`, `asset.select_first`, `asset.cl
 
 `inspector.set_player_health_demo`, `inspector.set_player_speed_demo`, `inspector.rename_player_demo`, `inspector.reset_player_transform_demo`, `edit.undo`, and `edit.redo` should route edits through command history, refresh inspector rows, and update status/diagnostic text. Editable primitive rows render as simple `[Set]` controls; read-only rows remain muted.
 
-`adapter.start_mock`, `adapter.handshake`, `adapter.load_demo_project`, `adapter.load_demo_scene`, `adapter.show_status`, `adapter.show_diagnostics`, and `adapter.stop_mock` should update adapter status/diagnostic UI. `adapter.load_demo_scene` imports the mock adapter scene snapshot into the scene tree without adding adapter writeback.
+`adapter.start_mock`, `adapter.handshake`, `adapter.load_demo_project`, `adapter.load_demo_scene`, `adapter.show_status`, `adapter.show_diagnostics`, and `adapter.stop_mock` should update adapter status/diagnostic UI. `adapter.load_demo_scene` imports the mock adapter scene snapshot into the scene tree.
 
-The console proof runs `project.new_demo`, asset scan/select commands, scene load/select commands, inspector show/edit/undo/redo/clear commands, adapter start/handshake/load-scene/diagnostics/stop commands, and prints asset, scene, inspector, and adapter summary lines.
+When the selected scene is adapter-backed, `adapter.inspector.set_player_health_demo`, `adapter.inspector.set_player_speed_demo`, `adapter.inspector.rename_player_demo`, `adapter.edit.undo`, and `adapter.edit.redo` send property writeback requests to the mock adapter and apply confirmed scene patches before refreshing the inspector. Local demo inspector commands still use the local command-history path.
+
+The console proof runs `project.new_demo`, asset scan/select commands, scene load/select commands, inspector show/edit/undo/redo/clear commands, adapter start/handshake/load-scene/writeback/undo/redo/diagnostics/stop commands, and prints asset, scene, inspector, and adapter summary lines.
 
 CI should compile the native-shell feature but should not require opening a desktop window.
 
@@ -72,8 +74,8 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, command palette state/painting, dirty flags, theme/style resolution, and paint output.
 - `elcarax_adapter_api` owns serializable adapter protocol messages only.
 - `elcarax_adapter_host` owns adapter process spawning, JSON-line transport, request correlation, events, and failure handling.
-- `elcarax_app` owns app-level project, asset, scene, inspector, and adapter state composition, and command-history composition for inspector edits, then pushes display text into the UI tree.
+- `elcarax_app` owns app-level project, asset, scene, inspector, and adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, then pushes display text into the UI tree.
 
 ## Current Exclusions
 
-The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, file dialogs, file watching, adapter writeback, async command execution, request timeouts, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, viewport scene rendering, viewport frame streaming, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
+The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, accessibility implementation beyond placeholder dirty flags, file dialogs, file watching, async command execution, request timeouts, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, viewport scene rendering, viewport frame streaming, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.

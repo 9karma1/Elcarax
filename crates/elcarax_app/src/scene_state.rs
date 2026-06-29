@@ -1,3 +1,4 @@
+use elcarax_adapter_api::AdapterId;
 use elcarax_scene_model::{
     SceneDiagnostic, SceneExpansion, SceneObjectId, SceneSelection, SceneSnapshot,
     demo_scene_snapshot,
@@ -16,6 +17,7 @@ pub(crate) const SCENE_SHOW_SELECTED_COMMAND: &str = "scene.show_selected";
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SceneState {
     snapshot: Option<SceneSnapshot>,
+    source: SceneSource,
     selection: SceneSelection,
     expansion: SceneExpansion,
     diagnostics: Vec<SceneDiagnostic>,
@@ -91,6 +93,18 @@ impl SceneState {
         self.snapshot.as_mut()
     }
 
+    pub(crate) const fn source(&self) -> &SceneSource {
+        &self.source
+    }
+
+    #[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
+    pub(crate) fn adapter_id(&self) -> Option<&AdapterId> {
+        match &self.source {
+            SceneSource::Adapter(id) => Some(id),
+            SceneSource::LocalDemo | SceneSource::None => None,
+        }
+    }
+
     #[cfg_attr(feature = "native-shell", allow(dead_code))]
     pub(crate) fn selection(&self) -> &SceneSelection {
         &self.selection
@@ -108,10 +122,12 @@ impl SceneState {
     pub(crate) fn load_external_snapshot(
         &mut self,
         snapshot: SceneSnapshot,
+        adapter_id: AdapterId,
         command_id: &str,
         message: impl Into<String>,
     ) {
         self.snapshot = Some(snapshot);
+        self.source = SceneSource::Adapter(adapter_id);
         self.selection.clear();
         self.expansion.collapse_all();
         self.diagnostics.clear();
@@ -122,6 +138,7 @@ impl SceneState {
         let snapshot = demo_scene_snapshot();
         let count = snapshot.object_count();
         self.snapshot = Some(snapshot);
+        self.source = SceneSource::LocalDemo;
         self.selection.clear();
         self.expansion.collapse_all();
         self.diagnostics.clear();
@@ -208,12 +225,20 @@ impl Default for SceneState {
     fn default() -> Self {
         Self {
             snapshot: None,
+            source: SceneSource::None,
             selection: SceneSelection::none(),
             expansion: SceneExpansion::new(),
             diagnostics: Vec::new(),
             last_command_result: None,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SceneSource {
+    None,
+    LocalDemo,
+    Adapter(AdapterId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

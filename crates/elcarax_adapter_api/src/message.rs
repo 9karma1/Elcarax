@@ -2,7 +2,9 @@ use std::error::Error;
 use std::fmt;
 
 use elcarax_core::{Diagnostic, DiagnosticSource, Severity};
-use elcarax_scene_model::SceneSnapshot;
+use elcarax_scene_model::{
+    PropertyPath, PropertyValue, SceneId, SceneObjectId, ScenePatch, SceneSnapshot,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -18,7 +20,7 @@ impl AdapterRequestId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdapterRequest {
     pub request_id: AdapterRequestId,
     pub message: AdapterRequestMessage,
@@ -33,11 +35,12 @@ impl AdapterRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AdapterRequestMessage {
     Handshake(HandshakeRequest),
     LoadProject(LoadProjectRequest),
     GetSceneSnapshot(GetSceneSnapshotRequest),
+    SetProperty(SetPropertyRequest),
     GetDiagnostics(GetDiagnosticsRequest),
     Shutdown(ShutdownRequest),
 }
@@ -45,6 +48,22 @@ pub enum AdapterRequestMessage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GetSceneSnapshotRequest {
     pub scene_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPropertyRequest {
+    pub scene_id: SceneId,
+    pub object_id: SceneObjectId,
+    pub path: PropertyPath,
+    pub expected_old_value: Option<PropertyValue>,
+    pub new_value: PropertyValue,
+    pub transaction_id: String,
+    pub edit_source: AdapterEditSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AdapterEditSource {
+    Inspector,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +92,7 @@ pub enum AdapterResponseMessage {
     Handshake(HandshakeResponse),
     LoadProject(LoadProjectResponse),
     GetSceneSnapshot(GetSceneSnapshotResponse),
+    SetProperty(SetPropertyResponse),
     GetDiagnostics(GetDiagnosticsResponse),
     Shutdown(ShutdownResponse),
     Error(ErrorResponse),
@@ -82,6 +102,36 @@ pub enum AdapterResponseMessage {
 pub struct GetSceneSnapshotResponse {
     pub snapshot: SceneSnapshot,
     pub source_label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPropertyResponse {
+    pub status: SetPropertyStatus,
+    pub scene_id: SceneId,
+    pub object_id: SceneObjectId,
+    pub path: PropertyPath,
+    pub old_value: Option<PropertyValue>,
+    pub confirmed_new_value: Option<PropertyValue>,
+    pub patch: Option<ScenePatch>,
+    pub diagnostics: Vec<AdapterDiagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetPropertyStatus {
+    Accepted,
+    Rejected,
+    ObjectNotFound,
+    PropertyNotFound,
+    ReadOnlyProperty,
+    TypeMismatch,
+    StaleValue,
+    AdapterError,
+}
+
+impl SetPropertyStatus {
+    pub const fn is_accepted(self) -> bool {
+        matches!(self, Self::Accepted)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,5 +347,111 @@ mod tests {
         let line = encode_event_line(&event)?;
         assert_eq!(decode_adapter_line(&line)?, AdapterLine::Event(event));
         Ok(())
+    }
+
+    #[test]
+    fn set_property_request_round_trips() -> Result<(), serde_json::Error> {
+        let snapshot = demo_scene_snapshot();
+        let player = player(&snapshot);
+        let request = AdapterRequest::new(
+            AdapterRequestId::new(9),
+            AdapterRequestMessage::SetProperty(SetPropertyRequest {
+                scene_id: snapshot.scene_id(),
+                object_id: player.id,
+                path: path("gameplay.health"),
+                expected_old_value: Some(PropertyValue::I64(100)),
+                new_value: PropertyValue::I64(65),
+                transaction_id: "adapter.inspector.set_player_health_demo".to_string(),
+                edit_source: AdapterEditSource::Inspector,
+            }),
+        );
+        let line = encode_request_line(&request)?;
+        assert_eq!(decode_request_line(&line)?, request);
+        Ok(())
+    }
+
+    #[test]
+    fn set_property_response_round_trips() -> Result<(), serde_json::Error> {
+        let snapshot = demo_scene_snapshot();
+        let player = player(&snapshot);
+        let response = AdapterResponse::new(
+            AdapterRequestId::new(9),
+            AdapterResponseMessage::SetProperty(SetPropertyResponse {
+                status: SetPropertyStatus::Accepted,
+                scene_id: snapshot.scene_id(),
+                object_id: player.id,
+                path: path("gameplay.health"),
+                old_value: Some(PropertyValue::I64(100)),
+                confirmed_new_value: Some(PropertyValue::I64(65)),
+                patch: Some(ScenePatch::property_updated(
+                    player.id,
+                    path("gameplay.health"),
+                    PropertyValue::I64(65),
+                )),
+                diagnostics: Vec::new(),
+            }),
+        );
+        let line = encode_response_line(&response)?;
+        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_writeback_response_round_trips() -> Result<(), serde_json::Error> {
+        let snapshot = demo_scene_snapshot();
+        let response = rejected_response(&snapshot);
+        let line = encode_response_line(&response)?;
+        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
+        Ok(())
+    }
+
+    #[test]
+    fn diagnostics_round_trip_with_writeback_response() -> Result<(), serde_json::Error> {
+        let snapshot = demo_scene_snapshot();
+        let response = rejected_response(&snapshot);
+        let line = encode_response_line(&response)?;
+        let AdapterLine::Response(AdapterResponse {
+            message: AdapterResponseMessage::SetProperty(decoded),
+            ..
+        }) = decode_adapter_line(&line)?
+        else {
+            panic!("decoded response should be set property");
+        };
+        assert_eq!(decoded.diagnostics.len(), 1);
+        Ok(())
+    }
+
+    fn rejected_response(snapshot: &SceneSnapshot) -> AdapterResponse {
+        let player = player(snapshot);
+        AdapterResponse::new(
+            AdapterRequestId::new(10),
+            AdapterResponseMessage::SetProperty(SetPropertyResponse {
+                status: SetPropertyStatus::ReadOnlyProperty,
+                scene_id: snapshot.scene_id(),
+                object_id: player.id,
+                path: path("references.mesh"),
+                old_value: None,
+                confirmed_new_value: None,
+                patch: None,
+                diagnostics: vec![AdapterDiagnostic::info(
+                    "mock-adapter",
+                    "Property is read-only",
+                )],
+            }),
+        )
+    }
+
+    fn player(snapshot: &SceneSnapshot) -> &elcarax_scene_model::SceneObject {
+        match snapshot.object_by_name("Player") {
+            Some(player) => player,
+            None => panic!("player should exist"),
+        }
+    }
+
+    fn path(value: &str) -> PropertyPath {
+        match PropertyPath::parse(value) {
+            Ok(path) => path,
+            Err(error) => panic!("test path should parse: {error}"),
+        }
     }
 }

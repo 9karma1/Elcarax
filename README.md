@@ -22,10 +22,11 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - read-only inspector foundation with property formatting, grouped rows, selection-driven updates, and inspector commands
 - editable inspector undo foundation with command-driven primitive property edits, inspector refresh, diagnostics, and undo/redo
 - adapter host integration with JSON-line mock process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
+- adapter property writeback foundation with mock adapter set-property requests, confirmed scene patches, adapter-backed inspector edits, and adapter undo/redo
 - project, asset, accessibility placeholder, and devtools modules
 - architecture decision records and milestone documentation
 
-This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, real text input fields, IME/caret/selection editing, component add/remove, asset assignment editing, multi-object editing, scroll views, real accessibility integration, file dialogs, file watching, adapter writeback, hot reload, plugin/marketplace runtime loading, asset import pipeline, scene save/writeback, viewport scene rendering or frame streaming, real engine synchronization, C++ integration, and real engine binding are intentionally out of scope for the current milestone.
+This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, real text input fields, IME/caret/selection editing, component add/remove, asset assignment editing, multi-object editing, scroll views, real accessibility integration, file dialogs, file watching, hot reload, plugin/marketplace runtime loading, asset import pipeline, scene save/writeback, viewport scene rendering or frame streaming, real engine synchronization, C++ integration, real engine writeback, and real engine binding are intentionally out of scope for the current milestone.
 
 ## Requirements
 
@@ -69,7 +70,7 @@ Default console proof flow:
 cargo run -p elcarax_app
 ```
 
-The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project/asset/scene/inspector edit and undo/redo commands, starts the mock adapter process, performs the adapter handshake, imports the adapter scene snapshot, shows adapter diagnostics, stops the adapter, updates editor UI state, and prints project, asset, scene, inspector, adapter, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, and command palette proof output.
+The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project/asset/scene/inspector edit and undo/redo commands, starts the mock adapter process, performs the adapter handshake, imports the adapter scene snapshot, sends adapter-backed property edits through the mock adapter, exercises adapter undo/redo, shows adapter diagnostics, stops the adapter, updates editor UI state, and prints project, asset, scene, inspector, adapter, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, and command palette proof output.
 
 Manual native shell smoke test:
 
@@ -95,9 +96,13 @@ Suggested manual flow:
 12. Run `inspector.clear` and confirm the inspector returns to the empty state
 13. Run `adapter.start_mock` and confirm adapter status changes to connected
 14. Run `adapter.load_demo_scene` and confirm the scene tree shows the adapter-provided demo scene
-15. Run `adapter.show_diagnostics` and confirm the adapter diagnostic count updates
-16. Run `adapter.stop_mock` and confirm adapter status changes to stopped
-17. Run `scene.expand_all` and `scene.collapse_all`
+15. Select `Player` and confirm the inspector shows adapter-backed properties
+16. Run `adapter.inspector.set_player_health_demo` and confirm Health changes after adapter confirmation
+17. Run `adapter.edit.undo` and confirm Health returns to its original value
+18. Run `adapter.edit.redo` and confirm Health changes again
+19. Run `adapter.show_diagnostics` and confirm the adapter diagnostic count updates
+20. Run `adapter.stop_mock` and confirm adapter status changes to stopped
+21. Run `scene.expand_all` and `scene.collapse_all`
 
 The command palette shows eight rows at a time; filter with query text to reach scene commands below the asset section. Clicking the toolbar `Run` button updates the status text to `Status: Run clicked`.
 
@@ -135,9 +140,11 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 10: read-only inspector foundation
 - Milestone 11: editable inspector undo foundation
 - Milestone 12: adapter host integration
+- Milestone 13: adapter property writeback foundation
 
 See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 
 - `docs/MILESTONE_10_READ_ONLY_INSPECTOR.md`
 - `docs/MILESTONE_11_EDITABLE_INSPECTOR_UNDO.md`
 - `docs/MILESTONE_12_ADAPTER_HOST_INTEGRATION.md`
+- `docs/MILESTONE_13_ADAPTER_PROPERTY_WRITEBACK.md`
