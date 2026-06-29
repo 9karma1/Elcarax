@@ -40,6 +40,7 @@ pub(crate) fn shell_content_from_editor_state(
         },
         inspector_row_labels: inspector.row_labels.clone(),
         inspector_row_values: inspector.row_values.clone(),
+        inspector_row_editable: inspector.row_editable,
         inspector_summary: inspector.summary.clone(),
         status: editor_status_bar(project, assets, scene),
     }

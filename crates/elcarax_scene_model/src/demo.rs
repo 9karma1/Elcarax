@@ -126,37 +126,37 @@ pub fn demo_scene_snapshot() -> SceneSnapshot {
     snapshot.add_schema(camera_schema);
 
     let player_schema = ObjectSchema::new("Character")
-        .with_property(read_only_property(
+        .with_property(editable_property(
             &["general", "name"],
             "Name",
             PropertyKind::String,
             &general,
         ))
-        .with_property(read_only_property(
+        .with_property(editable_property(
             &["transform", "position"],
             "Position",
             PropertyKind::Vec3,
             &transform,
         ))
-        .with_property(read_only_property(
+        .with_property(editable_property(
             &["transform", "rotation"],
             "Rotation",
             PropertyKind::Vec3,
             &transform,
         ))
-        .with_property(read_only_property(
+        .with_property(editable_property(
             &["transform", "scale"],
             "Scale",
             PropertyKind::Vec3,
             &transform,
         ))
-        .with_property(read_only_property(
+        .with_property(editable_property(
             &["gameplay", "health"],
             "Health",
             PropertyKind::I64,
             &gameplay,
         ))
-        .with_property(read_only_property(
+        .with_property(editable_property(
             &["gameplay", "speed"],
             "Speed",
             PropertyKind::F64,
@@ -252,6 +252,16 @@ fn read_only_property(
 ) -> PropertySchema {
     let path = PropertyPath::demo_from_segments(segments);
     PropertySchema::read_only(path, display_name, kind, group.clone())
+}
+
+fn editable_property(
+    segments: &[&str],
+    display_name: &str,
+    kind: PropertyKind,
+    group: &PropertyGroup,
+) -> PropertySchema {
+    let path = PropertyPath::demo_from_segments(segments);
+    PropertySchema::editable(path, display_name, kind, group.clone())
 }
 
 fn apply_schema(

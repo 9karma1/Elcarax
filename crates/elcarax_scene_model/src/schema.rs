@@ -21,13 +21,79 @@ pub enum PropertyKind {
     List,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropertyEditKind {
+    Bool,
+    Integer,
+    Float,
+    String,
+    Vec2,
+    Vec3,
+    Unsupported,
+}
+
+impl PropertyEditKind {
+    pub const fn for_property_kind(kind: PropertyKind) -> Self {
+        match kind {
+            PropertyKind::Bool => Self::Bool,
+            PropertyKind::I64 => Self::Integer,
+            PropertyKind::F64 => Self::Float,
+            PropertyKind::String => Self::String,
+            PropertyKind::Vec2 => Self::Vec2,
+            PropertyKind::Vec3 => Self::Vec3,
+            PropertyKind::ColorRgba
+            | PropertyKind::Enum
+            | PropertyKind::AssetRef
+            | PropertyKind::ObjectRef
+            | PropertyKind::List => Self::Unsupported,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Bool => "bool",
+            Self::Integer => "integer",
+            Self::Float => "float",
+            Self::String => "string",
+            Self::Vec2 => "vec2",
+            Self::Vec3 => "vec3",
+            Self::Unsupported => "unsupported",
+        }
+    }
+
+    pub const fn is_supported(self) -> bool {
+        !matches!(self, Self::Unsupported)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NumericEditMetadata {
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub step: Option<f64>,
+}
+
+impl NumericEditMetadata {
+    pub const fn step(step: f64) -> Self {
+        Self {
+            min: None,
+            max: None,
+            step: Some(step),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PropertySchema {
     pub path: PropertyPath,
     pub display_name: String,
     pub kind: PropertyKind,
     pub group: PropertyGroup,
-    pub read_only: bool,
+    pub editable: bool,
+    pub edit_kind: PropertyEditKind,
+    pub numeric: Option<NumericEditMetadata>,
+    pub enum_variants: Vec<String>,
+    pub read_only_reason: Option<String>,
 }
 
 impl PropertySchema {
@@ -37,12 +103,17 @@ impl PropertySchema {
         kind: PropertyKind,
         group: PropertyGroup,
     ) -> Self {
+        let edit_kind = PropertyEditKind::for_property_kind(kind);
         Self {
             path,
             display_name: display_name.into(),
             kind,
             group,
-            read_only: true,
+            editable: false,
+            edit_kind,
+            numeric: None,
+            enum_variants: Vec::new(),
+            read_only_reason: Some(read_only_reason(kind)),
         }
     }
 
@@ -52,17 +123,26 @@ impl PropertySchema {
         kind: PropertyKind,
         group: PropertyGroup,
     ) -> Self {
+        let edit_kind = PropertyEditKind::for_property_kind(kind);
         Self {
             path,
             display_name: display_name.into(),
             kind,
             group,
-            read_only: false,
+            editable: edit_kind.is_supported(),
+            edit_kind,
+            numeric: numeric_metadata(kind),
+            enum_variants: Vec::new(),
+            read_only_reason: if edit_kind.is_supported() {
+                None
+            } else {
+                Some(read_only_reason(kind))
+            },
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ObjectSchema {
     pub type_id: ObjectTypeId,
     pub display_name: String,
@@ -82,5 +162,33 @@ impl ObjectSchema {
     pub fn with_property(mut self, property: PropertySchema) -> Self {
         self.properties.push(property);
         self
+    }
+}
+
+fn numeric_metadata(kind: PropertyKind) -> Option<NumericEditMetadata> {
+    match kind {
+        PropertyKind::I64 => Some(NumericEditMetadata::step(1.0)),
+        PropertyKind::F64 => Some(NumericEditMetadata::step(0.5)),
+        _ => None,
+    }
+}
+
+fn read_only_reason(kind: PropertyKind) -> String {
+    match kind {
+        PropertyKind::ColorRgba => "Color editing is not enabled in this milestone".to_string(),
+        PropertyKind::AssetRef => {
+            "Asset assignment editing is not enabled in this milestone".to_string()
+        }
+        PropertyKind::ObjectRef => {
+            "Object reference editing is not enabled in this milestone".to_string()
+        }
+        PropertyKind::Enum => "Enum editing is not enabled in this milestone".to_string(),
+        PropertyKind::List => "List editing is not enabled in this milestone".to_string(),
+        PropertyKind::Bool
+        | PropertyKind::I64
+        | PropertyKind::F64
+        | PropertyKind::String
+        | PropertyKind::Vec2
+        | PropertyKind::Vec3 => "Property is read-only in this scene snapshot".to_string(),
     }
 }

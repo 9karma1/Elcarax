@@ -1,5 +1,5 @@
 use elcarax_render::Rect;
-use elcarax_ui::{EditorShellIds, UiError, UiTree};
+use elcarax_ui::{EditorShellIds, TextRole, UiError, UiTree};
 
 use crate::inspector_display::InspectorUiSnapshot;
 
@@ -40,11 +40,17 @@ pub(crate) fn apply_inspector_snapshot(
         )?;
     }
     for (index, value_id) in ids.inspector_row_values.iter().enumerate() {
-        tree.set_sized_label_text(
-            *value_id,
-            snapshot.row_values[index].clone(),
-            INSPECTOR_ROW_HEIGHT,
-        )?;
+        if snapshot.row_editable[index] {
+            tree.set_button_text(*value_id, snapshot.row_values[index].clone())?;
+            tree.set_text_role(*value_id, TextRole::Accent)?;
+        } else {
+            tree.set_sized_label_text(
+                *value_id,
+                snapshot.row_values[index].clone(),
+                INSPECTOR_ROW_HEIGHT,
+            )?;
+            tree.set_text_role(*value_id, TextRole::Muted)?;
+        }
     }
     tree.set_sized_label_text(
         ids.inspector_summary,
@@ -53,4 +59,14 @@ pub(crate) fn apply_inspector_snapshot(
     )?;
     tree.layout(elcarax_ui::LayoutConstraints { bounds })?;
     Ok(())
+}
+
+#[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
+pub(crate) fn inspector_value_index_for_widget(
+    ids: EditorShellIds,
+    widget_id: elcarax_ui::WidgetId,
+) -> Option<usize> {
+    ids.inspector_row_values
+        .iter()
+        .position(|value_id| *value_id == widget_id)
 }

@@ -381,6 +381,42 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Inspector,
         )?,
         registered(
+            "inspector.set_player_health_demo",
+            "Set Player Health Demo",
+            "Set the selected Player health property through undoable inspector edit flow",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "inspector.set_player_speed_demo",
+            "Set Player Speed Demo",
+            "Set the selected Player speed property through undoable inspector edit flow",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "inspector.rename_player_demo",
+            "Rename Player Demo",
+            "Rename the selected Player through undoable inspector edit flow",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "inspector.reset_player_transform_demo",
+            "Reset Player Transform Demo",
+            "Reset selected Player transform properties through inspector edit flow",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "edit.undo",
+            "Undo",
+            "Undo the last editor command",
+            CommandCategory::Inspector,
+        )?,
+        registered(
+            "edit.redo",
+            "Redo",
+            "Redo the last undone editor command",
+            CommandCategory::Inspector,
+        )?,
+        registered(
             "elcarax.status.show_renderer_stats",
             "Show Renderer Stats",
             "Show current primitive, text, and glyph counts",
@@ -533,6 +569,12 @@ mod tests {
                 "inspector.inspect_player",
                 "inspector.inspect_root",
                 "inspector.show_property_count",
+                "inspector.set_player_health_demo",
+                "inspector.set_player_speed_demo",
+                "inspector.rename_player_demo",
+                "inspector.reset_player_transform_demo",
+                "edit.undo",
+                "edit.redo",
                 "elcarax.status.show_renderer_stats",
                 "elcarax.status.show_ready",
                 "elcarax.demo.run"
@@ -587,6 +629,9 @@ mod tests {
         assert!(ids.contains(&"inspector.show_selected"));
         assert!(ids.contains(&"inspector.inspect_player"));
         assert!(ids.contains(&"inspector.show_property_count"));
+        assert!(ids.contains(&"inspector.set_player_health_demo"));
+        assert!(ids.contains(&"edit.undo"));
+        assert!(ids.contains(&"edit.redo"));
     }
 
     #[test]

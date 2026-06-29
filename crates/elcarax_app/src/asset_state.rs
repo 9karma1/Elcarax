@@ -68,7 +68,7 @@ impl AssetState {
         &self.index
     }
 
-    #[cfg_attr(feature = "native-shell", allow(dead_code))]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn selection(&self) -> &AssetSelection {
         &self.selection
     }
@@ -188,7 +188,7 @@ impl AssetCommandResult {
         }
     }
 
-    #[cfg_attr(feature = "native-shell", allow(dead_code))]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn command_id(&self) -> &str {
         self.command_id.as_str()
     }

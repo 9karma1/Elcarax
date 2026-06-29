@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use elcarax_commands::{
-    CommandId, CommandInvocation, CommandRegistry, CommandResult, RegisteredCommand,
-    built_in_commands,
+    CommandHistory, CommandId, CommandInvocation, CommandRegistry, CommandResult,
+    RegisteredCommand, built_in_commands,
 };
 use elcarax_core::{ElcaraxError, Result};
 use elcarax_gpu::{GpuContext, GpuContextSpec, GpuSurface, RenderError, SurfaceSize};
@@ -21,6 +21,7 @@ use elcarax_ui::{
 use crate::asset_state::AssetState;
 use crate::asset_ui::asset_row_index_for_widget;
 use crate::inspector_state::InspectorState;
+use crate::inspector_ui::inspector_value_index_for_widget;
 use crate::project_state::ProjectState;
 use crate::project_ui::apply_editor_snapshot;
 use crate::scene_state::SceneState;
@@ -60,6 +61,7 @@ struct UiState {
     asset_state: AssetState,
     scene_state: SceneState,
     inspector_state: InspectorState,
+    edit_history: CommandHistory,
     bounds: Rect,
 }
 
@@ -240,6 +242,7 @@ fn build_ui_state(
         asset_state,
         scene_state,
         inspector_state,
+        edit_history: CommandHistory::new(),
         bounds,
     };
     repaint_ui_scene(&mut ui)?;
@@ -396,6 +399,18 @@ fn apply_command_invocation(
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
+    if ui
+        .inspector_state
+        .execute_edit_command_id(
+            invocation.id.as_str(),
+            &mut ui.scene_state,
+            &mut ui.edit_history,
+        )
+        .is_some()
+    {
+        apply_editor_snapshot_to_ui(ui)?;
+        return Ok(());
+    }
     match invocation.id.as_str() {
         "elcarax.palette.open" => ui.command_palette.open(),
         "elcarax.palette.close" => ui.command_palette.close(),
@@ -532,6 +547,25 @@ fn apply_ui_events(
                 && ui.scene_state.select_object(object_id)
             {
                 ui.inspector_state.on_scene_selection_changed();
+                apply_editor_snapshot_to_ui(ui)?;
+                changed = true;
+            }
+        }
+        if let UiEvent::Clicked { id } = event
+            && let Some(row_index) = inspector_value_index_for_widget(ui.ids, *id)
+        {
+            let snapshot = ui.inspector_state.ui_snapshot(&ui.scene_state);
+            let command_id = snapshot.row_command_ids[row_index].clone();
+            if !command_id.is_empty()
+                && ui
+                    .inspector_state
+                    .execute_edit_command_id(
+                        command_id.as_str(),
+                        &mut ui.scene_state,
+                        &mut ui.edit_history,
+                    )
+                    .is_some()
+            {
                 apply_editor_snapshot_to_ui(ui)?;
                 changed = true;
             }

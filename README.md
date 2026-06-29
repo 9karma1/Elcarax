@@ -20,10 +20,11 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - asset browser foundation with demo asset index, scan/selection commands, and clickable asset rows
 - scene tree foundation with engine-neutral scene model, demo snapshot, hierarchy display, selection/expand state, and scene commands
 - read-only inspector foundation with property formatting, grouped rows, selection-driven updates, and inspector commands
+- editable inspector undo foundation with command-driven primitive property edits, inspector refresh, diagnostics, and undo/redo
 - project, asset, accessibility placeholder, and devtools modules
 - architecture decision records and milestone documentation
 
-This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, inspector editing, editable text fields, IME, selection, scroll views, real accessibility integration, file dialogs, file watching, process IPC, adapter loading, asset import pipeline, scene save/writeback, viewport scene rendering, and real engine binding are intentionally out of scope for the current milestone.
+This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, real text input fields, IME/caret/selection editing, component add/remove, asset assignment editing, multi-object editing, scroll views, real accessibility integration, file dialogs, file watching, process IPC, adapter loading, adapter writeback, asset import pipeline, scene save/writeback, viewport scene rendering, real engine synchronization, and real engine binding are intentionally out of scope for the current milestone.
 
 ## Requirements
 
@@ -67,7 +68,7 @@ Default console proof flow:
 cargo run -p elcarax_app
 ```
 
-The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project/asset/scene/inspector commands, updates editor UI state, and prints project, asset, scene, inspector, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, and command palette proof output.
+The console flow builds the UI shell without opening a GPU window, simulates a Run button click, executes command-palette actions, runs project/asset/scene/inspector edit and undo/redo commands, updates editor UI state, and prints project, asset, scene, inspector, command history, render, UI node, layout, primitive, text primitive, dirty flag, interaction, and command palette proof output.
 
 Manual native shell smoke test:
 
@@ -86,9 +87,12 @@ Suggested manual flow:
 5. Confirm the left panel shows demo assets and the demo scene hierarchy
 6. Select `Player` via `scene.select_player` or by clicking the row
 7. Confirm the selected row highlights and the status bar reports the selected object
-8. Confirm the right inspector shows Player read-only properties
-9. Run `inspector.clear` and confirm the inspector returns to the empty state
-10. Run `scene.expand_all` and `scene.collapse_all`
+8. Confirm the right inspector shows Player properties with editable primitive rows and muted read-only rows
+9. Run `inspector.set_player_health_demo` and confirm Health changes
+10. Run `edit.undo` and confirm Health returns to its original value
+11. Run `edit.redo` and confirm Health changes again
+12. Run `inspector.clear` and confirm the inspector returns to the empty state
+13. Run `scene.expand_all` and `scene.collapse_all`
 
 The command palette shows eight rows at a time; filter with query text to reach scene commands below the asset section. Clicking the toolbar `Run` button updates the status text to `Status: Run clicked`.
 
@@ -123,8 +127,9 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 8: asset browser foundation
 - Milestone 9: scene tree foundation
 - Milestone 10: read-only inspector foundation
+- Milestone 11: editable inspector undo foundation
 
 See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 
-- `docs/MILESTONE_9_SCENE_TREE_FOUNDATION.md`
 - `docs/MILESTONE_10_READ_ONLY_INSPECTOR.md`
+- `docs/MILESTONE_11_EDITABLE_INSPECTOR_UNDO.md`

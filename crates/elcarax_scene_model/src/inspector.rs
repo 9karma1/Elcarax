@@ -4,7 +4,7 @@ use crate::kind::SceneObjectKind;
 use crate::name::PropertyName;
 use crate::property::{PropertyPath, PropertyValue};
 use crate::property_display::{PropertyFormatContext, PropertyGroup, format_property_value};
-use crate::schema::{ObjectSchema, PropertySchema};
+use crate::schema::{ObjectSchema, PropertyEditKind, PropertySchema};
 use crate::snapshot::{SceneObject, SceneObjectId, SceneSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +27,11 @@ impl InspectorDiagnostic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InspectorRow {
     pub label: PropertyName,
+    pub path: PropertyPath,
     pub value: String,
+    pub editable: bool,
+    pub edit_kind: PropertyEditKind,
+    pub read_only_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,7 +110,11 @@ fn build_sections(
         let label = path_label(path);
         let row = InspectorRow {
             label: PropertyName::from_unvalidated(label),
+            path: path.clone(),
             value: format_property_value(value, context),
+            editable: false,
+            edit_kind: PropertyEditKind::Unsupported,
+            read_only_reason: Some("No editable property schema is available".to_string()),
         };
         grouped
             .entry(group.as_str().to_string())
@@ -140,7 +148,11 @@ fn inspector_row(
 ) -> InspectorRow {
     InspectorRow {
         label: PropertyName::from_unvalidated(property.display_name.clone()),
+        path: property.path.clone(),
         value: format_property_value(value, context),
+        editable: property.editable,
+        edit_kind: property.edit_kind,
+        read_only_reason: property.read_only_reason.clone(),
     }
 }
 
