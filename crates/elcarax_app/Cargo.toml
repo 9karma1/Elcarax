@@ -15,6 +15,7 @@ native-shell = ["dep:pollster", "elcarax_platform/native"]
 
 [dependencies]
 elcarax_adapter_api = { path = "../elcarax_adapter_api" }
+elcarax_adapter_host = { path = "../elcarax_adapter_host" }
 elcarax_assets = { path = "../elcarax_assets" }
 elcarax_commands = { path = "../elcarax_commands" }
 elcarax_core = { path = "../elcarax_core" }

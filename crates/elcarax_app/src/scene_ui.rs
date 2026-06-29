@@ -1,18 +1,18 @@
 use elcarax_render::Rect;
 use elcarax_ui::{EditorShellContent, EditorShellIds, LayoutConstraints, UiError, UiTree};
 
-use crate::asset_display::AssetUiSnapshot;
 use crate::editor_status::editor_status_bar;
-use crate::inspector_display::InspectorUiSnapshot;
-use crate::project_display::ProjectUiSnapshot;
+use crate::project_ui::EditorSnapshotRefs;
 use crate::scene_display::SceneUiSnapshot;
 
 pub(crate) fn shell_content_from_editor_state(
-    project: &ProjectUiSnapshot,
-    assets: &AssetUiSnapshot,
-    scene: &SceneUiSnapshot,
-    inspector: &InspectorUiSnapshot,
+    snapshots: EditorSnapshotRefs<'_>,
 ) -> EditorShellContent {
+    let project = snapshots.project;
+    let assets = snapshots.assets;
+    let scene = snapshots.scene;
+    let inspector = snapshots.inspector;
+    let adapter = snapshots.adapter;
     EditorShellContent {
         toolbar_title: project.toolbar_title.clone(),
         project_title: "Project".to_string(),
@@ -22,6 +22,9 @@ pub(crate) fn shell_content_from_editor_state(
         project_recent: project.project_recent.clone(),
         project_diagnostics: project.project_diagnostics.clone(),
         project_command: project.project_command.clone(),
+        adapter_status: adapter.adapter_status.clone(),
+        adapter_diagnostics: adapter.adapter_diagnostics.clone(),
+        adapter_command: adapter.adapter_command.clone(),
         asset_section_title: assets.asset_section_title.clone(),
         asset_count: assets.asset_count.clone(),
         asset_row_labels: assets.asset_row_labels.clone(),
@@ -42,7 +45,7 @@ pub(crate) fn shell_content_from_editor_state(
         inspector_row_values: inspector.row_values.clone(),
         inspector_row_editable: inspector.row_editable,
         inspector_summary: inspector.summary.clone(),
-        status: editor_status_bar(project, assets, scene),
+        status: editor_status_bar(project, assets, scene, adapter),
     }
 }
 

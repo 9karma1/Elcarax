@@ -1373,6 +1373,9 @@ pub struct EditorShellIds {
     pub project_recent: WidgetId,
     pub project_diagnostics: WidgetId,
     pub project_command: WidgetId,
+    pub adapter_status: WidgetId,
+    pub adapter_diagnostics: WidgetId,
+    pub adapter_command: WidgetId,
     pub asset_section_title: WidgetId,
     pub asset_count: WidgetId,
     pub asset_rows: [WidgetId; MAX_VISIBLE_ASSET_ROWS],
@@ -1401,6 +1404,9 @@ pub struct EditorShellContent {
     pub project_recent: String,
     pub project_diagnostics: String,
     pub project_command: String,
+    pub adapter_status: String,
+    pub adapter_diagnostics: String,
+    pub adapter_command: String,
     pub asset_section_title: String,
     pub asset_count: String,
     pub asset_row_labels: [String; MAX_VISIBLE_ASSET_ROWS],
@@ -1443,6 +1449,9 @@ impl EditorShellContent {
             project_recent: "Recent: 0".to_string(),
             project_diagnostics: "Diagnostics: No diagnostics".to_string(),
             project_command: "Command: None".to_string(),
+            adapter_status: "Adapter: Disconnected".to_string(),
+            adapter_diagnostics: "Adapter Diagnostics: 0".to_string(),
+            adapter_command: "Adapter Command: None".to_string(),
             asset_section_title: "Assets".to_string(),
             asset_count: "Assets: 0".to_string(),
             asset_row_labels: empty_asset_row_labels(),
@@ -1586,6 +1595,9 @@ pub fn build_editor_shell_with_content(
     let inspector_row_value_12 = WidgetId::new(91).ok_or(UiError::MissingRoot)?;
     let inspector_row_value_13 = WidgetId::new(92).ok_or(UiError::MissingRoot)?;
     let inspector_summary = WidgetId::new(93).ok_or(UiError::MissingRoot)?;
+    let adapter_status = WidgetId::new(94).ok_or(UiError::MissingRoot)?;
+    let adapter_diagnostics = WidgetId::new(95).ok_or(UiError::MissingRoot)?;
+    let adapter_command = WidgetId::new(96).ok_or(UiError::MissingRoot)?;
     let scene_expand_rows = [
         scene_expand_0,
         scene_expand_1,
@@ -1830,6 +1842,33 @@ pub fn build_editor_shell_with_content(
         UiNode::new(
             project_command,
             WidgetKind::Label(content.project_command.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            adapter_status,
+            WidgetKind::Label(content.adapter_status.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            adapter_diagnostics,
+            WidgetKind::Label(content.adapter_diagnostics.clone()),
+            UiStyle::LABEL.muted_text(),
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            adapter_command,
+            WidgetKind::Label(content.adapter_command.clone()),
             UiStyle::LABEL.muted_text(),
             LayoutNode::leaf(),
         ),
@@ -2089,6 +2128,9 @@ pub fn build_editor_shell_with_content(
             project_recent,
             project_diagnostics,
             project_command,
+            adapter_status,
+            adapter_diagnostics,
+            adapter_command,
             asset_section_title,
             asset_count,
             asset_rows,
@@ -3384,6 +3426,47 @@ mod tests {
         assert!(texts.contains(
             &"Project: Demo Project | Asset: cube.glb | Scene: Demo Scene | Object: Player"
         ));
+    }
+
+    #[test]
+    fn adapter_disconnected_status_paints() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            adapter_status: "Adapter: Disconnected".to_string(),
+            adapter_diagnostics: "Adapter Diagnostics: 0".to_string(),
+            status: "Project: None | Adapter: Disconnected".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Adapter: Disconnected"));
+        assert!(texts.contains(&"Adapter Diagnostics: 0"));
+    }
+
+    #[test]
+    fn adapter_connected_status_and_diagnostics_paint() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            adapter_status: "Adapter: Mock Adapter 0.1.0 Connected".to_string(),
+            adapter_diagnostics: "Adapter Diagnostics: 1".to_string(),
+            adapter_command: "Adapter Command: loaded adapter scene with 10 objects".to_string(),
+            scene_name: "Demo Scene".to_string(),
+            status: "Project: None | Adapter: Mock Adapter 0.1.0 Connected".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Adapter: Mock Adapter 0.1.0 Connected"));
+        assert!(texts.contains(&"Adapter Diagnostics: 1"));
+        assert!(texts.contains(&"Demo Scene"));
     }
 
     #[test]

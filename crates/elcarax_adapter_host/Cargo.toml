@@ -11,5 +11,8 @@ workspace = true
 
 [dependencies]
 elcarax_adapter_api = { path = "../elcarax_adapter_api" }
-elcarax_adapter_sdk = { path = "../elcarax_adapter_sdk" }
 elcarax_core = { path = "../elcarax_core" }
+serde_json = "1.0"
+
+[dev-dependencies]
+elcarax_scene_model = { path = "../elcarax_scene_model" }

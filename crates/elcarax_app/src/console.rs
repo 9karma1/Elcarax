@@ -18,6 +18,11 @@ use elcarax_ui::{
     build_editor_shell_with_content,
 };
 
+use crate::adapter_state::{
+    ADAPTER_LOAD_DEMO_PROJECT_COMMAND, ADAPTER_LOAD_DEMO_SCENE_COMMAND,
+    ADAPTER_SHOW_DIAGNOSTICS_COMMAND, ADAPTER_START_MOCK_COMMAND, ADAPTER_STOP_MOCK_COMMAND,
+    AdapterState,
+};
 use crate::asset_state::{
     ASSET_CLEAR_SELECTION_COMMAND, ASSET_SCAN_DEMO_COMMAND, ASSET_SELECT_FIRST_COMMAND, AssetState,
 };
@@ -29,7 +34,7 @@ use crate::inspector_state::{
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_NEW_DEMO_COMMAND, PROJECT_VALIDATE_COMMAND, ProjectState,
 };
-use crate::project_ui::apply_editor_snapshot;
+use crate::project_ui::{apply_editor_snapshot, editor_snapshots};
 use crate::scene_state::{
     SCENE_CLEAR_SELECTION_COMMAND, SCENE_COLLAPSE_ALL_COMMAND, SCENE_EXPAND_ALL_COMMAND,
     SCENE_LOAD_DEMO_COMMAND, SCENE_SELECT_PLAYER_COMMAND, SceneState,
@@ -179,6 +184,28 @@ pub fn run_console_proof() -> Result<()> {
         "asset_command: clear_selection_executed={} selected=\"{}\"",
         proof.asset_clear_selection_executed, proof.asset_cleared_summary
     );
+    println!(
+        "adapter_command: start_mock_executed={} status=\"{}\"",
+        proof.adapter_start_mock_executed, proof.adapter_status_after_start
+    );
+    println!(
+        "adapter_command: load_demo_project_executed={} result=\"{}\"",
+        proof.adapter_load_project_executed, proof.adapter_project_result
+    );
+    println!(
+        "adapter_command: load_demo_scene_executed={} objects={} scene=\"{}\"",
+        proof.adapter_load_scene_executed,
+        proof.adapter_scene_object_count,
+        proof.adapter_scene_name
+    );
+    println!(
+        "adapter_command: show_diagnostics_executed={} diagnostics=\"{}\"",
+        proof.adapter_show_diagnostics_executed, proof.adapter_diagnostics_summary
+    );
+    println!(
+        "adapter_command: stop_mock_executed={} status=\"{}\"",
+        proof.adapter_stop_mock_executed, proof.adapter_status_after_stop
+    );
     Ok(())
 }
 
@@ -228,6 +255,17 @@ struct ConsoleUiProof {
     edit_redo_executed: bool,
     inspector_health_after_redo: String,
     edit_redo_status: String,
+    adapter_start_mock_executed: bool,
+    adapter_load_project_executed: bool,
+    adapter_load_scene_executed: bool,
+    adapter_show_diagnostics_executed: bool,
+    adapter_stop_mock_executed: bool,
+    adapter_status_after_start: String,
+    adapter_project_result: String,
+    adapter_scene_object_count: usize,
+    adapter_scene_name: String,
+    adapter_diagnostics_summary: String,
+    adapter_status_after_stop: String,
 }
 
 fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
@@ -240,13 +278,15 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     let mut asset_state = AssetState::default();
     let mut scene_state = SceneState::default();
     let mut inspector_state = InspectorState::default();
+    let mut adapter_state = AdapterState::default();
     let mut edit_history = CommandHistory::new();
-    let initial_content = shell_content_from_editor_state(
+    let initial_content = shell_content_from_editor_state(editor_snapshots(
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
         &scene_state.ui_snapshot(),
         &inspector_state.ui_snapshot(&scene_state),
-    );
+        &adapter_state.ui_snapshot(),
+    ));
     let shell = build_editor_shell_with_content(&context, &initial_content).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to build UI shell: {error}"))
     })?;
@@ -305,10 +345,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -328,10 +371,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -350,10 +396,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -372,10 +421,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -395,10 +447,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -419,10 +474,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -452,10 +510,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -478,10 +539,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -502,10 +566,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -525,10 +592,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -547,10 +617,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -569,10 +642,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -591,10 +667,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -614,10 +693,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -636,10 +718,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -662,10 +747,13 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     apply_editor_snapshot(
         &mut tree,
         shell.ids,
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
         bounds,
     )
     .map_err(|error| {
@@ -674,6 +762,122 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         ))
     })?;
     let project_closed_status = project_state.ui_snapshot().status;
+
+    let adapter_start_mock_executed = execute_adapter_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut adapter_state,
+        &mut scene_state,
+        ADAPTER_START_MOCK_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply adapter start to UI: {error}"
+        ))
+    })?;
+    let adapter_status_after_start = adapter_state.ui_snapshot().adapter_status;
+
+    let adapter_load_project_executed = execute_adapter_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut adapter_state,
+        &mut scene_state,
+        ADAPTER_LOAD_DEMO_PROJECT_COMMAND,
+    )?;
+    let adapter_project_result = adapter_state.ui_snapshot().adapter_command;
+
+    let adapter_load_scene_executed = execute_adapter_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut adapter_state,
+        &mut scene_state,
+        ADAPTER_LOAD_DEMO_SCENE_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply adapter scene load to UI: {error}"
+        ))
+    })?;
+    let adapter_scene_object_count = scene_state
+        .snapshot()
+        .map(|snapshot| snapshot.object_count())
+        .unwrap_or(0);
+    let adapter_scene_name = scene_state.ui_snapshot().scene_name;
+
+    let adapter_show_diagnostics_executed = execute_adapter_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut adapter_state,
+        &mut scene_state,
+        ADAPTER_SHOW_DIAGNOSTICS_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply adapter diagnostics to UI: {error}"
+        ))
+    })?;
+    let adapter_diagnostics_summary = adapter_state.ui_snapshot().adapter_diagnostics;
+
+    let adapter_stop_mock_executed = execute_adapter_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut adapter_state,
+        &mut scene_state,
+        ADAPTER_STOP_MOCK_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to apply adapter stop to UI: {error}"))
+    })?;
+    let adapter_status_after_stop = adapter_state.ui_snapshot().adapter_status;
+
     let scene = tree.paint(&PaintContext::new(theme)).map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to paint UI shell: {error}"))
     })?;
@@ -723,6 +927,17 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         edit_redo_executed,
         inspector_health_after_redo,
         edit_redo_status,
+        adapter_start_mock_executed,
+        adapter_load_project_executed,
+        adapter_load_scene_executed,
+        adapter_show_diagnostics_executed,
+        adapter_stop_mock_executed,
+        adapter_status_after_start,
+        adapter_project_result,
+        adapter_scene_object_count,
+        adapter_scene_name,
+        adapter_diagnostics_summary,
+        adapter_status_after_stop,
     })
 }
 
@@ -794,6 +1009,21 @@ fn execute_inspector_edit_command_from_palette(
     };
     Ok(inspector_state
         .execute_edit_command_id(id.as_str(), scene_state, edit_history)
+        .is_some())
+}
+
+fn execute_adapter_command_from_palette(
+    registry: &CommandRegistry,
+    palette: &mut CommandPaletteState,
+    adapter_state: &mut AdapterState,
+    scene_state: &mut SceneState,
+    query: &str,
+) -> Result<bool> {
+    let Some(id) = execute_palette_query(registry, palette, query)? else {
+        return Ok(false);
+    };
+    Ok(adapter_state
+        .execute_command_id(id.as_str(), scene_state)
         .is_some())
 }
 

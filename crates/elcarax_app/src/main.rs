@@ -1,3 +1,5 @@
+mod adapter_display;
+mod adapter_state;
 mod asset_display;
 mod asset_state;
 mod asset_ui;

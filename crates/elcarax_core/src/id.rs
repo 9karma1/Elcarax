@@ -5,6 +5,8 @@ use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 pub struct Id<T> {
     value: NonZeroU64,
     marker: PhantomData<fn() -> T>,
@@ -67,6 +69,25 @@ impl<T> Hash for Id<T> {
 impl<T> fmt::Debug for Id<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "Id({})", self.value)
+    }
+}
+
+impl<T> Serialize for Id<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(self.value.get())
+    }
+}
+
+impl<'de, T> Deserialize<'de> for Id<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = u64::deserialize(deserializer)?;
+        Self::new(value).ok_or_else(|| serde::de::Error::custom("id must be non-zero"))
     }
 }
 
