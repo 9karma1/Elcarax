@@ -7,6 +7,7 @@ mod hierarchy;
 mod inspector;
 mod kind;
 mod name;
+mod patch;
 mod property;
 mod property_display;
 mod property_edit;
@@ -24,6 +25,7 @@ pub use inspector::{
 };
 pub use kind::SceneObjectKind;
 pub use name::{PropertyName, SceneName, SceneObjectName};
+pub use patch::{PropertyUpdated, ScenePatch, ScenePatchOperation};
 pub use property::{PropertyPath, PropertyValue};
 pub use property_display::{
     PropertyDisplay, PropertyFormatContext, PropertyGroup, PropertyId, format_property_value,
@@ -363,6 +365,84 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, PropertyEditError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn property_update_patch_applies_successfully() -> Result<()> {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let path = path("gameplay.health");
+        let patch = ScenePatch::property_updated(player_id, path.clone(), PropertyValue::I64(65));
+        patch
+            .apply(&mut snapshot)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(
+            snapshot.object(player_id)?.property(&path),
+            Some(&PropertyValue::I64(65))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn property_update_patch_missing_object_fails_clearly() {
+        let mut snapshot = demo_scene_snapshot();
+        let missing = match std::num::NonZeroU64::new(999) {
+            Some(value) => SceneObjectId::from_non_zero(value),
+            None => panic!("missing test ID should be non-zero"),
+        };
+        let patch =
+            ScenePatch::property_updated(missing, path("gameplay.health"), PropertyValue::I64(65));
+        assert!(matches!(
+            patch.apply(&mut snapshot),
+            Err(PropertyEditError::ObjectNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn property_update_patch_missing_property_fails_clearly() {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let patch =
+            ScenePatch::property_updated(player_id, path("gameplay.mana"), PropertyValue::I64(65));
+        assert!(matches!(
+            patch.apply(&mut snapshot),
+            Err(PropertyEditError::PropertyNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn property_update_patch_type_mismatch_fails_clearly() {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let patch = ScenePatch::property_updated(
+            player_id,
+            path("gameplay.health"),
+            PropertyValue::String("high".to_string()),
+        );
+        assert!(matches!(
+            patch.apply(&mut snapshot),
+            Err(PropertyEditError::TypeMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn property_update_patch_preserves_unrelated_properties() -> Result<()> {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let speed = path("gameplay.speed");
+        let patch = ScenePatch::property_updated(
+            player_id,
+            path("gameplay.health"),
+            PropertyValue::I64(65),
+        );
+        patch
+            .apply(&mut snapshot)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(
+            snapshot.object(player_id)?.property(&speed),
+            Some(&PropertyValue::F64(6.5))
+        );
+        Ok(())
     }
 
     #[test]

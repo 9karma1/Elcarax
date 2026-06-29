@@ -3561,6 +3561,97 @@ mod tests {
     }
 
     #[test]
+    fn adapter_backed_selected_object_shows_editable_rows() {
+        let theme = Theme::editor_dark();
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        let mut row_values = std::array::from_fn(|_| String::new());
+        let mut row_editable = [false; MAX_VISIBLE_INSPECTOR_ROWS];
+        row_labels[1] = "Health".to_string();
+        row_values[1] = "65  [Set]".to_string();
+        row_editable[1] = true;
+        let content = EditorShellContent {
+            adapter_status: "Adapter: Mock Adapter 0.1.0 Connected".to_string(),
+            inspector_object_name: "Player".to_string(),
+            inspector_object_kind: "Kind: Character".to_string(),
+            inspector_row_labels: row_labels,
+            inspector_row_values: row_values,
+            inspector_row_editable: row_editable,
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Adapter: Mock Adapter 0.1.0 Connected"));
+        assert!(texts.contains(&"Player"));
+        assert!(
+            shell
+                .tree
+                .get(shell.ids.inspector_row_values[1])
+                .is_some_and(|node| {
+                    node.interaction.focusable
+                        && matches!(&node.kind, WidgetKind::Button(text) if text == "65  [Set]")
+                })
+        );
+    }
+
+    #[test]
+    fn successful_adapter_edit_updates_displayed_value() {
+        let theme = Theme::editor_dark();
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        let mut row_values = std::array::from_fn(|_| String::new());
+        let mut row_editable = [false; MAX_VISIBLE_INSPECTOR_ROWS];
+        row_labels[1] = "Health".to_string();
+        row_values[1] = "65  [Set]".to_string();
+        row_editable[1] = true;
+        let content = EditorShellContent {
+            adapter_command: "Adapter Command: adapter write confirmed: Set Adapter Player Health"
+                .to_string(),
+            inspector_object_name: "Player".to_string(),
+            inspector_row_labels: row_labels,
+            inspector_row_values: row_values,
+            inspector_row_editable: row_editable,
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"65  [Set]"));
+        assert!(
+            texts.contains(&"Adapter Command: adapter write confirmed: Set Adapter Player Health")
+        );
+    }
+
+    #[test]
+    fn failed_adapter_edit_shows_diagnostic_status() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            adapter_status: "Adapter: Disconnected".to_string(),
+            adapter_command: "Adapter Command: Diagnostic: adapter not connected".to_string(),
+            status:
+                "Project: None | Adapter: Disconnected | Scene: Diagnostic: adapter not connected"
+                    .to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Adapter: Disconnected"));
+        assert!(texts.contains(&"Adapter Command: Diagnostic: adapter not connected"));
+        assert!(texts.contains(
+            &"Project: None | Adapter: Disconnected | Scene: Diagnostic: adapter not connected"
+        ));
+    }
+
+    #[test]
     fn clicked_editable_inspector_row_dispatches_click_event() {
         let theme = Theme::editor_dark();
         let mut row_labels = std::array::from_fn(|_| String::new());

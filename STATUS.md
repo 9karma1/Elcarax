@@ -18,6 +18,7 @@ Generated: 2026-06-29
 - Read-only inspector foundation with property formatting, grouped inspector rows, selection-driven updates, and command-palette inspector commands
 - Editable inspector undo foundation with primitive property edit metadata, model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo
 - Adapter host integration with JSON-line protocol, mock process spawning, versioned handshake, request/response correlation, diagnostics/logs, scene snapshot import, status UI, and command-palette adapter commands
+- Adapter property writeback foundation with mock adapter set-property protocol, confirmed scene patches, adapter-backed inspector edits, adapter undo/redo writeback, and diagnostics for rejected writes
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -30,7 +31,7 @@ Generated: 2026-06-29
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive shell and project-status foundation
-- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, viewport scene rendering, viewport frame streaming, scene save/writeback, adapter writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
+- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, viewport scene rendering, viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
 - Real `AccessKit` adapter integration
 - Real game engine binding
 - CI execution of the native window path
@@ -147,3 +148,14 @@ cargo run -p elcarax_app
 - Added adapter app state and UI labels for adapter status, diagnostic count, and last adapter command result.
 - Updated the console proof to start the mock adapter, handshake, print capabilities, import the adapter scene snapshot, show diagnostics, and stop the process.
 - Documented explicit real-engine, writeback, binary protocol, viewport streaming, hot reload, plugin runtime, dynamic library, sandbox, and timeout exclusions in `docs/MILESTONE_12_ADAPTER_HOST_INTEGRATION.md`.
+
+## Milestone 13: Adapter Property Writeback Foundation
+
+- Added adapter writeback protocol messages for set-property requests and confirmed/rejected responses.
+- Added minimal scene patch types and property update patch application in `elcarax_scene_model`.
+- Updated the mock adapter to validate, mutate, and report confirmed property changes against its internal demo scene snapshot.
+- Added scene source tracking so local demo edits keep using local command history while adapter-backed edits route through the adapter boundary.
+- Added adapter-backed inspector edit, undo, and redo commands that update editor scene state only after adapter confirmation.
+- Added diagnostics for disconnected adapters, non-adapter scenes, missing objects/properties, read-only properties, type mismatch, stale values, and rejected writes.
+- Updated the console proof to demonstrate local edit/undo/redo plus adapter-backed edit/undo/redo.
+- Documented explicit real-engine, persistent save, hierarchy, component, asset-assignment, multi-object, collaborative, and advanced conflict-resolution exclusions in `docs/MILESTONE_13_ADAPTER_PROPERTY_WRITEBACK.md`.

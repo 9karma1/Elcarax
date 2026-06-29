@@ -19,9 +19,10 @@ use elcarax_ui::{
 };
 
 use crate::adapter_state::{
-    ADAPTER_LOAD_DEMO_PROJECT_COMMAND, ADAPTER_LOAD_DEMO_SCENE_COMMAND,
-    ADAPTER_SHOW_DIAGNOSTICS_COMMAND, ADAPTER_START_MOCK_COMMAND, ADAPTER_STOP_MOCK_COMMAND,
-    AdapterState,
+    ADAPTER_EDIT_REDO_COMMAND, ADAPTER_EDIT_UNDO_COMMAND,
+    ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND, ADAPTER_LOAD_DEMO_PROJECT_COMMAND,
+    ADAPTER_LOAD_DEMO_SCENE_COMMAND, ADAPTER_SHOW_DIAGNOSTICS_COMMAND, ADAPTER_START_MOCK_COMMAND,
+    ADAPTER_STOP_MOCK_COMMAND, AdapterState,
 };
 use crate::asset_state::{
     ASSET_CLEAR_SELECTION_COMMAND, ASSET_SCAN_DEMO_COMMAND, ASSET_SELECT_FIRST_COMMAND, AssetState,
@@ -199,6 +200,24 @@ pub fn run_console_proof() -> Result<()> {
         proof.adapter_scene_name
     );
     println!(
+        "adapter_inspector_command: select_player_executed={} selected=\"{}\"",
+        proof.adapter_select_player_executed, proof.adapter_selected_summary
+    );
+    println!(
+        "adapter_inspector_command: set_player_health_executed={} health=\"{}\" status=\"{}\"",
+        proof.adapter_set_health_executed,
+        proof.adapter_health_after_edit,
+        proof.adapter_edit_status
+    );
+    println!(
+        "adapter_edit_command: undo_executed={} health=\"{}\" status=\"{}\"",
+        proof.adapter_undo_executed, proof.adapter_health_after_undo, proof.adapter_undo_status
+    );
+    println!(
+        "adapter_edit_command: redo_executed={} health=\"{}\" status=\"{}\"",
+        proof.adapter_redo_executed, proof.adapter_health_after_redo, proof.adapter_redo_status
+    );
+    println!(
         "adapter_command: show_diagnostics_executed={} diagnostics=\"{}\"",
         proof.adapter_show_diagnostics_executed, proof.adapter_diagnostics_summary
     );
@@ -258,12 +277,23 @@ struct ConsoleUiProof {
     adapter_start_mock_executed: bool,
     adapter_load_project_executed: bool,
     adapter_load_scene_executed: bool,
+    adapter_select_player_executed: bool,
+    adapter_set_health_executed: bool,
+    adapter_undo_executed: bool,
+    adapter_redo_executed: bool,
     adapter_show_diagnostics_executed: bool,
     adapter_stop_mock_executed: bool,
     adapter_status_after_start: String,
     adapter_project_result: String,
     adapter_scene_object_count: usize,
     adapter_scene_name: String,
+    adapter_selected_summary: String,
+    adapter_health_after_edit: String,
+    adapter_edit_status: String,
+    adapter_health_after_undo: String,
+    adapter_undo_status: String,
+    adapter_health_after_redo: String,
+    adapter_redo_status: String,
     adapter_diagnostics_summary: String,
     adapter_status_after_stop: String,
 }
@@ -828,6 +858,65 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         .unwrap_or(0);
     let adapter_scene_name = scene_state.ui_snapshot().scene_name;
 
+    let adapter_select_player_executed = execute_scene_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        SCENE_SELECT_PLAYER_COMMAND,
+    )?;
+    inspector_state.on_scene_selection_changed();
+    let adapter_selected_summary = scene_state.ui_snapshot().scene_selected_summary;
+
+    let adapter_set_health_executed = execute_adapter_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut adapter_state,
+        &mut scene_state,
+        ADAPTER_INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        editor_snapshots(
+            &project_state.ui_snapshot(),
+            &asset_state.ui_snapshot(),
+            &scene_state.ui_snapshot(),
+            &inspector_state.ui_snapshot(&scene_state),
+            &adapter_state.ui_snapshot(),
+        ),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply adapter health edit to UI: {error}"
+        ))
+    })?;
+    let adapter_edit_snapshot = inspector_state.ui_snapshot(&scene_state);
+    let adapter_health_after_edit = inspector_row_value(&adapter_edit_snapshot, "Health");
+    let adapter_edit_status = scene_state.ui_snapshot().status_scene_suffix;
+
+    let adapter_undo_executed = execute_adapter_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut adapter_state,
+        &mut scene_state,
+        ADAPTER_EDIT_UNDO_COMMAND,
+    )?;
+    let adapter_undo_snapshot = inspector_state.ui_snapshot(&scene_state);
+    let adapter_health_after_undo = inspector_row_value(&adapter_undo_snapshot, "Health");
+    let adapter_undo_status = scene_state.ui_snapshot().status_scene_suffix;
+
+    let adapter_redo_executed = execute_adapter_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut adapter_state,
+        &mut scene_state,
+        ADAPTER_EDIT_REDO_COMMAND,
+    )?;
+    let adapter_redo_snapshot = inspector_state.ui_snapshot(&scene_state);
+    let adapter_health_after_redo = inspector_row_value(&adapter_redo_snapshot, "Health");
+    let adapter_redo_status = scene_state.ui_snapshot().status_scene_suffix;
+
     let adapter_show_diagnostics_executed = execute_adapter_command_from_palette(
         &registry,
         &mut palette,
@@ -930,12 +1019,23 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         adapter_start_mock_executed,
         adapter_load_project_executed,
         adapter_load_scene_executed,
+        adapter_select_player_executed,
+        adapter_set_health_executed,
+        adapter_undo_executed,
+        adapter_redo_executed,
         adapter_show_diagnostics_executed,
         adapter_stop_mock_executed,
         adapter_status_after_start,
         adapter_project_result,
         adapter_scene_object_count,
         adapter_scene_name,
+        adapter_selected_summary,
+        adapter_health_after_edit,
+        adapter_edit_status,
+        adapter_health_after_undo,
+        adapter_undo_status,
+        adapter_health_after_redo,
+        adapter_redo_status,
         adapter_diagnostics_summary,
         adapter_status_after_stop,
     })

@@ -33,4 +33,14 @@ impl AdapterCapabilities {
     pub const fn game_editor_v0() -> Self {
         Self::mock_milestone_12()
     }
+
+    pub const fn mock_milestone_13() -> Self {
+        Self {
+            provides_project_info: true,
+            provides_scene_snapshot: true,
+            provides_diagnostics: true,
+            supports_property_writeback: true,
+            supports_viewport_preview: false,
+        }
+    }
 }

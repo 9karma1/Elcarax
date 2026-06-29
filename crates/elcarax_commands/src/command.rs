@@ -461,6 +461,36 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Adapter,
         )?,
         registered(
+            "adapter.inspector.set_player_health_demo",
+            "Set Adapter Player Health Demo",
+            "Set selected adapter-backed Player health through adapter writeback",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.inspector.set_player_speed_demo",
+            "Set Adapter Player Speed Demo",
+            "Set selected adapter-backed Player speed through adapter writeback",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.inspector.rename_player_demo",
+            "Rename Adapter Player Demo",
+            "Rename selected adapter-backed Player through adapter writeback",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.edit.undo",
+            "Undo Adapter Edit",
+            "Undo the last adapter-backed edit through adapter writeback",
+            CommandCategory::Adapter,
+        )?,
+        registered(
+            "adapter.edit.redo",
+            "Redo Adapter Edit",
+            "Redo the last adapter-backed edit through adapter writeback",
+            CommandCategory::Adapter,
+        )?,
+        registered(
             "elcarax.status.show_renderer_stats",
             "Show Renderer Stats",
             "Show current primitive, text, and glyph counts",
@@ -626,6 +656,11 @@ mod tests {
                 "adapter.show_status",
                 "adapter.show_diagnostics",
                 "adapter.stop_mock",
+                "adapter.inspector.set_player_health_demo",
+                "adapter.inspector.set_player_speed_demo",
+                "adapter.inspector.rename_player_demo",
+                "adapter.edit.undo",
+                "adapter.edit.redo",
                 "elcarax.status.show_renderer_stats",
                 "elcarax.status.show_ready",
                 "elcarax.demo.run"
@@ -699,6 +734,9 @@ mod tests {
         assert!(ids.contains(&"adapter.start_mock"));
         assert!(ids.contains(&"adapter.load_demo_scene"));
         assert!(ids.contains(&"adapter.stop_mock"));
+        assert!(ids.contains(&"adapter.inspector.set_player_health_demo"));
+        assert!(ids.contains(&"adapter.edit.undo"));
+        assert!(ids.contains(&"adapter.edit.redo"));
     }
 
     #[test]

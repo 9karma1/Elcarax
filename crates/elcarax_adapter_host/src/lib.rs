@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 
 use elcarax_adapter_api::{
-    AdapterCapabilities, AdapterDiagnostic, AdapterError, AdapterEvent, AdapterLine, AdapterLog,
-    AdapterName, AdapterRequest, AdapterRequestId, AdapterRequestMessage, AdapterResponse,
-    AdapterResponseMessage, AdapterVersion, ErrorResponse, GetDiagnosticsRequest,
+    AdapterCapabilities, AdapterDiagnostic, AdapterError, AdapterEvent, AdapterId, AdapterLine,
+    AdapterLog, AdapterName, AdapterRequest, AdapterRequestId, AdapterRequestMessage,
+    AdapterResponse, AdapterResponseMessage, AdapterVersion, ErrorResponse, GetDiagnosticsRequest,
     GetDiagnosticsResponse, GetSceneSnapshotRequest, GetSceneSnapshotResponse, HandshakeRequest,
-    LoadProjectRequest, LoadProjectResponse, ShutdownRequest, ShutdownResponse,
-    decode_adapter_line, encode_request_line,
+    LoadProjectRequest, LoadProjectResponse, SetPropertyRequest, SetPropertyResponse,
+    ShutdownRequest, ShutdownResponse, decode_adapter_line, encode_request_line,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,6 +245,13 @@ impl AdapterHost {
         self.session_mut_or_failed()?.get_scene_snapshot(request)
     }
 
+    pub fn set_property(
+        &mut self,
+        request: SetPropertyRequest,
+    ) -> Result<SetPropertyResponse, AdapterHostError> {
+        self.session_mut_or_failed()?.set_property(request)
+    }
+
     pub fn get_diagnostics(&mut self) -> Result<GetDiagnosticsResponse, AdapterHostError> {
         self.session_mut_or_failed()?
             .get_diagnostics(GetDiagnosticsRequest)
@@ -277,6 +284,7 @@ impl Default for AdapterHost {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterSessionInfo {
+    pub id: AdapterId,
     pub name: AdapterName,
     pub version: AdapterVersion,
     pub capabilities: AdapterCapabilities,
@@ -322,6 +330,10 @@ where
         self.info.as_ref()
     }
 
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
     pub fn handshake(
         &mut self,
         request: HandshakeRequest,
@@ -334,6 +346,7 @@ where
             ));
         };
         let info = AdapterSessionInfo {
+            id: response.adapter_id,
             name: response.adapter_name,
             version: response.adapter_version,
             capabilities: response.capabilities,
@@ -361,6 +374,17 @@ where
         let response = self.send(AdapterRequestMessage::GetSceneSnapshot(request))?;
         match response {
             AdapterResponseMessage::GetSceneSnapshot(response) => Ok(response),
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
+    }
+
+    pub fn set_property(
+        &mut self,
+        request: SetPropertyRequest,
+    ) -> Result<SetPropertyResponse, AdapterHostError> {
+        let response = self.send(AdapterRequestMessage::SetProperty(request))?;
+        match response {
+            AdapterResponseMessage::SetProperty(response) => Ok(response),
             other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
         }
     }
@@ -520,8 +544,11 @@ pub fn event_line(event: AdapterEvent) -> Result<String, serde_json::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elcarax_adapter_api::{AdapterCapabilities, AdapterId, AdapterName, ProtocolVersion};
-    use elcarax_scene_model::demo_scene_snapshot;
+    use elcarax_adapter_api::{
+        AdapterCapabilities, AdapterEditSource, AdapterId, AdapterName, ProtocolVersion,
+        SetPropertyResponse, SetPropertyStatus, decode_request_line,
+    };
+    use elcarax_scene_model::{PropertyPath, PropertyValue, ScenePatch, demo_scene_snapshot};
 
     #[test]
     fn fake_transport_handshake_succeeds() {
@@ -553,6 +580,54 @@ mod tests {
         let mut session = AdapterSession::new(FakeAdapterTransport::new(vec![must(response)]));
         let response = must(session.get_scene_snapshot(GetSceneSnapshotRequest { scene_id: None }));
         assert_eq!(response.snapshot.object_count(), 10);
+    }
+
+    #[test]
+    fn fake_transport_set_property_succeeds() {
+        let snapshot = demo_scene_snapshot();
+        let player = match snapshot.object_by_name("Player") {
+            Some(player) => player,
+            None => panic!("player should exist"),
+        };
+        let response = response_line(
+            AdapterRequestId(1),
+            AdapterResponseMessage::SetProperty(SetPropertyResponse {
+                status: SetPropertyStatus::Accepted,
+                scene_id: snapshot.scene_id(),
+                object_id: player.id,
+                path: path("gameplay.health"),
+                old_value: Some(PropertyValue::I64(100)),
+                confirmed_new_value: Some(PropertyValue::I64(65)),
+                patch: Some(ScenePatch::property_updated(
+                    player.id,
+                    path("gameplay.health"),
+                    PropertyValue::I64(65),
+                )),
+                diagnostics: Vec::new(),
+            }),
+        );
+        let mut session = AdapterSession::new(FakeAdapterTransport::new(vec![must(response)]));
+        let response = must(session.set_property(SetPropertyRequest {
+            scene_id: snapshot.scene_id(),
+            object_id: player.id,
+            path: path("gameplay.health"),
+            expected_old_value: Some(PropertyValue::I64(100)),
+            new_value: PropertyValue::I64(65),
+            transaction_id: "test".to_string(),
+            edit_source: AdapterEditSource::Inspector,
+        }));
+        assert_eq!(response.status, SetPropertyStatus::Accepted);
+        let request = match session.transport.writes().first() {
+            Some(line) => match decode_request_line(line) {
+                Ok(request) => request,
+                Err(error) => panic!("request should decode: {error}"),
+            },
+            None => panic!("request should have been written"),
+        };
+        assert!(matches!(
+            request.message,
+            AdapterRequestMessage::SetProperty(_)
+        ));
     }
 
     #[test]
@@ -617,6 +692,13 @@ mod tests {
         match value {
             Ok(value) => value,
             Err(error) => panic!("operation should succeed: {error}"),
+        }
+    }
+
+    fn path(value: &str) -> PropertyPath {
+        match PropertyPath::parse(value) {
+            Ok(path) => path,
+            Err(error) => panic!("test path should parse: {error}"),
         }
     }
 }
