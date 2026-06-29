@@ -1,6 +1,6 @@
 # Elcarax v0.1 scaffold status
 
-Generated: 2026-06-27
+Generated: 2026-06-29
 
 ## Included
 
@@ -16,6 +16,7 @@ Generated: 2026-06-27
 - Asset browser foundation with file-based asset index, demo scan, asset panel rows, selection state, and command-palette asset commands
 - Scene tree foundation with engine-neutral scene model, demo snapshot, scene panel hierarchy, selection/expand state, and command-palette scene commands
 - Read-only inspector foundation with property formatting, grouped inspector rows, selection-driven updates, and command-palette inspector commands
+- Editable inspector undo foundation with primitive property edit metadata, model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -28,7 +29,7 @@ Generated: 2026-06-27
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive shell and project-status foundation
-- Docking, drag resizing, property editing, editable text fields, IME, selection, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, hierarchy drag/drop, scene object creation/deletion, undo/redo inspector writes, viewport scene rendering, or scene save/writeback
+- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, viewport scene rendering, scene save/writeback, adapter writeback, or real engine synchronization
 - Real `AccessKit` adapter integration
 - Real process IPC transport
 - Real game engine binding
@@ -56,6 +57,7 @@ The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI sh
 cargo fmt --all --check
 cargo check --workspace
 cargo check --workspace --all-features
+cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo run -p elcarax_app
@@ -127,3 +129,11 @@ cargo run -p elcarax_app
 - Added app-owned inspector state derived from scene selection and right-panel inspector UI in the native shell.
 - Updated the console proof to select Player, show inspector properties, report property count, and clear the inspector view.
 - Documented explicit read-only inspector exclusions in `docs/MILESTONE_10_READ_ONLY_INSPECTOR.md`.
+
+## Milestone 11: Editable Inspector Undo Foundation
+
+- Added editable/read-only metadata and basic type/editability mutation checks in `elcarax_scene_model`.
+- Added command-driven scene property edits plus undo/redo wrappers in `elcarax_commands`.
+- Added command-palette inspector edit demos for Player health, speed, name, transform reset, undo, and redo.
+- Added editable inspector row affordances, read-only reason labels, status/diagnostic updates, and console proof coverage for edit/undo/redo.
+- Documented explicit writeback, text-input, hierarchy, component, asset-assignment, multi-object, and engine-sync exclusions in `docs/MILESTONE_11_EDITABLE_INSPECTOR_UNDO.md`.

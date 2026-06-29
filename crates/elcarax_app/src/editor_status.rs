@@ -18,9 +18,15 @@ pub(crate) fn editor_status_bar(
         scene.scene_name.clone()
     };
     let object_label = selected_object_label(scene);
-    format!(
+    let base = format!(
         "Project: {project_label} | Asset: {asset_label} | Scene: {scene_label} | Object: {object_label}"
-    )
+    );
+    if scene.status_scene_suffix.starts_with("Scene: Command:")
+        || scene.status_scene_suffix.starts_with("Scene: Diagnostic:")
+    {
+        return format!("{base} | {}", scene.status_scene_suffix);
+    }
+    base
 }
 
 fn asset_status_label(assets: &AssetUiSnapshot) -> String {

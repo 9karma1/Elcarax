@@ -10,4 +10,6 @@ pub use command::{
     EditorCommand, RegisteredCommand, built_in_commands,
 };
 pub use history::CommandHistory;
-pub use property_change::PropertyChangeCommand;
+pub use property_change::{
+    RedoCommand, SetScenePropertiesCommand, SetScenePropertyCommand, UndoCommand,
+};

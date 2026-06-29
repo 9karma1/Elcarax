@@ -959,6 +959,8 @@ impl UiTree {
             SizePolicy::Fixed(0.0)
         };
         node.interaction.disabled = !visible;
+        node.interaction.interactive = false;
+        node.interaction.focusable = false;
         node.dirty.insert(DirtyFlags::TEXT);
         node.dirty.insert(DirtyFlags::LAYOUT);
         node.dirty.insert(DirtyFlags::PAINT);
@@ -1413,6 +1415,7 @@ pub struct EditorShellContent {
     pub inspector_empty_message: String,
     pub inspector_row_labels: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub inspector_row_values: [String; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub inspector_row_editable: [bool; MAX_VISIBLE_INSPECTOR_ROWS],
     pub inspector_summary: String,
     pub status: String,
 }
@@ -1454,6 +1457,7 @@ impl EditorShellContent {
             inspector_empty_message: "No object selected".to_string(),
             inspector_row_labels: empty_inspector_row_labels(),
             inspector_row_values: empty_inspector_row_labels(),
+            inspector_row_editable: [false; MAX_VISIBLE_INSPECTOR_ROWS],
             inspector_summary: String::new(),
             status: "Project: None".to_string(),
         }
@@ -2025,14 +2029,24 @@ pub fn build_editor_shell_with_content(
             inspector,
             UiNode::new(
                 inspector_row_values[index],
-                if has_row {
+                if has_row && content.inspector_row_editable[index] {
+                    WidgetKind::Button(content.inspector_row_values[index].clone())
+                } else if has_row {
                     WidgetKind::Label(content.inspector_row_values[index].clone())
                 } else {
                     WidgetKind::Label(String::new())
                 },
-                UiStyle::LABEL.muted_text(),
+                if content.inspector_row_editable[index] {
+                    UiStyle::BUTTON
+                } else {
+                    UiStyle::LABEL.muted_text()
+                },
                 LayoutNode::leaf().with_height(if has_row {
-                    SizePolicy::Fixed(20.0)
+                    SizePolicy::Fixed(if content.inspector_row_editable[index] {
+                        28.0
+                    } else {
+                        20.0
+                    })
                 } else {
                     SizePolicy::Fixed(0.0)
                 }),
@@ -3393,19 +3407,24 @@ mod tests {
         let theme = Theme::editor_dark();
         let mut row_labels = std::array::from_fn(|_| String::new());
         let mut row_values = std::array::from_fn(|_| String::new());
+        let mut row_editable = [false; MAX_VISIBLE_INSPECTOR_ROWS];
         row_labels[0] = "Gameplay".to_string();
         row_labels[1] = "Health".to_string();
-        row_values[1] = "100".to_string();
+        row_values[1] = "100  [Set]".to_string();
+        row_editable[1] = true;
         row_labels[2] = "Speed".to_string();
-        row_values[2] = "6.50".to_string();
+        row_values[2] = "6.50  [Set]".to_string();
+        row_editable[2] = true;
         row_labels[3] = "Transform".to_string();
         row_labels[4] = "Position".to_string();
-        row_values[4] = "0.00, 1.00, 0.00".to_string();
+        row_values[4] = "0.00, 1.00, 0.00  [Set]".to_string();
+        row_editable[4] = true;
         let content = EditorShellContent {
             inspector_object_name: "Player".to_string(),
             inspector_object_kind: "Kind: Character".to_string(),
             inspector_row_labels: row_labels,
             inspector_row_values: row_values,
+            inspector_row_editable: row_editable,
             ..EditorShellContent::default()
         };
         let shell = must(build_editor_shell_with_content(
@@ -3417,9 +3436,87 @@ mod tests {
         assert!(texts.contains(&"Player"));
         assert!(texts.contains(&"Kind: Character"));
         assert!(texts.contains(&"Health"));
-        assert!(texts.contains(&"100"));
-        assert!(texts.contains(&"6.50"));
-        assert!(texts.contains(&"0.00, 1.00, 0.00"));
+        assert!(texts.contains(&"100  [Set]"));
+        assert!(texts.contains(&"6.50  [Set]"));
+        assert!(texts.contains(&"0.00, 1.00, 0.00  [Set]"));
+        assert!(
+            shell
+                .tree
+                .get(shell.ids.inspector_row_values[1])
+                .is_some_and(|node| {
+                    node.interaction.focusable
+                        && matches!(&node.kind, WidgetKind::Button(text) if text == "100  [Set]")
+                })
+        );
+    }
+
+    #[test]
+    fn read_only_inspector_row_paints_muted_state() {
+        let theme = Theme::editor_dark();
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        let mut row_values = std::array::from_fn(|_| String::new());
+        row_labels[0] = "References".to_string();
+        row_labels[1] = "Mesh".to_string();
+        row_values[1] =
+            "cube.glb  [Read-only: Asset assignment editing is not enabled]".to_string();
+        let content = EditorShellContent {
+            inspector_object_name: "Player".to_string(),
+            inspector_object_kind: "Kind: Character".to_string(),
+            inspector_row_labels: row_labels,
+            inspector_row_values: row_values,
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        assert!(shell.tree.get(shell.ids.inspector_row_values[1]).is_some_and(|node| {
+            !node.interaction.focusable
+                && node.style.text_role == TextRole::Muted
+                && matches!(&node.kind, WidgetKind::Label(text) if text.contains("[Read-only:"))
+        }));
+    }
+
+    #[test]
+    fn clicked_editable_inspector_row_dispatches_click_event() {
+        let theme = Theme::editor_dark();
+        let mut row_labels = std::array::from_fn(|_| String::new());
+        let mut row_values = std::array::from_fn(|_| String::new());
+        let mut row_editable = [false; MAX_VISIBLE_INSPECTOR_ROWS];
+        row_labels[1] = "Health".to_string();
+        row_values[1] = "100  [Set]".to_string();
+        row_editable[1] = true;
+        let content = EditorShellContent {
+            inspector_row_labels: row_labels,
+            inspector_row_values: row_values,
+            inspector_row_editable: row_editable,
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let mut tree = shell.tree;
+        let button = must_some(
+            tree.get(shell.ids.inspector_row_values[1])
+                .map(|node| node.rect),
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(
+                button.x + 4.0,
+                button.y + 4.0,
+            )))
+            .is_ok()
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerButtonPressed(PointerButton::Primary))
+                .is_ok()
+        );
+        let events =
+            must(tree.process_input(UiInputEvent::PointerButtonReleased(PointerButton::Primary)));
+        assert!(events.contains(&UiEvent::Clicked {
+            id: shell.ids.inspector_row_values[1],
+        }));
     }
 
     fn palette_entries() -> Vec<CommandPaletteEntry> {

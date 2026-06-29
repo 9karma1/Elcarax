@@ -9,6 +9,7 @@ mod kind;
 mod name;
 mod property;
 mod property_display;
+mod property_edit;
 mod schema;
 mod selection;
 mod snapshot;
@@ -27,7 +28,13 @@ pub use property::{PropertyPath, PropertyValue};
 pub use property_display::{
     PropertyDisplay, PropertyFormatContext, PropertyGroup, PropertyId, format_property_value,
 };
-pub use schema::{ObjectSchema, ObjectTypeId, PropertyKind, PropertySchema};
+pub use property_edit::{
+    PropertyChange, PropertyChangeValue, PropertyEditError, PropertyEditResult,
+    apply_property_change, edit_scene_property, prepare_property_change,
+};
+pub use schema::{
+    NumericEditMetadata, ObjectSchema, ObjectTypeId, PropertyEditKind, PropertyKind, PropertySchema,
+};
 pub use selection::{SceneExpansion, SceneSelection};
 pub use snapshot::{
     SceneId, SceneMarker, SceneObject, SceneObjectId, SceneObjectMarker, SceneSnapshot,
@@ -36,6 +43,7 @@ pub use snapshot::{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elcarax_core::Result;
 
     #[test]
     fn demo_scene_has_stable_object_order() {
@@ -227,6 +235,137 @@ mod tests {
     }
 
     #[test]
+    fn editing_editable_int_property_succeeds() -> Result<()> {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let path = path("gameplay.health");
+        let change = edit_scene_property(&mut snapshot, player_id, &path, PropertyValue::I64(75))
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(change.old_value, PropertyValue::I64(100));
+        assert_eq!(change.new_value, PropertyValue::I64(75));
+        assert_eq!(
+            snapshot.object(player_id)?.property(&path),
+            Some(&PropertyValue::I64(75))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn editing_editable_float_property_succeeds() -> Result<()> {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let path = path("gameplay.speed");
+        let change = edit_scene_property(&mut snapshot, player_id, &path, PropertyValue::F64(8.0))
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(change.old_value, PropertyValue::F64(6.5));
+        Ok(())
+    }
+
+    #[test]
+    fn editing_editable_string_property_succeeds() -> Result<()> {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let path = path("general.name");
+        edit_scene_property(
+            &mut snapshot,
+            player_id,
+            &path,
+            PropertyValue::String("Hero".to_string()),
+        )
+        .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(snapshot.object(player_id)?.display_name, "Hero");
+        Ok(())
+    }
+
+    #[test]
+    fn editing_editable_vec3_property_succeeds() -> Result<()> {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let path = path("transform.position");
+        let change = edit_scene_property(
+            &mut snapshot,
+            player_id,
+            &path,
+            PropertyValue::Vec3([2.0, 3.0, 4.0]),
+        )
+        .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(change.old_value, PropertyValue::Vec3([0.0, 1.0, 0.0]));
+        Ok(())
+    }
+
+    #[test]
+    fn editing_read_only_asset_ref_fails_clearly() {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let path = path("references.mesh");
+        let result = edit_scene_property(
+            &mut snapshot,
+            player_id,
+            &path,
+            PropertyValue::AssetRef("assets/models/hero.glb".to_string()),
+        );
+        let error = match result {
+            Ok(_) => panic!("asset refs are read-only"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, PropertyEditError::ReadOnly { .. }));
+    }
+
+    #[test]
+    fn editing_missing_property_fails_clearly() {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let result = edit_scene_property(
+            &mut snapshot,
+            player_id,
+            &path("gameplay.mana"),
+            PropertyValue::I64(10),
+        );
+        let error = match result {
+            Ok(_) => panic!("missing property should fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, PropertyEditError::PropertyNotFound { .. }));
+    }
+
+    #[test]
+    fn editing_missing_object_fails_clearly() {
+        let mut snapshot = demo_scene_snapshot();
+        let missing = match std::num::NonZeroU64::new(999) {
+            Some(value) => SceneObjectId::from_non_zero(value),
+            None => panic!("missing test ID should be non-zero"),
+        };
+        let result = edit_scene_property(
+            &mut snapshot,
+            missing,
+            &path("gameplay.health"),
+            PropertyValue::I64(75),
+        );
+        let error = match result {
+            Ok(_) => panic!("missing object should fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, PropertyEditError::ObjectNotFound { .. }));
+    }
+
+    #[test]
+    fn editing_type_mismatch_fails_clearly() {
+        let mut snapshot = demo_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let result = edit_scene_property(
+            &mut snapshot,
+            player_id,
+            &path("gameplay.health"),
+            PropertyValue::String("high".to_string()),
+        );
+        let error = match result {
+            Ok(_) => panic!("wrong value type should fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, PropertyEditError::TypeMismatch { .. }));
+    }
+
+    #[test]
     fn missing_object_returns_clear_inspector_diagnostic() {
         let snapshot = demo_scene_snapshot();
         let missing = match std::num::NonZeroU64::new(999) {
@@ -274,5 +413,19 @@ mod tests {
             build_inspector_for_selection(&snapshot, None),
             Err(InspectorDiagnostic::NoObjectSelected)
         );
+    }
+
+    fn player_id(snapshot: &SceneSnapshot) -> SceneObjectId {
+        match snapshot.object_by_name("Player") {
+            Some(object) => object.id,
+            None => panic!("player should exist"),
+        }
+    }
+
+    fn path(value: &str) -> PropertyPath {
+        match PropertyPath::parse(value) {
+            Ok(path) => path,
+            Err(error) => panic!("test path should parse: {error}"),
+        }
     }
 }

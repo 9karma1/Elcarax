@@ -1,6 +1,6 @@
 use elcarax_commands::{
-    CommandContext, CommandHistory, CommandId, CommandRegistry, CommandResult,
-    PropertyChangeCommand, RegisteredCommand, built_in_commands,
+    CommandContext, CommandHistory, CommandId, CommandRegistry, CommandResult, RegisteredCommand,
+    SetScenePropertyCommand, built_in_commands,
 };
 use elcarax_core::Result;
 use elcarax_devtools::DevtoolsSnapshot;
@@ -10,7 +10,7 @@ use elcarax_project::ProjectFile;
 use elcarax_render::{Rect, RenderScene, RenderStats, batch_scene, text_stats};
 use elcarax_scene_model::{
     ObjectSchema, PropertyGroup, PropertyKind, PropertyPath, PropertySchema, PropertyValue,
-    SceneObject, SceneObjectKind, SceneSnapshot,
+    SceneObject, SceneObjectKind, SceneSnapshot, prepare_property_change,
 };
 use elcarax_ui::{
     CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey, PaintContext,
@@ -22,7 +22,8 @@ use crate::asset_state::{
     ASSET_CLEAR_SELECTION_COMMAND, ASSET_SCAN_DEMO_COMMAND, ASSET_SELECT_FIRST_COMMAND, AssetState,
 };
 use crate::inspector_state::{
-    INSPECTOR_CLEAR_COMMAND, INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND,
+    EDIT_REDO_COMMAND, EDIT_UNDO_COMMAND, INSPECTOR_CLEAR_COMMAND,
+    INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND, INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND,
     INSPECTOR_SHOW_SELECTED_COMMAND, InspectorState,
 };
 use crate::project_state::{
@@ -54,11 +55,17 @@ pub fn run_console_proof() -> Result<()> {
     scene.add_root_object(object);
     let mut history = CommandHistory::new();
     let mut context = CommandContext { scene: &mut scene };
+    let change = prepare_property_change(
+        context.scene,
+        object_id,
+        &position_path,
+        &PropertyValue::Vec3([2.0, 4.0, 6.0]),
+    )
+    .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
     history.execute(
-        Box::new(PropertyChangeCommand::new(
-            object_id,
-            position_path.clone(),
-            PropertyValue::Vec3([2.0, 4.0, 6.0]),
+        Box::new(SetScenePropertyCommand::new(
+            change,
+            "Set Console Proof Position",
         )),
         &mut context,
     )?;
@@ -151,6 +158,20 @@ pub fn run_console_proof() -> Result<()> {
         proof.inspector_property_count, proof.inspector_selected_summary
     );
     println!(
+        "inspector_command: set_player_health_executed={} health=\"{}\" status=\"{}\"",
+        proof.inspector_set_health_executed,
+        proof.inspector_health_after_edit,
+        proof.inspector_edit_status
+    );
+    println!(
+        "edit_command: undo_executed={} health=\"{}\" status=\"{}\"",
+        proof.edit_undo_executed, proof.inspector_health_after_undo, proof.edit_undo_status
+    );
+    println!(
+        "edit_command: redo_executed={} health=\"{}\" status=\"{}\"",
+        proof.edit_redo_executed, proof.inspector_health_after_redo, proof.edit_redo_status
+    );
+    println!(
         "inspector_command: clear_executed={} summary=\"{}\"",
         proof.inspector_clear_executed, proof.inspector_cleared_summary
     );
@@ -198,6 +219,15 @@ struct ConsoleUiProof {
     inspector_property_count: usize,
     inspector_selected_summary: String,
     inspector_cleared_summary: String,
+    inspector_set_health_executed: bool,
+    inspector_health_after_edit: String,
+    inspector_edit_status: String,
+    edit_undo_executed: bool,
+    inspector_health_after_undo: String,
+    edit_undo_status: String,
+    edit_redo_executed: bool,
+    inspector_health_after_redo: String,
+    edit_redo_status: String,
 }
 
 fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
@@ -210,6 +240,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     let mut asset_state = AssetState::default();
     let mut scene_state = SceneState::default();
     let mut inspector_state = InspectorState::default();
+    let mut edit_history = CommandHistory::new();
     let initial_content = shell_content_from_editor_state(
         &project_state.ui_snapshot(),
         &asset_state.ui_snapshot(),
@@ -290,7 +321,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     let asset_scan_demo_executed = execute_asset_command_from_palette(
         &registry,
         &mut palette,
-        &mut project_state,
+        &project_state,
         &mut asset_state,
         ASSET_SCAN_DEMO_COMMAND,
     )?;
@@ -312,7 +343,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     let asset_select_first_executed = execute_asset_command_from_palette(
         &registry,
         &mut palette,
-        &mut project_state,
+        &project_state,
         &mut asset_state,
         ASSET_SELECT_FIRST_COMMAND,
     )?;
@@ -410,6 +441,80 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND,
     )?;
 
+    let inspector_set_health_executed = execute_inspector_edit_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        &mut inspector_state,
+        &mut edit_history,
+        INSPECTOR_SET_PLAYER_HEALTH_DEMO_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!(
+            "failed to apply inspector health edit to UI: {error}"
+        ))
+    })?;
+    let edited_snapshot = inspector_state.ui_snapshot(&scene_state);
+    let inspector_health_after_edit = inspector_row_value(&edited_snapshot, "Health");
+    let inspector_edit_status = edited_snapshot.summary;
+
+    let edit_undo_executed = execute_inspector_edit_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        &mut inspector_state,
+        &mut edit_history,
+        EDIT_UNDO_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to apply undo to UI: {error}"))
+    })?;
+    let undo_snapshot = inspector_state.ui_snapshot(&scene_state);
+    let inspector_health_after_undo = inspector_row_value(&undo_snapshot, "Health");
+    let edit_undo_status = undo_snapshot.summary;
+
+    let edit_redo_executed = execute_inspector_edit_command_from_palette(
+        &registry,
+        &mut palette,
+        &mut scene_state,
+        &mut inspector_state,
+        &mut edit_history,
+        EDIT_REDO_COMMAND,
+    )?;
+    apply_editor_snapshot(
+        &mut tree,
+        shell.ids,
+        &project_state.ui_snapshot(),
+        &asset_state.ui_snapshot(),
+        &scene_state.ui_snapshot(),
+        &inspector_state.ui_snapshot(&scene_state),
+        bounds,
+    )
+    .map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to apply redo to UI: {error}"))
+    })?;
+    let redo_snapshot = inspector_state.ui_snapshot(&scene_state);
+    let inspector_health_after_redo = inspector_row_value(&redo_snapshot, "Health");
+    let edit_redo_status = redo_snapshot.summary;
+
     let inspector_clear_executed = execute_inspector_command_from_palette(
         &registry,
         &mut palette,
@@ -502,7 +607,7 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
     let asset_clear_selection_executed = execute_asset_command_from_palette(
         &registry,
         &mut palette,
-        &mut project_state,
+        &project_state,
         &mut asset_state,
         ASSET_CLEAR_SELECTION_COMMAND,
     )?;
@@ -609,6 +714,15 @@ fn build_console_ui(shell: &NativeShellSpec) -> Result<ConsoleUiProof> {
         inspector_property_count,
         inspector_selected_summary,
         inspector_cleared_summary,
+        inspector_set_health_executed,
+        inspector_health_after_edit,
+        inspector_edit_status,
+        edit_undo_executed,
+        inspector_health_after_undo,
+        edit_undo_status,
+        edit_redo_executed,
+        inspector_health_after_redo,
+        edit_redo_status,
     })
 }
 
@@ -665,6 +779,35 @@ fn execute_inspector_command_from_palette(
     Ok(inspector_state
         .execute_command_id(id.as_str(), scene_state)
         .is_some())
+}
+
+fn execute_inspector_edit_command_from_palette(
+    registry: &CommandRegistry,
+    palette: &mut CommandPaletteState,
+    scene_state: &mut SceneState,
+    inspector_state: &mut InspectorState,
+    edit_history: &mut CommandHistory,
+    query: &str,
+) -> Result<bool> {
+    let Some(id) = execute_palette_query(registry, palette, query)? else {
+        return Ok(false);
+    };
+    Ok(inspector_state
+        .execute_edit_command_id(id.as_str(), scene_state, edit_history)
+        .is_some())
+}
+
+fn inspector_row_value(
+    snapshot: &crate::inspector_display::InspectorUiSnapshot,
+    label: &str,
+) -> String {
+    snapshot
+        .row_labels
+        .iter()
+        .position(|row_label| row_label == label)
+        .and_then(|index| snapshot.row_values.get(index))
+        .cloned()
+        .unwrap_or_else(|| "<missing>".to_string())
 }
 
 fn execute_palette_query(

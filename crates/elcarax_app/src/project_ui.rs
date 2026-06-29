@@ -12,7 +12,7 @@ use crate::scene_ui::apply_scene_snapshot;
 
 pub(crate) use crate::scene_ui::shell_content_from_editor_state;
 
-#[cfg_attr(feature = "native-shell", allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn shell_content_from_project(snapshot: &ProjectUiSnapshot) -> EditorShellContent {
     shell_content_from_editor_state(
         snapshot,
@@ -22,7 +22,7 @@ pub(crate) fn shell_content_from_project(snapshot: &ProjectUiSnapshot) -> Editor
     )
 }
 
-#[cfg_attr(feature = "native-shell", allow(dead_code))]
+#[allow(dead_code)]
 fn empty_asset_snapshot() -> AssetUiSnapshot {
     AssetUiSnapshot {
         asset_section_title: "Assets".to_string(),
@@ -34,7 +34,7 @@ fn empty_asset_snapshot() -> AssetUiSnapshot {
     }
 }
 
-#[cfg_attr(feature = "native-shell", allow(dead_code))]
+#[allow(dead_code)]
 fn empty_scene_snapshot() -> SceneUiSnapshot {
     SceneUiSnapshot {
         scene_section_title: "Scene".to_string(),
@@ -48,6 +48,7 @@ fn empty_scene_snapshot() -> SceneUiSnapshot {
     }
 }
 
+#[allow(dead_code)]
 fn empty_inspector_snapshot() -> InspectorUiSnapshot {
     InspectorUiSnapshot {
         has_selection: false,
@@ -56,12 +57,14 @@ fn empty_inspector_snapshot() -> InspectorUiSnapshot {
         object_kind: String::new(),
         row_labels: std::array::from_fn(|_| String::new()),
         row_values: std::array::from_fn(|_| String::new()),
+        row_editable: [false; elcarax_ui::MAX_VISIBLE_INSPECTOR_ROWS],
+        row_command_ids: std::array::from_fn(|_| String::new()),
         property_count: 0,
         summary: String::new(),
     }
 }
 
-#[cfg_attr(feature = "native-shell", allow(dead_code))]
+#[allow(dead_code)]
 pub(crate) fn apply_project_snapshot(
     tree: &mut UiTree,
     ids: EditorShellIds,

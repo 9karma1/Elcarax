@@ -201,4 +201,30 @@ impl SceneSnapshot {
             .ok_or_else(|| ElcaraxError::not_found(format!("scene object {}", object_id.get())))?;
         Ok(object.properties.insert(path, value))
     }
+
+    pub(crate) fn replace_existing_property(
+        &mut self,
+        object_id: SceneObjectId,
+        path: &PropertyPath,
+        value: PropertyValue,
+    ) -> Result<()> {
+        let object = self
+            .objects
+            .get_mut(&object_id)
+            .ok_or_else(|| ElcaraxError::not_found(format!("scene object {}", object_id.get())))?;
+        if !object.properties.contains_key(path) {
+            return Err(ElcaraxError::not_found(format!("property {path}")));
+        }
+        if is_display_name_path(path)
+            && let PropertyValue::String(name) = &value
+        {
+            object.display_name = name.clone();
+        }
+        object.properties.insert(path.clone(), value);
+        Ok(())
+    }
+}
+
+fn is_display_name_path(path: &PropertyPath) -> bool {
+    path.parts() == ["general".to_string(), "name".to_string()]
 }

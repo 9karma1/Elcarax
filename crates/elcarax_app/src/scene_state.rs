@@ -87,6 +87,10 @@ impl SceneState {
         self.snapshot.as_ref()
     }
 
+    pub(crate) fn snapshot_mut(&mut self) -> Option<&mut SceneSnapshot> {
+        self.snapshot.as_mut()
+    }
+
     #[cfg_attr(feature = "native-shell", allow(dead_code))]
     pub(crate) fn selection(&self) -> &SceneSelection {
         &self.selection
@@ -95,6 +99,10 @@ impl SceneState {
     #[cfg_attr(feature = "native-shell", allow(dead_code))]
     pub(crate) fn expansion(&self) -> &SceneExpansion {
         &self.expansion
+    }
+
+    pub(crate) fn record_status(&mut self, command_id: &str, message: impl Into<String>) {
+        self.last_command_result = Some(SceneCommandResult::new(command_id, message));
     }
 
     fn load_demo(&mut self) -> SceneCommandResult {
