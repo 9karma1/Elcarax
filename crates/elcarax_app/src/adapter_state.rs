@@ -10,13 +10,13 @@ use elcarax_adapter_api::{
 };
 #[cfg(any(test, feature = "native-shell"))]
 use elcarax_adapter_api::{AdapterViewportId, GetViewportFrameRequest};
-use elcarax_adapter_host::AdapterHostState;
 #[cfg(any(test, feature = "native-shell"))]
 use elcarax_adapter_host::AdapterHostError;
-#[cfg(feature = "native-shell")]
-use elcarax_adapter_host::{AdapterHost, AdapterProcessSpec};
+use elcarax_adapter_host::AdapterHostState;
 #[cfg(test)]
 use elcarax_adapter_host::AdapterSession;
+#[cfg(feature = "native-shell")]
+use elcarax_adapter_host::{AdapterHost, AdapterProcessSpec};
 
 use crate::adapter_display::{AdapterUiSnapshot, adapter_ui_snapshot};
 #[cfg(test)]
