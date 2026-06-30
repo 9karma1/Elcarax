@@ -5,11 +5,11 @@ use elcarax_adapter_api::{
     AdapterCapabilities, AdapterDiagnostic, AdapterError, AdapterEvent, AdapterId, AdapterLog,
     AdapterName, AdapterRequest, AdapterRequestMessage, AdapterResponse, AdapterResponseMessage,
     AdapterVersion, ErrorResponse, GetDiagnosticsResponse, GetSceneSnapshotResponse,
-    HandshakeResponse, LoadProjectResponse, ProtocolVersion, SetPropertyRequest,
-    SetPropertyResponse, SetPropertyStatus, ShutdownResponse, decode_request_line,
-    encode_event_line, encode_response_line,
+    GetViewportFrameRequest, GetViewportFrameResponse, HandshakeResponse, LoadProjectResponse,
+    ProtocolVersion, SetPropertyRequest, SetPropertyResponse, SetPropertyStatus, ShutdownResponse,
+    ViewportFrameResponseStatus, decode_request_line, encode_event_line, encode_response_line,
 };
-use elcarax_core::{ElcaraxError, Result};
+use elcarax_core::{ElcaraxError, Result, ViewportFrameFormat};
 use elcarax_scene_model::{
     PropertyEditError, ScenePatch, SceneSnapshot, demo_scene_snapshot, prepare_property_change,
 };
@@ -86,7 +86,7 @@ impl MockAdapter {
                         adapter_name: AdapterName::new("Mock Adapter"),
                         adapter_version: AdapterVersion::new(env!("CARGO_PKG_VERSION")),
                         protocol_version: ProtocolVersion::V0,
-                        capabilities: AdapterCapabilities::mock_milestone_13(),
+                        capabilities: AdapterCapabilities::mock_milestone_14(),
                     })
                 }
             }
@@ -117,6 +117,9 @@ impl MockAdapter {
             }
             AdapterRequestMessage::SetProperty(request) => {
                 AdapterResponseMessage::SetProperty(self.set_property(request))
+            }
+            AdapterRequestMessage::GetViewportFrame(request) => {
+                AdapterResponseMessage::GetViewportFrame(self.viewport_frame(request))
             }
             AdapterRequestMessage::GetDiagnostics(_) => {
                 AdapterResponseMessage::GetDiagnostics(GetDiagnosticsResponse {
@@ -181,6 +184,67 @@ impl MockAdapter {
             diagnostics: Vec::new(),
         }
     }
+
+    fn viewport_frame(&self, request: GetViewportFrameRequest) -> GetViewportFrameResponse {
+        let viewport_id = request.viewport_id;
+        if request.format != ViewportFrameFormat::Rgba8Unorm {
+            return GetViewportFrameResponse::failed(
+                viewport_id,
+                ViewportFrameResponseStatus::UnsupportedFormat,
+                "only Rgba8Unorm is supported",
+            );
+        }
+        if request.width == 0 || request.height == 0 || request.width > 512 || request.height > 512
+        {
+            return GetViewportFrameResponse::failed(
+                viewport_id,
+                ViewportFrameResponseStatus::InvalidSize,
+                "viewport size must be between 1 and 512 pixels",
+            );
+        }
+        if !self.project_loaded {
+            return GetViewportFrameResponse::failed(
+                viewport_id,
+                ViewportFrameResponseStatus::NoSceneLoaded,
+                "load project before requesting viewport frame",
+            );
+        }
+        let width = request.width.min(128);
+        let height = request.height.min(128);
+        let pixels = procedural_viewport_rgba(width, height);
+        GetViewportFrameResponse {
+            viewport_id,
+            width,
+            height,
+            format: ViewportFrameFormat::Rgba8Unorm,
+            pixels,
+            diagnostics: vec![AdapterDiagnostic::info(
+                "game-adapter",
+                format!("generated {width}x{height} preview frame"),
+            )],
+            status: ViewportFrameResponseStatus::Available,
+        }
+    }
+}
+
+fn procedural_viewport_rgba(width: u32, height: u32) -> Vec<u8> {
+    let mut pixels = vec![0_u8; (width * height * 4) as usize];
+    for y in 0..height {
+        for x in 0..width {
+            let index = ((y * width + x) * 4) as usize;
+            let checker = ((x / 8) + (y / 8)) % 2 == 0;
+            let gradient = ((x + y) % 256) as u8;
+            pixels[index] = if checker {
+                40 + gradient / 4
+            } else {
+                90 + gradient / 3
+            };
+            pixels[index + 1] = 50 + (gradient / 2);
+            pixels[index + 2] = 120 + (gradient / 5);
+            pixels[index + 3] = 255;
+        }
+    }
+    pixels
 }
 
 fn rejected_property_response(
@@ -230,8 +294,59 @@ fn write_event<W: Write>(writer: &mut W, event: AdapterEvent) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elcarax_adapter_api::{AdapterEditSource, GetSceneSnapshotRequest};
+    use elcarax_adapter_api::{
+        AdapterEditSource, AdapterViewportId, GetSceneSnapshotRequest, GetViewportFrameRequest,
+        ViewportFrameResponseStatus,
+    };
+    use elcarax_core::ViewportFrameFormat;
     use elcarax_scene_model::{PropertyPath, PropertyValue};
+
+    #[test]
+    fn valid_viewport_request_returns_rgba_frame() {
+        let mut adapter = MockAdapter::new();
+        adapter.project_loaded = true;
+        let response = adapter.viewport_frame(GetViewportFrameRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            width: 16,
+            height: 16,
+            format: ViewportFrameFormat::Rgba8Unorm,
+        });
+        assert_eq!(response.status, ViewportFrameResponseStatus::Available);
+        assert_eq!(response.width, 16);
+        assert_eq!(response.height, 16);
+        assert_eq!(response.pixels.len(), 16 * 16 * 4);
+    }
+
+    #[test]
+    fn invalid_viewport_size_returns_error() {
+        let mut adapter = MockAdapter::new();
+        adapter.project_loaded = true;
+        let response = adapter.viewport_frame(GetViewportFrameRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            width: 0,
+            height: 16,
+            format: ViewportFrameFormat::Rgba8Unorm,
+        });
+        assert_eq!(response.status, ViewportFrameResponseStatus::InvalidSize);
+    }
+
+    #[test]
+    fn repeated_viewport_requests_are_deterministic() {
+        let mut adapter = MockAdapter::new();
+        adapter.project_loaded = true;
+        let request = GetViewportFrameRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            width: 8,
+            height: 8,
+            format: ViewportFrameFormat::Rgba8Unorm,
+        };
+        let first = adapter.viewport_frame(request.clone());
+        let second = adapter.viewport_frame(request);
+        assert_eq!(first.pixels, second.pixels);
+    }
 
     #[test]
     fn set_editable_int_property_succeeds() {

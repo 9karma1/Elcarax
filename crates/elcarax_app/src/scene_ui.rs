@@ -13,6 +13,7 @@ pub(crate) fn shell_content_from_editor_state(
     let scene = snapshots.scene;
     let inspector = snapshots.inspector;
     let adapter = snapshots.adapter;
+    let viewport = snapshots.viewport;
     EditorShellContent {
         toolbar_title: project.toolbar_title.clone(),
         project_title: "Project".to_string(),
@@ -45,6 +46,8 @@ pub(crate) fn shell_content_from_editor_state(
         inspector_row_values: inspector.row_values.clone(),
         inspector_row_editable: inspector.row_editable,
         inspector_summary: inspector.summary.clone(),
+        viewport_title: viewport.title.clone(),
+        viewport_message: viewport.message.clone(),
         status: editor_status_bar(project, assets, scene, adapter),
     }
 }
