@@ -46,11 +46,13 @@ Typing `project.create`, `project.open`, `project.validate`, or `project.close` 
 
 Editable inspector tests still cover command-history mutation through fixtures, but normal runtime no longer registers fixture property-edit commands.
 
-`adapter.connect`, `adapter.load_scene`, `adapter.disconnect`, `adapter.show_status`, and `adapter.show_diagnostics` are the normal runtime command names. `adapter.connect` currently reports `No adapter configured`; the mock adapter remains a test/mock boundary, not a normal user-facing editor flow.
+`adapter.connect`, `adapter.handshake`, `adapter.load_project`, `adapter.load_scene`, `adapter.disconnect`, `adapter.show_status`, and `adapter.show_diagnostics` are the normal runtime command names. With the `native-shell` feature, `adapter.connect` spawns the stdio game adapter process; the console build still reports `No adapter configured` for `adapter.connect`. Viewport preview uses `adapter.load_project` (when required by the adapter) followed by `viewport.request_frame`.
 
 Adapter-backed writeback remains covered through adapter/mock tests and fixture commands. Normal UI widgets emit editor actions only and do not spawn adapter processes directly.
 
-The console proof now performs startup validation only. It prints app initialization, command registry, empty project/asset/adapter/scene/inspector states, empty undo/redo stack counts, UI model stats, renderer/devtools stats, and the ready status line.
+The console proof prints empty startup state, exercises `viewport.request_frame` without an adapter, spawns the stdio game adapter, requests a viewport frame, prints frame metadata, clears the viewport, and shuts the adapter down.
+
+`viewport.request_frame`, `viewport.clear`, and `viewport.show_status` are registered viewport commands. Without a connected adapter, `viewport.request_frame` reports `No adapter connected`. With a connected adapter that supports viewport preview, the center viewport should display the adapter-provided RGBA frame.
 
 CI should compile the native-shell feature but should not require opening a desktop window.
 
@@ -74,8 +76,8 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, command palette state/painting, dirty flags, theme/style resolution, and paint output.
 - `elcarax_adapter_api` owns serializable adapter protocol messages only.
 - `elcarax_adapter_host` owns adapter process spawning, JSON-line transport, request correlation, events, and failure handling.
-- `elcarax_app` owns app-level project, asset, scene, inspector, and adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, then pushes display text into the UI tree.
+- `elcarax_app` owns app-level project, asset, scene, inspector, viewport, and adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, then pushes display text into the UI tree.
 
 ## Current Exclusions
 
-The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, file dialogs, file watching, async command execution, request timeouts, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, viewport scene rendering, viewport frame streaming, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
+The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, file dialogs, file watching, async command execution, request timeouts, project migration, persistent recent-project storage, asset thumbnails, asset import pipeline, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.

@@ -17,6 +17,9 @@ mod project_ui;
 mod scene_display;
 mod scene_state;
 mod scene_ui;
+mod viewport_display;
+mod viewport_state;
+mod viewport_ui;
 
 use elcarax_core::Result;
 

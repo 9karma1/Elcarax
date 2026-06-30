@@ -10,6 +10,8 @@ use crate::inspector_ui::apply_inspector_snapshot;
 use crate::project_display::{DiagnosticTone, ProjectUiSnapshot};
 use crate::scene_display::SceneUiSnapshot;
 use crate::scene_ui::apply_scene_snapshot;
+use crate::viewport_display::ViewportUiSnapshot;
+use crate::viewport_ui::apply_viewport_snapshot;
 
 pub(crate) use crate::scene_ui::shell_content_from_editor_state;
 
@@ -21,6 +23,7 @@ pub(crate) fn shell_content_from_project(snapshot: &ProjectUiSnapshot) -> Editor
         &empty_scene_snapshot(),
         &empty_inspector_snapshot(),
         &empty_adapter_snapshot(),
+        &empty_viewport_snapshot(),
     ))
 }
 
@@ -67,6 +70,13 @@ fn empty_inspector_snapshot() -> InspectorUiSnapshot {
 }
 
 #[allow(dead_code)]
+fn empty_viewport_snapshot() -> ViewportUiSnapshot {
+    crate::viewport_display::viewport_ui_snapshot(
+        &elcarax_core::ViewportState::default_editor(),
+        None,
+    )
+}
+#[allow(dead_code)]
 fn empty_adapter_snapshot() -> AdapterUiSnapshot {
     AdapterUiSnapshot {
         adapter_status: "Adapter: Disconnected".to_string(),
@@ -92,6 +102,7 @@ pub(crate) fn apply_project_snapshot(
             &empty_scene_snapshot(),
             &empty_inspector_snapshot(),
             &empty_adapter_snapshot(),
+            &empty_viewport_snapshot(),
         ),
         bounds,
     )
@@ -104,6 +115,7 @@ pub(crate) struct EditorSnapshotRefs<'a> {
     pub(crate) scene: &'a SceneUiSnapshot,
     pub(crate) inspector: &'a InspectorUiSnapshot,
     pub(crate) adapter: &'a AdapterUiSnapshot,
+    pub(crate) viewport: &'a ViewportUiSnapshot,
 }
 
 pub(crate) const fn editor_snapshots<'a>(
@@ -112,6 +124,7 @@ pub(crate) const fn editor_snapshots<'a>(
     scene: &'a SceneUiSnapshot,
     inspector: &'a InspectorUiSnapshot,
     adapter: &'a AdapterUiSnapshot,
+    viewport: &'a ViewportUiSnapshot,
 ) -> EditorSnapshotRefs<'a> {
     EditorSnapshotRefs {
         project,
@@ -119,6 +132,7 @@ pub(crate) const fn editor_snapshots<'a>(
         scene,
         inspector,
         adapter,
+        viewport,
     }
 }
 
@@ -151,6 +165,7 @@ pub(crate) fn apply_editor_snapshot(
     apply_asset_snapshot(tree, ids, assets, &status, bounds)?;
     apply_scene_snapshot(tree, ids, scene, &status, bounds)?;
     apply_inspector_snapshot(tree, ids, inspector, bounds)?;
+    apply_viewport_snapshot(tree, ids, snapshots.viewport, bounds)?;
     Ok(())
 }
 

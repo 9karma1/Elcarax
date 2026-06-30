@@ -6,7 +6,7 @@ use std::fmt;
 
 use elcarax_core::{Id, IdGenerator};
 use elcarax_render::{
-    Border, Color, CornerRadius, Rect, RenderLayer, RenderPrimitive, RenderScene,
+    Border, Color, CornerRadius, ImagePrimitive, Rect, RenderLayer, RenderPrimitive, RenderScene,
 };
 
 pub enum WidgetMarker {}
@@ -750,14 +750,59 @@ impl UiContext {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewportFramePaint {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewportPaintStatus {
+    NoSource,
+    WaitingForFrame,
+    FrameAvailable,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewportPaintSnapshot {
+    pub title: String,
+    pub message: String,
+    pub status: ViewportPaintStatus,
+    pub frame: Option<ViewportFramePaint>,
+    pub show_preview_label: bool,
+}
+
+impl Default for ViewportPaintSnapshot {
+    fn default() -> Self {
+        Self {
+            title: "Viewport".to_string(),
+            message: "No viewport source".to_string(),
+            status: ViewportPaintStatus::NoSource,
+            frame: None,
+            show_preview_label: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PaintContext {
     pub theme: Theme,
+    pub viewport: ViewportPaintSnapshot,
 }
 
 impl PaintContext {
-    pub const fn new(theme: Theme) -> Self {
-        Self { theme }
+    pub fn new(theme: Theme) -> Self {
+        Self {
+            theme,
+            viewport: ViewportPaintSnapshot::default(),
+        }
+    }
+
+    pub fn with_viewport(mut self, viewport: ViewportPaintSnapshot) -> Self {
+        self.viewport = viewport;
+        self
     }
 }
 
@@ -766,6 +811,7 @@ pub struct UiTree {
     nodes: BTreeMap<WidgetId, UiNode>,
     root_id: Option<WidgetId>,
     ids: IdGenerator<WidgetMarker>,
+    viewport_paint: ViewportPaintSnapshot,
     hovered_id: Option<WidgetId>,
     focused_id: Option<WidgetId>,
     active_id: Option<WidgetId>,
@@ -851,6 +897,14 @@ impl UiTree {
         Ok(())
     }
 
+    pub fn set_viewport_paint(&mut self, snapshot: ViewportPaintSnapshot) {
+        self.viewport_paint = snapshot;
+    }
+
+    pub fn viewport_paint(&self) -> &ViewportPaintSnapshot {
+        &self.viewport_paint
+    }
+
     pub fn layout(&mut self, constraints: LayoutConstraints) -> Result<LayoutResult, UiError> {
         let root_id = self.root_id.ok_or(UiError::MissingRoot)?;
         self.layout_subtree(root_id, constraints.bounds)?;
@@ -872,7 +926,7 @@ impl UiTree {
             let Some(node) = self.nodes.get(&id) else {
                 return Err(UiError::MissingNode(id));
             };
-            paint_node(node, context, &mut scene);
+            paint_node(node, context, &self.viewport_paint, &mut scene);
         }
         Ok(scene)
     }
@@ -1391,6 +1445,9 @@ pub struct EditorShellIds {
     pub inspector_row_labels: [WidgetId; MAX_VISIBLE_INSPECTOR_ROWS],
     pub inspector_row_values: [WidgetId; MAX_VISIBLE_INSPECTOR_ROWS],
     pub inspector_summary: WidgetId,
+    pub viewport_surface: WidgetId,
+    pub viewport_title: WidgetId,
+    pub viewport_message: WidgetId,
     pub status_label: WidgetId,
 }
 
@@ -1423,6 +1480,8 @@ pub struct EditorShellContent {
     pub inspector_row_values: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub inspector_row_editable: [bool; MAX_VISIBLE_INSPECTOR_ROWS],
     pub inspector_summary: String,
+    pub viewport_title: String,
+    pub viewport_message: String,
     pub status: String,
 }
 
@@ -1468,6 +1527,8 @@ impl EditorShellContent {
             inspector_row_values: empty_inspector_row_labels(),
             inspector_row_editable: [false; MAX_VISIBLE_INSPECTOR_ROWS],
             inspector_summary: String::new(),
+            viewport_title: "Viewport".to_string(),
+            viewport_message: "No viewport source".to_string(),
             status: "Ready - open a project or connect an adapter".to_string(),
         }
     }
@@ -1506,6 +1567,7 @@ pub fn build_editor_shell_with_content(
     let title = WidgetId::new(12).ok_or(UiError::MissingRoot)?;
     let project_title = WidgetId::new(13).ok_or(UiError::MissingRoot)?;
     let viewport_label = WidgetId::new(14).ok_or(UiError::MissingRoot)?;
+    let viewport_title = WidgetId::new(97).ok_or(UiError::MissingRoot)?;
     let inspector_label = WidgetId::new(15).ok_or(UiError::MissingRoot)?;
     let status_label = WidgetId::new(16).ok_or(UiError::MissingRoot)?;
     let run_button = WidgetId::new(17).ok_or(UiError::MissingRoot)?;
@@ -2000,9 +2062,18 @@ pub fn build_editor_shell_with_content(
     tree.insert_child(
         viewport,
         UiNode::new(
-            viewport_label,
-            WidgetKind::Label("No viewport source".to_string()),
+            viewport_title,
+            WidgetKind::Label(content.viewport_title.clone()),
             UiStyle::LABEL,
+            LayoutNode::leaf(),
+        ),
+    )?;
+    tree.insert_child(
+        viewport,
+        UiNode::new(
+            viewport_label,
+            WidgetKind::Label(content.viewport_message.clone()),
+            UiStyle::LABEL.muted_text(),
             LayoutNode::leaf(),
         ),
     )?;
@@ -2146,6 +2217,9 @@ pub fn build_editor_shell_with_content(
             inspector_row_labels,
             inspector_row_values,
             inspector_summary,
+            viewport_surface: viewport,
+            viewport_title,
+            viewport_message: viewport_label,
             status_label,
         },
     })
@@ -2352,18 +2426,18 @@ fn rect_contains(rect: Rect, position: PointerPosition) -> bool {
         && position.y < rect.y + rect.height
 }
 
-fn paint_node(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
+fn paint_node(
+    node: &UiNode,
+    context: &PaintContext,
+    viewport_paint: &ViewportPaintSnapshot,
+    scene: &mut RenderScene,
+) {
     match &node.kind {
         WidgetKind::Root | WidgetKind::Panel | WidgetKind::Toolbar | WidgetKind::StatusBar => {
             paint_background(node, context, scene);
         }
         WidgetKind::ViewportPlaceholder => {
-            paint_background(node, context, scene);
-            scene.push(
-                RenderLayer::Overlay,
-                RenderPrimitive::border_rect(node.rect, Border::new(2.0, context.theme.accent))
-                    .with_debug_label("viewport border"),
-            );
+            paint_viewport(node, context, viewport_paint, scene);
         }
         WidgetKind::Separator(axis) => paint_separator(*axis, node, context, scene),
         WidgetKind::Label(text) => paint_label(text, node, context, scene),
@@ -2371,6 +2445,94 @@ fn paint_node(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
             paint_button(text, node, context, scene);
         }
     }
+}
+
+fn paint_viewport(
+    node: &UiNode,
+    context: &PaintContext,
+    viewport_paint: &ViewportPaintSnapshot,
+    scene: &mut RenderScene,
+) {
+    paint_background(node, context, scene);
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::border_rect(node.rect, Border::new(2.0, context.theme.accent))
+            .with_debug_label("viewport border"),
+    );
+    let inset = Insets {
+        top: 40.0,
+        right: 12.0,
+        bottom: 12.0,
+        left: 12.0,
+    };
+    let content = inset.shrink(node.rect);
+    if let ViewportPaintStatus::Error = viewport_paint.status {
+        paint_viewport_message(
+            &viewport_paint.message,
+            content,
+            context,
+            scene,
+            context.theme.danger,
+        );
+        return;
+    }
+    if viewport_paint.status != ViewportPaintStatus::FrameAvailable {
+        paint_viewport_message(
+            &viewport_paint.message,
+            content,
+            context,
+            scene,
+            context.theme.text_muted,
+        );
+        return;
+    }
+    if let Some(frame) = &viewport_paint.frame {
+        let image = ImagePrimitive::new(content, frame.width, frame.height, frame.rgba.clone());
+        if image.is_drawable() {
+            scene.push(
+                RenderLayer::Overlay,
+                RenderPrimitive::image(image)
+                    .with_clip(elcarax_render::ClipRect::new(content))
+                    .with_debug_label("viewport frame"),
+            );
+        }
+    }
+    if viewport_paint.show_preview_label {
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::text(
+                "Adapter Preview",
+                content.x + 8.0,
+                content.y + 18.0,
+                12.0,
+                context.theme.text_muted,
+            )
+            .with_debug_label("viewport preview label"),
+        );
+    }
+}
+
+fn paint_viewport_message(
+    message: &str,
+    rect: Rect,
+    _context: &PaintContext,
+    scene: &mut RenderScene,
+    color: Color,
+) {
+    if message.is_empty() {
+        return;
+    }
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(
+            message.to_string(),
+            rect.x + 8.0,
+            rect.y + rect.height / 2.0,
+            14.0,
+            color,
+        )
+        .with_debug_label("viewport message"),
+    );
 }
 
 fn paint_background(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {

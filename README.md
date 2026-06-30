@@ -98,7 +98,7 @@ The command palette shows eight rows at a time and filters with query text. The 
 
 Elcarax keeps external systems behind crate boundaries:
 
-- `elcarax_core`: foundational IDs, errors, diagnostics, workspace types
+- `elcarax_core` owns foundational IDs, errors, diagnostics, workspace types, and viewport domain state
 - `elcarax_scene_model`: engine-neutral scene/property/schema model
 - `elcarax_commands`: command and undo/redo behavior
 - `elcarax_project`: project model, validation, status, and recent-project domain types
@@ -130,6 +130,7 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 12: adapter host integration
 - Milestone 13: adapter property writeback foundation
 - Milestone 14A: productionized empty runtime startup
+- Milestone 14: viewport preview foundation
 
 See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 
@@ -137,4 +138,5 @@ See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 - `docs/MILESTONE_11_EDITABLE_INSPECTOR_UNDO.md`
 - `docs/MILESTONE_12_ADAPTER_HOST_INTEGRATION.md`
 - `docs/MILESTONE_13_ADAPTER_PROPERTY_WRITEBACK.md`
+- `docs/MILESTONE_14_VIEWPORT_PREVIEW_FOUNDATION.md`
 - `docs/MILESTONE_14A_PRODUCTIONIZE_RUNTIME.md`

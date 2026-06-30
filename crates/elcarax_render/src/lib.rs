@@ -147,6 +147,47 @@ impl TextPrimitive {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ImagePrimitive {
+    pub destination: Rect,
+    pub source: Option<Rect>,
+    pub opacity: f32,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+impl ImagePrimitive {
+    #[must_use]
+    pub fn new(destination: Rect, width: u32, height: u32, rgba: Vec<u8>) -> Self {
+        Self {
+            destination: destination.normalized(),
+            source: None,
+            opacity: 1.0,
+            width,
+            height,
+            rgba,
+        }
+    }
+
+    pub fn with_source_rect(mut self, source: Rect) -> Self {
+        self.source = Some(source.normalized());
+        self
+    }
+
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    pub fn is_drawable(&self) -> bool {
+        self.width > 0
+            && self.height > 0
+            && self.destination.is_visible()
+            && self.rgba.len() == (self.width as usize) * (self.height as usize) * 4
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum RenderPrimitiveKind {
     SolidRect {
         rect: Rect,
@@ -168,6 +209,7 @@ pub enum RenderPrimitiveKind {
         width: f32,
         color: Color,
     },
+    Image(ImagePrimitive),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -208,6 +250,9 @@ impl RenderPrimitive {
             width: width.max(0.0),
             color: color.normalized(),
         })
+    }
+    pub fn image(image: ImagePrimitive) -> Self {
+        Self::new(RenderPrimitiveKind::Image(image))
     }
     pub fn with_clip(mut self, clip: ClipRect) -> Self {
         self.clip = Some(clip);
@@ -272,6 +317,8 @@ pub struct RenderStats {
     pub shaped_text_cache_hits: u64,
     pub shaped_text_cache_misses: u64,
     pub uploaded_bytes: u64,
+    pub image_primitive_count: usize,
+    pub image_upload_bytes: u64,
     pub frame_count: u64,
     pub last_frame_duration: Option<Duration>,
 }
@@ -315,6 +362,9 @@ impl From<TextError> for RendererError {
 
 pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
+    image_pipeline: wgpu::RenderPipeline,
+    image_bind_group_layout: wgpu::BindGroupLayout,
+    image_sampler: wgpu::Sampler,
     vertex_buffer: wgpu::Buffer,
     text: TextRasterizer,
     config: RendererConfig,
@@ -396,8 +446,77 @@ impl Renderer {
             contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
+        let image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Elcarax Image Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("image.wgsl").into()),
+        });
+        let image_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Elcarax Image Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        let image_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Elcarax Image Pipeline Layout"),
+                bind_group_layouts: &[Some(&image_bind_group_layout)],
+                immediate_size: 0,
+            });
+        let image_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Elcarax Image Pipeline"),
+            layout: Some(&image_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &image_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[vertex_layout(), image_instance_layout()],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..wgpu::PrimitiveState::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &image_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface.format(),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let image_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Elcarax Viewport Sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..wgpu::SamplerDescriptor::default()
+        });
         Ok(Self {
             pipeline,
+            image_pipeline,
+            image_bind_group_layout,
+            image_sampler,
             vertex_buffer,
             text: TextRasterizer::new(),
             config,
@@ -417,6 +536,7 @@ impl Renderer {
         let instances = collect_rect_instances(scene, surface.size(), &mut self.text)?;
         let uploaded_bytes = (instances.len() * std::mem::size_of::<RectInstance>()) as u64;
         let device = surface.device();
+        let queue = surface.queue();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Elcarax Rect Instances"),
             contents: bytemuck::cast_slice(&instances),
@@ -428,30 +548,49 @@ impl Renderer {
             blue: self.config.clear_color.b as f64,
             alpha: self.config.clear_color.a as f64,
         };
+        let surface_size = surface.size();
+        let image_scene_stats = image_stats(scene);
+        let pipeline = &self.pipeline;
+        let image_pipeline = &self.image_pipeline;
+        let image_bind_group_layout = &self.image_bind_group_layout;
+        let image_sampler = &self.image_sampler;
+        let vertex_buffer = &self.vertex_buffer;
         surface.render_with_clear(clear, "Elcarax Render Pass", |encoder, view| {
-            if instances.is_empty() {
-                return;
+            if !instances.is_empty() {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Elcarax Primitive Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_pipeline(pipeline);
+                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, instance_buffer.slice(..));
+                pass.draw(0..4, 0..instances.len() as u32);
+                drop(pass);
             }
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Elcarax Primitive Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            pass.set_vertex_buffer(1, instance_buffer.slice(..));
-            pass.draw(0..4, 0..instances.len() as u32);
+            draw_image_primitives(
+                &device,
+                &queue,
+                encoder,
+                view,
+                scene,
+                surface_size,
+                image_pipeline,
+                image_bind_group_layout,
+                image_sampler,
+                vertex_buffer,
+            );
         })?;
         let text_stats = text_stats(scene);
         self.stats = RenderStats {
@@ -465,6 +604,8 @@ impl Renderer {
             shaped_text_cache_hits: text_stats.shaped_text_cache_hits,
             shaped_text_cache_misses: text_stats.shaped_text_cache_misses,
             uploaded_bytes,
+            image_primitive_count: image_scene_stats.image_primitive_count,
+            image_upload_bytes: image_scene_stats.image_upload_bytes,
             frame_count: self.stats.frame_count.saturating_add(1),
             last_frame_duration: Some(started.elapsed()),
         };
@@ -502,30 +643,180 @@ fn collect_rect_instances(
     }
     Ok(instances)
 }
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct ImageInstance {
+    rect: [f32; 4],
+    uv_rect: [f32; 4],
+    opacity: f32,
+    _pad: [f32; 3],
+}
+
 fn primitive_instances(
     primitive: &RenderPrimitive,
     size: SurfaceSize,
     text: &mut TextRasterizer,
 ) -> Result<Vec<RectInstance>, RendererError> {
-    let instances = match primitive.kind {
+    let instances = match &primitive.kind {
+        RenderPrimitiveKind::Image(_) => Vec::new(),
         RenderPrimitiveKind::SolidRect { rect, color }
         | RenderPrimitiveKind::RoundedRect { rect, color, .. } => {
-            rect_instance(rect, color, size).into_iter().collect()
+            rect_instance(*rect, *color, size).into_iter().collect()
         }
-        RenderPrimitiveKind::BorderRect { rect, border } => border_instances(rect, border, size),
-        RenderPrimitiveKind::Text(ref text_primitive) => {
-            text_instances(text_primitive, size, text)?
-        }
+        RenderPrimitiveKind::BorderRect { rect, border } => border_instances(*rect, *border, size),
+        RenderPrimitiveKind::Text(text_primitive) => text_instances(text_primitive, size, text)?,
         RenderPrimitiveKind::Line {
             from,
             to,
             width,
             color,
-        } => line_instance(from, to, width, color, size)
+        } => line_instance(*from, *to, *width, *color, size)
             .into_iter()
             .collect(),
     };
     Ok(instances)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ImageRenderStats {
+    pub image_primitive_count: usize,
+    pub image_upload_bytes: u64,
+}
+
+#[must_use]
+pub fn image_stats(scene: &RenderScene) -> ImageRenderStats {
+    let mut stats = ImageRenderStats::default();
+    for (_, primitive) in scene.primitives() {
+        if let RenderPrimitiveKind::Image(image) = &primitive.kind {
+            stats.image_primitive_count += 1;
+            if image.is_drawable() {
+                stats.image_upload_bytes += image.rgba.len() as u64;
+            }
+        }
+    }
+    stats
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_image_primitives(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    encoder: &mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+    scene: &RenderScene,
+    size: SurfaceSize,
+    pipeline: &wgpu::RenderPipeline,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    vertex_buffer: &wgpu::Buffer,
+) {
+    for (_, primitive) in scene.primitives() {
+        let RenderPrimitiveKind::Image(image) = &primitive.kind else {
+            continue;
+        };
+        if !image.is_drawable() {
+            continue;
+        }
+        let Some(instance) = image_instance(image, size) else {
+            continue;
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Elcarax Viewport Texture"),
+            size: wgpu::Extent3d {
+                width: image.width,
+                height: image.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &image.rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(image.width * 4),
+                rows_per_image: Some(image.height),
+            },
+            wgpu::Extent3d {
+                width: image.width,
+                height: image.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Elcarax Viewport Bind Group"),
+            layout: bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+            ],
+        });
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Elcarax Image Instance"),
+            contents: bytemuck::bytes_of(&instance),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Elcarax Image Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        pass.set_vertex_buffer(1, instance_buffer.slice(..));
+        pass.draw(0..4, 0..1);
+    }
+}
+
+fn image_instance(image: &ImagePrimitive, size: SurfaceSize) -> Option<ImageInstance> {
+    let destination = image.destination.normalized();
+    if !destination.is_visible() {
+        return None;
+    }
+    let source = image
+        .source
+        .map(Rect::normalized)
+        .unwrap_or(Rect::new(0.0, 0.0, 1.0, 1.0));
+    Some(ImageInstance {
+        rect: [
+            to_ndc_x(destination.x, size),
+            to_ndc_y(destination.y, size),
+            destination.width * 2.0 / size.width.max(1) as f32,
+            destination.height * -2.0 / size.height.max(1) as f32,
+        ],
+        uv_rect: [source.x, source.y, source.width, source.height],
+        opacity: image.opacity,
+        _pad: [0.0; 3],
+    })
 }
 fn rect_instance(rect: Rect, color: Color, size: SurfaceSize) -> Option<RectInstance> {
     let r = rect.normalized();
@@ -641,6 +932,19 @@ fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
         attributes: &ATTRIBUTES,
     }
 }
+fn image_instance_layout() -> wgpu::VertexBufferLayout<'static> {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
+        1 => Float32x4,
+        2 => Float32x4,
+        3 => Float32x4
+    ];
+    wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<ImageInstance>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &ATTRIBUTES,
+    }
+}
+
 fn instance_layout() -> wgpu::VertexBufferLayout<'static> {
     const ATTRIBUTES: [wgpu::VertexAttribute; 2] =
         wgpu::vertex_attr_array![1 => Float32x4, 2 => Float32x4];
@@ -720,6 +1024,62 @@ pub fn text_stats(scene: &RenderScene) -> RenderStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_primitive_contributes_to_stats() {
+        let mut scene = RenderScene::new();
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::image(ImagePrimitive::new(
+                Rect::new(0.0, 0.0, 4.0, 4.0),
+                2,
+                2,
+                vec![
+                    255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                ],
+            )),
+        );
+        let stats = image_stats(&scene);
+        assert_eq!(stats.image_primitive_count, 1);
+        assert_eq!(stats.image_upload_bytes, 16);
+    }
+
+    #[test]
+    fn empty_image_data_does_not_count_upload_bytes() {
+        let mut scene = RenderScene::new();
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::image(ImagePrimitive::new(
+                Rect::new(0.0, 0.0, 4.0, 4.0),
+                2,
+                2,
+                vec![],
+            )),
+        );
+        let stats = image_stats(&scene);
+        assert_eq!(stats.image_primitive_count, 1);
+        assert_eq!(stats.image_upload_bytes, 0);
+    }
+
+    #[test]
+    fn viewport_image_primitive_preserves_metadata() {
+        let clip = ClipRect::new(Rect::new(1.0, 2.0, 8.0, 8.0));
+        let primitive = RenderPrimitive::image(ImagePrimitive::new(
+            Rect::new(10.0, 20.0, 30.0, 40.0),
+            1,
+            1,
+            vec![255, 255, 255, 255],
+        ))
+        .with_clip(clip)
+        .with_debug_label("viewport frame");
+        assert_eq!(primitive.clip, Some(clip));
+        assert_eq!(primitive.debug_label.as_deref(), Some("viewport frame"));
+        if let RenderPrimitiveKind::Image(image) = primitive.kind {
+            assert_eq!(image.destination, Rect::new(10.0, 20.0, 30.0, 40.0));
+        } else {
+            panic!("expected image primitive");
+        }
+    }
+
     #[test]
     fn scene_keeps_stable_order() {
         let mut s = RenderScene::new();

@@ -43,4 +43,14 @@ impl AdapterCapabilities {
             supports_viewport_preview: false,
         }
     }
+
+    pub const fn mock_milestone_14() -> Self {
+        Self {
+            provides_project_info: true,
+            provides_scene_snapshot: true,
+            provides_diagnostics: true,
+            supports_property_writeback: true,
+            supports_viewport_preview: true,
+        }
+    }
 }

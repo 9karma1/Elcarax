@@ -191,6 +191,10 @@ impl GpuSurface<'_> {
         Arc::clone(&self.device)
     }
 
+    pub fn queue(&self) -> Arc<wgpu::Queue> {
+        Arc::clone(&self.queue)
+    }
+
     pub fn format(&self) -> wgpu::TextureFormat {
         self.config.format
     }

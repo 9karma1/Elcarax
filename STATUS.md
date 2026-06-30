@@ -19,6 +19,7 @@ Generated: 2026-06-29
 - Editable inspector undo foundation with primitive property edit metadata, model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo
 - Adapter host integration with JSON-line protocol, mock process spawning, versioned handshake, request/response correlation, diagnostics/logs, scene snapshot import, status UI, and command-palette adapter commands
 - Adapter property writeback foundation with mock adapter set-property protocol, confirmed scene patches, adapter-backed inspector edits, adapter undo/redo writeback, and diagnostics for rejected writes
+- Viewport preview foundation with viewport state, adapter RGBA frame protocol, image render primitive, viewport commands, and console adapter viewport proof
 - Productionized normal runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
@@ -32,7 +33,7 @@ Generated: 2026-06-29
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive empty shell and project-status foundation
-- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, viewport scene rendering, viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
+- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, continuous viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
 - Normal runtime fixture commands, automatic fake data loading, and mock adapter startup as user-facing editor behavior
 - Real `AccessKit` adapter integration
 - Real game engine binding
@@ -169,3 +170,12 @@ cargo run -p elcarax_app
 - Added diagnostics for disconnected adapters, non-adapter scenes, missing objects/properties, read-only properties, type mismatch, stale values, and rejected writes.
 - Updated the console proof to demonstrate local edit/undo/redo plus adapter-backed edit/undo/redo.
 - Documented explicit real-engine, persistent save, hierarchy, component, asset-assignment, multi-object, collaborative, and advanced conflict-resolution exclusions in `docs/MILESTONE_13_ADAPTER_PROPERTY_WRITEBACK.md`.
+
+## Milestone 14: Viewport Preview Foundation
+
+- Added engine-neutral viewport state and frame validation types in `elcarax_core`.
+- Added adapter viewport frame request/response protocol types in `elcarax_adapter_api`.
+- Updated the mock game adapter to return deterministic procedural RGBA preview frames.
+- Added `RenderPrimitive::Image`, dynamic texture upload, and viewport image drawing in `elcarax_render`.
+- Added viewport commands, app viewport state, UI viewport painting, and console adapter viewport proof in `elcarax_app`.
+- Documented explicit viewport rendering exclusions in `docs/MILESTONE_14_VIEWPORT_PREVIEW_FOUNDATION.md`.

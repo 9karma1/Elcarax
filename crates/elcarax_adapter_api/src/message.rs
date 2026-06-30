@@ -8,7 +8,8 @@ use elcarax_scene_model::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    HandshakeRequest, HandshakeResponse, LoadProjectRequest, LoadProjectResponse, ProtocolVersion,
+    GetViewportFrameRequest, GetViewportFrameResponse, HandshakeRequest, HandshakeResponse,
+    LoadProjectRequest, LoadProjectResponse, ProtocolVersion,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -42,6 +43,7 @@ pub enum AdapterRequestMessage {
     GetSceneSnapshot(GetSceneSnapshotRequest),
     SetProperty(SetPropertyRequest),
     GetDiagnostics(GetDiagnosticsRequest),
+    GetViewportFrame(GetViewportFrameRequest),
     Shutdown(ShutdownRequest),
 }
 
@@ -94,6 +96,7 @@ pub enum AdapterResponseMessage {
     GetSceneSnapshot(GetSceneSnapshotResponse),
     SetProperty(SetPropertyResponse),
     GetDiagnostics(GetDiagnosticsResponse),
+    GetViewportFrame(GetViewportFrameResponse),
     Shutdown(ShutdownResponse),
     Error(ErrorResponse),
 }
@@ -303,6 +306,66 @@ mod tests {
         );
         let line = encode_request_line(&request)?;
         assert_eq!(decode_request_line(&line)?.request_id, AdapterRequestId(42));
+        Ok(())
+    }
+
+    #[test]
+    fn viewport_frame_request_round_trips() -> Result<(), serde_json::Error> {
+        use crate::{AdapterViewportId, GetViewportFrameRequest, ViewportFrameResponseStatus};
+        use elcarax_core::ViewportFrameFormat;
+
+        let request = AdapterRequest::new(
+            AdapterRequestId::new(11),
+            AdapterRequestMessage::GetViewportFrame(GetViewportFrameRequest {
+                viewport_id: AdapterViewportId(1),
+                scene_id: Some(7),
+                width: 64,
+                height: 48,
+                format: ViewportFrameFormat::Rgba8Unorm,
+            }),
+        );
+        let line = encode_request_line(&request)?;
+        assert_eq!(decode_request_line(&line)?, request);
+
+        let response = AdapterResponse::new(
+            request.request_id,
+            AdapterResponseMessage::GetViewportFrame(GetViewportFrameResponse {
+                viewport_id: AdapterViewportId(1),
+                width: 64,
+                height: 48,
+                format: ViewportFrameFormat::Rgba8Unorm,
+                pixels: vec![255, 0, 0, 255, 0, 255, 0, 255],
+                diagnostics: Vec::new(),
+                status: ViewportFrameResponseStatus::Available,
+            }),
+        );
+        let line = encode_response_line(&response)?;
+        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
+        Ok(())
+    }
+
+    #[test]
+    fn failed_viewport_response_round_trips() -> Result<(), serde_json::Error> {
+        use crate::{AdapterViewportId, GetViewportFrameResponse, ViewportFrameResponseStatus};
+
+        let response = AdapterResponse::new(
+            AdapterRequestId::new(12),
+            AdapterResponseMessage::GetViewportFrame(GetViewportFrameResponse::failed(
+                AdapterViewportId(1),
+                ViewportFrameResponseStatus::InvalidSize,
+                "width and height must be positive",
+            )),
+        );
+        let line = encode_response_line(&response)?;
+        let AdapterLine::Response(AdapterResponse {
+            message: AdapterResponseMessage::GetViewportFrame(decoded),
+            ..
+        }) = decode_adapter_line(&line)?
+        else {
+            panic!("decoded response should carry viewport frame");
+        };
+        assert_eq!(decoded.status, ViewportFrameResponseStatus::InvalidSize);
+        assert_eq!(decoded.diagnostics.len(), 1);
         Ok(())
     }
 

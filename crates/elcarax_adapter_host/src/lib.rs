@@ -11,9 +11,10 @@ use elcarax_adapter_api::{
     AdapterCapabilities, AdapterDiagnostic, AdapterError, AdapterEvent, AdapterId, AdapterLine,
     AdapterLog, AdapterName, AdapterRequest, AdapterRequestId, AdapterRequestMessage,
     AdapterResponse, AdapterResponseMessage, AdapterVersion, ErrorResponse, GetDiagnosticsRequest,
-    GetDiagnosticsResponse, GetSceneSnapshotRequest, GetSceneSnapshotResponse, HandshakeRequest,
-    LoadProjectRequest, LoadProjectResponse, SetPropertyRequest, SetPropertyResponse,
-    ShutdownRequest, ShutdownResponse, decode_adapter_line, encode_request_line,
+    GetDiagnosticsResponse, GetSceneSnapshotRequest, GetSceneSnapshotResponse,
+    GetViewportFrameRequest, GetViewportFrameResponse, HandshakeRequest, LoadProjectRequest,
+    LoadProjectResponse, SetPropertyRequest, SetPropertyResponse, ShutdownRequest,
+    ShutdownResponse, decode_adapter_line, encode_request_line,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +80,10 @@ impl AdapterProcessSpec {
             executable: executable.into(),
             args: Vec::new(),
         }
+    }
+
+    pub fn stdio_game_adapter() -> Self {
+        Self::cargo_mock_adapter()
     }
 
     pub fn cargo_mock_adapter() -> Self {
@@ -257,6 +262,13 @@ impl AdapterHost {
             .get_diagnostics(GetDiagnosticsRequest)
     }
 
+    pub fn get_viewport_frame(
+        &mut self,
+        request: GetViewportFrameRequest,
+    ) -> Result<GetViewportFrameResponse, AdapterHostError> {
+        self.session_mut_or_failed()?.get_viewport_frame(request)
+    }
+
     pub fn shutdown(&mut self) -> Result<ShutdownResponse, AdapterHostError> {
         let Some(session) = self.session.as_mut() else {
             self.state = AdapterHostState::Stopped;
@@ -399,6 +411,17 @@ where
                 self.diagnostics = response.diagnostics.clone();
                 Ok(response)
             }
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
+    }
+
+    pub fn get_viewport_frame(
+        &mut self,
+        request: GetViewportFrameRequest,
+    ) -> Result<GetViewportFrameResponse, AdapterHostError> {
+        let response = self.send(AdapterRequestMessage::GetViewportFrame(request))?;
+        match response {
+            AdapterResponseMessage::GetViewportFrame(response) => Ok(response),
             other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
         }
     }

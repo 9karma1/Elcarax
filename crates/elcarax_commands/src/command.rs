@@ -77,6 +77,7 @@ pub enum CommandCategory {
     Scene,
     Inspector,
     Adapter,
+    Viewport,
     Status,
 }
 
@@ -89,6 +90,7 @@ impl CommandCategory {
             Self::Scene => "Scene",
             Self::Inspector => "Inspector",
             Self::Adapter => "Adapter",
+            Self::Viewport => "Viewport",
             Self::Status => "Status",
         }
     }
@@ -357,6 +359,24 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Adapter,
         )?,
         registered(
+            "viewport.request_frame",
+            "Request Viewport Frame",
+            "Request a preview frame from the connected adapter",
+            CommandCategory::Viewport,
+        )?,
+        registered(
+            "viewport.clear",
+            "Clear Viewport",
+            "Clear the current viewport preview frame",
+            CommandCategory::Viewport,
+        )?,
+        registered(
+            "viewport.show_status",
+            "Show Viewport Status",
+            "Report the current viewport source and status",
+            CommandCategory::Viewport,
+        )?,
+        registered(
             "elcarax.status.show_renderer_stats",
             "Show Renderer Stats",
             "Show current primitive, text, and glyph counts",
@@ -500,6 +520,9 @@ mod tests {
                 "adapter.show_status",
                 "adapter.show_diagnostics",
                 "adapter.load_scene",
+                "viewport.request_frame",
+                "viewport.clear",
+                "viewport.show_status",
                 "elcarax.status.show_renderer_stats",
                 "elcarax.status.show_ready"
             ]

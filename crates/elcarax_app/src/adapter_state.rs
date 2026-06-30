@@ -2,21 +2,28 @@
 
 use elcarax_adapter_api::{
     AdapterCapabilities, AdapterDiagnostic, AdapterEditSource, AdapterName, AdapterVersion,
-    SetPropertyRequest, SetPropertyResponse,
+    SetPropertyRequest, SetPropertyResponse, ViewportFrameResponseStatus,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "native-shell"))]
 use elcarax_adapter_api::{
     AdapterId, GetSceneSnapshotRequest, HandshakeRequest, LoadProjectRequest,
 };
-#[cfg(test)]
-use elcarax_adapter_host::AdapterHostError;
+#[cfg(any(test, feature = "native-shell"))]
+use elcarax_adapter_api::{AdapterViewportId, GetViewportFrameRequest};
 use elcarax_adapter_host::AdapterHostState;
+#[cfg(any(test, feature = "native-shell"))]
+use elcarax_adapter_host::AdapterHostError;
+#[cfg(feature = "native-shell")]
+use elcarax_adapter_host::{AdapterHost, AdapterProcessSpec};
 #[cfg(test)]
 use elcarax_adapter_host::AdapterSession;
 
 use crate::adapter_display::{AdapterUiSnapshot, adapter_ui_snapshot};
 #[cfg(test)]
 use crate::scene_state::SceneSource;
+#[cfg(any(test, feature = "native-shell"))]
+use elcarax_core::ViewportFrameFormat;
+use elcarax_core::{ViewportError, ViewportFrame};
 use elcarax_scene_model::{PropertyChange, ScenePatch};
 #[cfg(test)]
 use elcarax_scene_model::{PropertyPath, PropertyValue, prepare_property_change};
@@ -37,8 +44,10 @@ pub(crate) const ADAPTER_EDIT_REDO_COMMAND: &str = "adapter.edit.redo";
 pub(crate) struct AdapterState {
     #[cfg(test)]
     connection: AdapterConnection,
+    #[cfg(feature = "native-shell")]
+    host: Option<AdapterHost>,
     status: AdapterHostState,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "native-shell"))]
     id: Option<AdapterId>,
     name: Option<AdapterName>,
     version: Option<AdapterVersion>,
@@ -87,11 +96,167 @@ impl AdapterState {
         )
     }
 
+    pub(crate) fn is_connected(&self) -> bool {
+        self.status == AdapterHostState::Connected
+    }
+
+    pub(crate) fn supports_viewport_preview(&self) -> bool {
+        self.capabilities
+            .as_ref()
+            .is_some_and(|capabilities| capabilities.supports_viewport_preview)
+    }
+
+    #[cfg(feature = "native-shell")]
+    pub(crate) fn connected_viewport_info(&self) -> Option<(String, bool)> {
+        if !self.is_connected() {
+            return None;
+        }
+        let id = self.id.as_ref()?.as_str().to_string();
+        Some((id, self.supports_viewport_preview()))
+    }
+
+    pub(crate) fn request_viewport_frame(
+        &mut self,
+        viewport: &mut elcarax_core::ViewportState,
+    ) -> Result<String, String> {
+        if let Err(error) = viewport.begin_frame_request() {
+            return Err(error.to_string());
+        }
+        if !self.is_connected() {
+            viewport.apply_error(ViewportError::NoAdapterConnected);
+            return Err("No adapter connected".to_string());
+        }
+        if !self.supports_viewport_preview() {
+            viewport.apply_error(ViewportError::AdapterUnsupported);
+            return Err("Adapter does not support viewport preview".to_string());
+        }
+        #[cfg(test)]
+        {
+            if let AdapterConnection::Fake(session) = &mut self.connection {
+                let request = GetViewportFrameRequest {
+                    viewport_id: AdapterViewportId(viewport.id.get()),
+                    scene_id: None,
+                    width: 256,
+                    height: 256,
+                    format: ViewportFrameFormat::Rgba8Unorm,
+                };
+                return match session.get_viewport_frame(request) {
+                    Ok(response) => self.apply_viewport_response(viewport, response),
+                    Err(error) => {
+                        viewport.apply_error(ViewportError::AdapterFailed(error.to_string()));
+                        Err(error.to_string())
+                    }
+                };
+            }
+        }
+        #[cfg(feature = "native-shell")]
+        {
+            if let Some(host) = &mut self.host {
+                let request = GetViewportFrameRequest {
+                    viewport_id: AdapterViewportId(viewport.id.get()),
+                    scene_id: None,
+                    width: 256,
+                    height: 256,
+                    format: ViewportFrameFormat::Rgba8Unorm,
+                };
+                return match host.get_viewport_frame(request) {
+                    Ok(response) => self.apply_viewport_response(viewport, response),
+                    Err(error) => {
+                        viewport.apply_error(ViewportError::AdapterFailed(error.to_string()));
+                        Err(error.to_string())
+                    }
+                };
+            }
+        }
+        viewport.apply_error(ViewportError::NoAdapterConnected);
+        Err("No adapter connected".to_string())
+    }
+
+    fn apply_viewport_response(
+        &self,
+        viewport: &mut elcarax_core::ViewportState,
+        response: elcarax_adapter_api::GetViewportFrameResponse,
+    ) -> Result<String, String> {
+        if response.status != ViewportFrameResponseStatus::Available {
+            let message = response
+                .diagnostics
+                .first()
+                .map(|diagnostic| diagnostic.message.clone())
+                .unwrap_or_else(|| "adapter viewport frame unavailable".to_string());
+            viewport.apply_error(ViewportError::AdapterFailed(message.clone()));
+            return Err(message);
+        }
+        let frame = ViewportFrame::new(
+            response.width,
+            response.height,
+            response.format,
+            response.pixels,
+        )
+        .map_err(|error| error.to_string())?;
+        viewport
+            .apply_frame(frame)
+            .map_err(|error| error.to_string())?;
+        Ok(format!(
+            "viewport frame {}x{} received",
+            response.width, response.height
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn attach_fake_session_for_tests(
+        &mut self,
+        session: AdapterSession<elcarax_adapter_host::FakeAdapterTransport>,
+    ) {
+        self.connection = AdapterConnection::Fake(session);
+        self.status = AdapterHostState::Starting;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn handshake_for_tests(&mut self) -> AdapterCommandResult {
+        self.handshake()
+    }
+
     fn connect(&mut self) -> AdapterCommandResult {
-        AdapterCommandResult::new(ADAPTER_CONNECT_COMMAND, "No adapter configured")
+        #[cfg(feature = "native-shell")]
+        {
+            if self.host.is_some() && self.status != AdapterHostState::Stopped {
+                return AdapterCommandResult::new(
+                    ADAPTER_CONNECT_COMMAND,
+                    "adapter process already active",
+                );
+            }
+            match AdapterHost::spawn(AdapterProcessSpec::stdio_game_adapter(), None) {
+                Ok(host) => {
+                    self.host = Some(host);
+                    self.status = AdapterHostState::Starting;
+                    AdapterCommandResult::new(ADAPTER_CONNECT_COMMAND, "adapter process started")
+                }
+                Err(error) => self.fail(ADAPTER_CONNECT_COMMAND, error),
+            }
+        }
+        #[cfg(not(feature = "native-shell"))]
+        {
+            AdapterCommandResult::new(ADAPTER_CONNECT_COMMAND, "No adapter configured")
+        }
     }
 
     fn handshake(&mut self) -> AdapterCommandResult {
+        #[cfg(feature = "native-shell")]
+        {
+            if let Some(host) = &mut self.host {
+                return match host.handshake(HandshakeRequest::current("elcarax-app", None)) {
+                    Ok(info) => {
+                        self.name = Some(info.name);
+                        self.version = Some(info.version);
+                        self.id = Some(info.id);
+                        self.capabilities = Some(info.capabilities);
+                        self.status = AdapterHostState::Connected;
+                        AdapterCommandResult::new(ADAPTER_HANDSHAKE_COMMAND, "handshake succeeded")
+                    }
+                    Err(error) => self.fail(ADAPTER_HANDSHAKE_COMMAND, error),
+                };
+            }
+        }
         #[cfg(test)]
         {
             if let AdapterConnection::Fake(session) = &mut self.connection {
@@ -115,6 +280,19 @@ impl AdapterState {
     }
 
     fn load_project(&mut self) -> AdapterCommandResult {
+        #[cfg(feature = "native-shell")]
+        {
+            if let Some(host) = &mut self.host {
+                let request = LoadProjectRequest { project_path: None };
+                return match host.load_project(request) {
+                    Ok(project) => AdapterCommandResult::new(
+                        ADAPTER_LOAD_PROJECT_COMMAND,
+                        format!("loaded adapter project {}", project.display_name),
+                    ),
+                    Err(error) => self.fail(ADAPTER_LOAD_PROJECT_COMMAND, error),
+                };
+            }
+        }
         #[cfg(test)]
         {
             if let AdapterConnection::Fake(session) = &mut self.connection {
@@ -135,40 +313,56 @@ impl AdapterState {
     }
 
     fn load_scene(&mut self, scene_state: &mut SceneState) -> AdapterCommandResult {
-        #[cfg(not(test))]
-        let _ = scene_state;
+        #[cfg(feature = "native-shell")]
+        {
+            if let Some(host) = &mut self.host {
+                let request = GetSceneSnapshotRequest { scene_id: None };
+                return match host.get_scene_snapshot(request) {
+                    Ok(response) => self.finish_load_scene(scene_state, response),
+                    Err(error) => self.fail(ADAPTER_LOAD_SCENE_COMMAND, error),
+                };
+            }
+        }
         #[cfg(test)]
         {
             if let AdapterConnection::Fake(session) = &mut self.connection {
                 let request = GetSceneSnapshotRequest { scene_id: None };
                 return match session.get_scene_snapshot(request) {
-                    Ok(response) => {
-                        let count = response.snapshot.object_count();
-                        let adapter_id = self
-                            .id
-                            .clone()
-                            .unwrap_or_else(|| AdapterId::new("unknown-adapter"));
-                        scene_state.load_external_snapshot(
-                            response.snapshot,
-                            adapter_id,
-                            ADAPTER_LOAD_SCENE_COMMAND,
-                            format!(
-                                "Loaded adapter scene from {} with {count} objects",
-                                response.source_label
-                            ),
-                        );
-                        AdapterCommandResult::new(
-                            ADAPTER_LOAD_SCENE_COMMAND,
-                            format!("loaded adapter scene with {count} objects"),
-                        )
-                    }
+                    Ok(response) => self.finish_load_scene(scene_state, response),
                     Err(error) => self.fail(ADAPTER_LOAD_SCENE_COMMAND, error),
                 };
             }
         }
+        let _ = scene_state;
         AdapterCommandResult::new(
             ADAPTER_LOAD_SCENE_COMMAND,
             "Diagnostic: adapter is not running",
+        )
+    }
+
+    #[cfg(any(test, feature = "native-shell"))]
+    fn finish_load_scene(
+        &mut self,
+        scene_state: &mut SceneState,
+        response: elcarax_adapter_api::GetSceneSnapshotResponse,
+    ) -> AdapterCommandResult {
+        let count = response.snapshot.object_count();
+        let adapter_id = self
+            .id
+            .clone()
+            .unwrap_or_else(|| AdapterId::new("unknown-adapter"));
+        scene_state.load_external_snapshot(
+            response.snapshot,
+            adapter_id,
+            ADAPTER_LOAD_SCENE_COMMAND,
+            format!(
+                "Loaded adapter scene from {} with {count} objects",
+                response.source_label
+            ),
+        );
+        AdapterCommandResult::new(
+            ADAPTER_LOAD_SCENE_COMMAND,
+            format!("loaded adapter scene with {count} objects"),
         )
     }
 
@@ -180,6 +374,21 @@ impl AdapterState {
     }
 
     fn show_diagnostics(&mut self) -> AdapterCommandResult {
+        #[cfg(feature = "native-shell")]
+        {
+            if let Some(host) = &mut self.host {
+                return match host.get_diagnostics() {
+                    Ok(response) => {
+                        self.diagnostics = response.diagnostics;
+                        AdapterCommandResult::new(
+                            ADAPTER_SHOW_DIAGNOSTICS_COMMAND,
+                            format!("{} adapter diagnostic(s)", self.diagnostics.len()),
+                        )
+                    }
+                    Err(error) => self.fail(ADAPTER_SHOW_DIAGNOSTICS_COMMAND, error),
+                };
+            }
+        }
         #[cfg(test)]
         {
             if let AdapterConnection::Fake(session) = &mut self.connection {
@@ -203,6 +412,20 @@ impl AdapterState {
     }
 
     fn disconnect(&mut self) -> AdapterCommandResult {
+        #[cfg(feature = "native-shell")]
+        {
+            if let Some(mut host) = self.host.take() {
+                let result = host.shutdown();
+                self.clear_adapter_session();
+                return match result {
+                    Ok(_) => AdapterCommandResult::new(
+                        ADAPTER_DISCONNECT_COMMAND,
+                        "adapter disconnected",
+                    ),
+                    Err(error) => self.fail(ADAPTER_DISCONNECT_COMMAND, error),
+                };
+            }
+        }
         #[cfg(test)]
         {
             if let AdapterConnection::Fake(session) = &mut self.connection {
@@ -214,9 +437,8 @@ impl AdapterState {
                     });
                 return match result {
                     Ok(_) => {
-                        self.status = AdapterHostState::Stopped;
+                        self.clear_adapter_session();
                         self.connection = AdapterConnection::None;
-                        self.edit_history.clear();
                         AdapterCommandResult::new(
                             ADAPTER_DISCONNECT_COMMAND,
                             "adapter disconnected",
@@ -228,6 +450,16 @@ impl AdapterState {
         }
         self.status = AdapterHostState::Stopped;
         AdapterCommandResult::new(ADAPTER_DISCONNECT_COMMAND, "adapter disconnected")
+    }
+
+    #[cfg(any(test, feature = "native-shell"))]
+    fn clear_adapter_session(&mut self) {
+        self.status = AdapterHostState::Stopped;
+        self.id = None;
+        self.name = None;
+        self.version = None;
+        self.capabilities = None;
+        self.edit_history.clear();
     }
 
     #[cfg(test)]
@@ -391,7 +623,7 @@ impl AdapterState {
         Err("adapter not connected".to_string())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "native-shell"))]
     fn fail(&mut self, command_id: &str, error: AdapterHostError) -> AdapterCommandResult {
         self.status = AdapterHostState::Failed;
         AdapterCommandResult::new(command_id, format!("Diagnostic: {error}"))
@@ -402,9 +634,12 @@ impl AdapterState {
         session: AdapterSession<elcarax_adapter_host::FakeAdapterTransport>,
     ) -> Self {
         Self {
-            connection: AdapterConnection::Fake(session),
-            status: AdapterHostState::Starting,
             #[cfg(test)]
+            connection: AdapterConnection::Fake(session),
+            #[cfg(feature = "native-shell")]
+            host: None,
+            status: AdapterHostState::Starting,
+            #[cfg(any(test, feature = "native-shell"))]
             id: None,
             name: None,
             version: None,
@@ -431,8 +666,10 @@ impl Default for AdapterState {
         Self {
             #[cfg(test)]
             connection: AdapterConnection::None,
+            #[cfg(feature = "native-shell")]
+            host: None,
             status: AdapterHostState::Disconnected,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "native-shell"))]
             id: None,
             name: None,
             version: None,
@@ -535,7 +772,7 @@ impl AdapterEditHistory {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "native-shell"))]
     fn clear(&mut self) {
         self.undo_stack.clear();
         self.redo_stack.clear();

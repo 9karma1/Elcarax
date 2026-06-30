@@ -3,6 +3,7 @@
 mod capability;
 mod message;
 mod protocol;
+mod viewport;
 
 pub use capability::AdapterCapabilities;
 pub use message::{
@@ -16,4 +17,8 @@ pub use message::{
 pub use protocol::{
     AdapterId, AdapterName, AdapterVersion, HandshakeRequest, HandshakeResponse,
     LoadProjectRequest, LoadProjectResponse, ProtocolVersion,
+};
+pub use viewport::{
+    AdapterViewportId, GetViewportFrameRequest, GetViewportFrameResponse,
+    ViewportFrameResponseStatus,
 };
