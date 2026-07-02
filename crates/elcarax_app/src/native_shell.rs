@@ -25,6 +25,8 @@ use crate::asset_state::AssetState;
 use crate::asset_ui::asset_row_index_for_widget;
 use crate::inspector_state::InspectorState;
 use crate::inspector_ui::inspector_value_index_for_widget;
+use crate::project_config::AppProjectConfig;
+use crate::project_effects::apply_project_command_side_effects;
 use crate::project_state::ProjectState;
 use crate::project_ui::{apply_editor_snapshot, editor_snapshots};
 use crate::scene_state::SceneState;
@@ -219,7 +221,9 @@ fn build_ui_state(
     height: f32,
 ) -> std::result::Result<UiState, NativeAppError> {
     let context = UiContext::new(theme, Rect::new(0.0, 0.0, width, height));
-    let project_state = ProjectState::default();
+    let project_state = ProjectState::new(AppProjectConfig::from_env_and_args(
+        &std::env::args().collect::<Vec<_>>(),
+    ));
     let asset_state = AssetState::default();
     let scene_state = SceneState::default();
     let inspector_state = InspectorState::default();
@@ -383,6 +387,13 @@ fn apply_command_invocation(
         .execute_command_id(invocation.id.as_str())
         .is_some()
     {
+        apply_project_command_side_effects(
+            invocation.id.as_str(),
+            &mut ui.project_state,
+            &mut ui.asset_state,
+            &mut ui.scene_state,
+            &mut ui.inspector_state,
+        );
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
@@ -391,6 +402,13 @@ fn apply_command_invocation(
         .execute_command_id(invocation.id.as_str(), ui.project_state.is_project_loaded())
         .is_some()
     {
+        apply_project_command_side_effects(
+            invocation.id.as_str(),
+            &mut ui.project_state,
+            &mut ui.asset_state,
+            &mut ui.scene_state,
+            &mut ui.inspector_state,
+        );
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
@@ -556,7 +574,20 @@ fn apply_ui_events(
     let mut changed = false;
     for event in events {
         if matches!(event, UiEvent::Clicked { id } if *id == ui.ids.run_button) {
-            set_status_text(ui, "Not implemented yet: project opening".to_string())?;
+            if let Some(result) = ui
+                .project_state
+                .execute_command_id(crate::project_state::PROJECT_OPEN_COMMAND)
+            {
+                apply_project_command_side_effects(
+                    crate::project_state::PROJECT_OPEN_COMMAND,
+                    &mut ui.project_state,
+                    &mut ui.asset_state,
+                    &mut ui.scene_state,
+                    &mut ui.inspector_state,
+                );
+                set_status_text(ui, result.message().to_string())?;
+                apply_editor_snapshot_to_ui(ui)?;
+            }
             changed = true;
             continue;
         }

@@ -10,7 +10,8 @@ pub(crate) fn editor_status_bar(
     adapter: &AdapterUiSnapshot,
 ) -> String {
     if project.project_name == "No project open"
-        && assets.asset_count == "Assets: No asset root loaded"
+        && (assets.asset_count == "Assets: Unavailable"
+            || assets.asset_count == "Assets: No asset root loaded")
         && scene.scene_name == "No scene loaded"
         && adapter.status_adapter_suffix == "Adapter: Disconnected"
     {

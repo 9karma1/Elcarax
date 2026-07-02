@@ -29,6 +29,7 @@ pub(crate) fn project_ui_snapshot(
     recent_projects: &RecentProjects,
     validation: &ProjectValidation,
     last_command_result: Option<&ProjectCommandResult>,
+    scanned_asset_count: Option<usize>,
 ) -> ProjectUiSnapshot {
     let command = command_label(last_command_result);
     match current_project {
@@ -38,6 +39,7 @@ pub(crate) fn project_ui_snapshot(
             validation,
             last_command_result,
             command,
+            scanned_asset_count,
         ),
         None => no_project_snapshot(recent_projects, last_command_result, command),
     }
@@ -47,23 +49,36 @@ fn loaded_snapshot(
     project: &Project,
     recent_projects: &RecentProjects,
     validation: &ProjectValidation,
-    last_command_result: Option<&ProjectCommandResult>,
+    _last_command_result: Option<&ProjectCommandResult>,
     command: String,
+    scanned_asset_count: Option<usize>,
 ) -> ProjectUiSnapshot {
-    ProjectUiSnapshot {
-        toolbar_title: format!("Elcarax - {}", project.name().as_str()),
-        project_name: format!("Name: {}", project.name().as_str()),
-        project_path: format!("Path: {}", project.path().display()),
-        project_status: format!("Status: {}", validation.status().label()),
-        project_recent: format!("Recent: {}", recent_projects.len()),
-        project_diagnostics: format!("Diagnostics: {}", validation.summary_label()),
-        project_command: command,
-        status: format!(
-            "Project: {} | Diagnostics: {} | Command: {}",
-            validation.status().label(),
+    let asset_label = format!("Asset root: {}", project.asset_root().display());
+    let scene_label = format!("Scene root: {}", project.scene_root().display());
+    let status = match scanned_asset_count {
+        Some(count) => format!(
+            "Project: Loaded | Diagnostics: {} | Assets: {}",
             validation.diagnostic_count(),
-            command_id_label(last_command_result)
+            count
         ),
+        None => format!(
+            "Project: Loaded | Diagnostics: {}",
+            validation.diagnostic_count()
+        ),
+    };
+    ProjectUiSnapshot {
+        toolbar_title: format!("Elcarax — {}", project.name().as_str()),
+        project_name: format!("Name: {}", project.name().as_str()),
+        project_path: format!("Root: {}", project.root().display()),
+        project_status: format!("{asset_label} | {scene_label}"),
+        project_recent: format!("Recent: {}", recent_projects.len()),
+        project_diagnostics: format!(
+            "Validation: {} | {}",
+            validation.status().label(),
+            validation.summary_label()
+        ),
+        project_command: command,
+        status,
         diagnostic_tone: diagnostic_tone(validation),
     }
 }
@@ -82,12 +97,12 @@ fn no_project_snapshot(
         "Project: No project open".to_string()
     };
     ProjectUiSnapshot {
-        toolbar_title: "Elcarax - No project open".to_string(),
+        toolbar_title: "Elcarax — No Project".to_string(),
         project_name: "No project open".to_string(),
         project_path: "Open Project | Create Project".to_string(),
-        project_status: "Status: No project open".to_string(),
+        project_status: "Assets unavailable until a project is open".to_string(),
         project_recent: format!("Recent: {}", recent_projects.len()),
-        project_diagnostics: "Diagnostics: No diagnostics".to_string(),
+        project_diagnostics: "Validation: No project open".to_string(),
         project_command: command,
         status,
         diagnostic_tone: DiagnosticTone::Neutral,
@@ -112,5 +127,74 @@ fn diagnostic_tone(validation: &ProjectValidation) -> DiagnosticTone {
         Some(Severity::Info) => DiagnosticTone::Neutral,
         None if validation.status() == ProjectStatus::Loaded => DiagnosticTone::Success,
         None => DiagnosticTone::Neutral,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elcarax_project::{ProjectId, ResolvedProjectPaths};
+    use std::num::NonZeroU64;
+    use std::path::PathBuf;
+
+    #[test]
+    fn no_project_state_paints_correctly() {
+        let snapshot = project_ui_snapshot(
+            None,
+            &RecentProjects::default(),
+            &ProjectValidation::no_project(),
+            None,
+            None,
+        );
+        assert_eq!(snapshot.toolbar_title, "Elcarax — No Project");
+        assert_eq!(snapshot.project_name, "No project open");
+        assert!(snapshot.project_status.contains("unavailable"));
+    }
+
+    #[test]
+    fn loaded_project_state_paints_project_metadata() {
+        let project = elcarax_project::Project::from_loaded_data(
+            ProjectId::from_non_zero(NonZeroU64::MIN),
+            "Loaded Project",
+            PathBuf::from("/tmp/project"),
+            ResolvedProjectPaths {
+                asset_root: PathBuf::from("/tmp/project/assets"),
+                scene_root: PathBuf::from("/tmp/project/scenes"),
+                settings_dir: PathBuf::from("/tmp/project/.elcarax"),
+            },
+        );
+        let snapshot = project_ui_snapshot(
+            Some(&project),
+            &RecentProjects::default(),
+            &ProjectValidation::clean_loaded(),
+            None,
+            Some(3),
+        );
+        assert_eq!(snapshot.toolbar_title, "Elcarax — Loaded Project");
+        assert!(snapshot.project_path.contains("Root:"));
+        assert!(snapshot.project_status.contains("Asset root:"));
+        assert!(snapshot.status.contains("Assets: 3"));
+    }
+
+    #[test]
+    fn validation_status_paints_in_diagnostics() {
+        let project = elcarax_project::Project::from_loaded_data(
+            ProjectId::from_non_zero(NonZeroU64::MIN),
+            "Loaded Project",
+            PathBuf::from("/tmp/project"),
+            ResolvedProjectPaths {
+                asset_root: PathBuf::from("/tmp/project/assets"),
+                scene_root: PathBuf::from("/tmp/project/scenes"),
+                settings_dir: PathBuf::from("/tmp/project/.elcarax"),
+            },
+        );
+        let snapshot = project_ui_snapshot(
+            Some(&project),
+            &RecentProjects::default(),
+            &ProjectValidation::clean_loaded(),
+            None,
+            None,
+        );
+        assert!(snapshot.project_diagnostics.contains("Validation: Loaded"));
     }
 }

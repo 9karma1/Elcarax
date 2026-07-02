@@ -16,6 +16,7 @@ pub(crate) fn asset_ui_snapshot(
     selection: &AssetSelection,
     scan: Option<&AssetScan>,
     last_command_message: Option<&str>,
+    project_loaded: bool,
 ) -> AssetUiSnapshot {
     let mut asset_row_labels = empty_row_labels();
     let records: Vec<_> = index
@@ -33,7 +34,7 @@ pub(crate) fn asset_ui_snapshot(
     let status_asset_suffix = status_asset_suffix(index, selection, scan, last_command_message);
     AssetUiSnapshot {
         asset_section_title: "Assets".to_string(),
-        asset_count: asset_count_label(index),
+        asset_count: asset_count_label(index, project_loaded),
         asset_row_labels,
         asset_selected_summary: selected_summary,
         selected_row_index,
@@ -98,9 +99,12 @@ fn status_asset_suffix(
     }
 }
 
-fn asset_count_label(index: &AssetIndex) -> String {
+fn asset_count_label(index: &AssetIndex, project_loaded: bool) -> String {
+    if !project_loaded {
+        return "Assets: Unavailable".to_string();
+    }
     if index.is_empty() {
-        "Assets: No asset root loaded".to_string()
+        "Assets: No assets scanned".to_string()
     } else {
         format!("Assets: {}", index.len())
     }

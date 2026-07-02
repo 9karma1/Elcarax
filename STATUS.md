@@ -21,6 +21,7 @@ Generated: 2026-06-29
 - Adapter property writeback foundation with mock adapter set-property protocol, confirmed scene patches, adapter-backed inspector edits, adapter undo/redo writeback, and diagnostics for rejected writes
 - Viewport preview foundation with viewport state, adapter RGBA frame protocol, image render primitive, viewport commands, and console adapter viewport proof
 - Productionized normal runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
+- Real project file format, create/open/validate/close, recent-project persistence, and project-root asset scanning
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
 - Project, asset, text, accessibility, and devtools modules
@@ -33,7 +34,7 @@ Generated: 2026-06-29
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive empty shell and project-status foundation
-- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, file dialogs, file watching, persistent recent-project storage, project migration, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, continuous viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
+- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, native file dialogs, file watching, project migration beyond schema version checks, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, continuous viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
 - Normal runtime fixture commands, automatic fake data loading, and mock adapter startup as user-facing editor behavior
 - Real `AccessKit` adapter integration
 - Real game engine binding
@@ -66,6 +67,13 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo run -p elcarax_app
 ```
+
+## Milestone 15: Real Project Open and Persistence
+
+- Added `elcarax.project.toml` manifest format with schema version 1 and relative project paths.
+- Added real project create/open/validate/close commands plus recent-project persistence and reopen support.
+- Wired asset scanning to the loaded project's asset root and updated empty/loaded UI states.
+- Documented CLI/env project path configuration and deferred native file picker behavior in `docs/MILESTONE_15_REAL_PROJECT_OPEN_CREATE.md`.
 
 ## Milestone 14A: Productionize Runtime
 
