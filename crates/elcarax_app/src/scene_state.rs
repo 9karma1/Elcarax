@@ -136,12 +136,17 @@ impl SceneState {
     }
 
     fn clear(&mut self) -> SceneCommandResult {
+        self.on_project_closed();
+        SceneCommandResult::new(SCENE_CLEAR_COMMAND, "Cleared loaded scene")
+    }
+
+    pub(crate) fn on_project_closed(&mut self) {
         self.snapshot = None;
         self.source = SceneSource::None;
         self.selection.clear();
         self.expansion.collapse_all();
         self.diagnostics.clear();
-        SceneCommandResult::new(SCENE_CLEAR_COMMAND, "Cleared loaded scene")
+        self.last_command_result = None;
     }
 
     fn clear_selection(&mut self) -> SceneCommandResult {

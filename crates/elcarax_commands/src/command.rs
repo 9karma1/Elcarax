@@ -259,13 +259,13 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
         registered(
             "project.create",
             "Create Project",
-            "Create a project when project creation is implemented",
+            "Create a project at the configured project path",
             CommandCategory::Project,
         )?,
         registered(
             "project.open",
             "Open Project",
-            "Open a project when file loading is implemented",
+            "Open a project from the configured project path",
             CommandCategory::Project,
         )?,
         registered(
@@ -277,7 +277,19 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
         registered(
             "project.validate",
             "Validate Project",
-            "Validate the current project model",
+            "Validate the current project manifest and paths",
+            CommandCategory::Project,
+        )?,
+        registered(
+            "project.show_recent",
+            "Show Recent Projects",
+            "Show the recent projects summary",
+            CommandCategory::Project,
+        )?,
+        registered(
+            "project.reopen_last",
+            "Reopen Last Project",
+            "Open the most recent project when available",
             CommandCategory::Project,
         )?,
         registered(
@@ -484,7 +496,8 @@ mod tests {
         assert!(ids.contains(&"project.create"));
         assert!(ids.contains(&"project.open"));
         assert!(ids.contains(&"project.validate"));
-        assert!(ids.contains(&"project.close"));
+        assert!(ids.contains(&"project.show_recent"));
+        assert!(ids.contains(&"project.reopen_last"));
     }
 
     #[test]
@@ -507,6 +520,8 @@ mod tests {
                 "project.open",
                 "project.close",
                 "project.validate",
+                "project.show_recent",
+                "project.reopen_last",
                 "asset.scan",
                 "asset.clear_selection",
                 "scene.load",

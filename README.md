@@ -24,6 +24,7 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - adapter host integration with JSON-line process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
 - adapter property writeback foundation with mock-adapter-only set-property requests, confirmed scene patches, adapter-backed inspector edits, and adapter undo/redo
 - productionized empty runtime startup with fixture data kept out of normal app flow
+- real project file format, create/open/validate/close, recent-project persistence, and project-root asset scanning
 - project, asset, accessibility state, and devtools modules
 - architecture decision records and milestone documentation
 
@@ -71,7 +72,21 @@ Default console proof flow:
 cargo run -p elcarax_app
 ```
 
-The console flow builds the empty editor shell without opening a GPU window and prints a startup validation summary. It does not load fake project, asset, scene, inspector, or adapter data.
+Create and open a real temporary project from the console proof:
+
+```bash
+cargo run -p elcarax_app -- --create-project /path/to/new-project --project-name "My Elcarax Project"
+cargo run -p elcarax_app -- --project /path/to/new-project
+```
+
+Environment variables:
+
+- `ELCARAX_PROJECT_CREATE_PATH`
+- `ELCARAX_PROJECT_PATH`
+- `ELCARAX_PROJECT_NAME`
+- `ELCARAX_RECENT_PROJECTS_PATH`
+
+The console flow builds the empty editor shell without opening a GPU window, then exercises real project create/open/validate/scan/close/reopen behavior in a temporary folder before running the adapter viewport proof.
 
 Manual native shell smoke test:
 
@@ -90,7 +105,7 @@ Suggested manual flow:
 5. Confirm the right inspector says `No object selected`
 6. Confirm the status bar says `Ready - open a project or connect an adapter`
 7. Press Ctrl+K and confirm the palette exposes real editor commands such as `project.create`, `project.open`, `asset.scan`, `scene.load`, `inspector.clear`, `edit.undo`, `edit.redo`, `adapter.connect`, `adapter.load_scene`, and adapter status/diagnostic commands
-8. Run unimplemented setup commands such as `project.open` or `adapter.connect` and confirm they report clear diagnostics instead of creating fake data
+8. Run `project.create` or `project.open` with CLI/env paths configured and confirm the toolbar, project panel, asset scan, validate, close, and reopen-last behavior update from real project state
 
 The command palette shows eight rows at a time and filters with query text. The toolbar `Open` button reports that project opening is not implemented yet.
 
@@ -130,6 +145,7 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 12: adapter host integration
 - Milestone 13: adapter property writeback foundation
 - Milestone 14A: productionized empty runtime startup
+- Milestone 15: real project open and persistence
 - Milestone 14: viewport preview foundation
 
 See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
@@ -140,3 +156,4 @@ See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 - `docs/MILESTONE_13_ADAPTER_PROPERTY_WRITEBACK.md`
 - `docs/MILESTONE_14_VIEWPORT_PREVIEW_FOUNDATION.md`
 - `docs/MILESTONE_14A_PRODUCTIONIZE_RUNTIME.md`
+- `docs/MILESTONE_15_REAL_PROJECT_OPEN_CREATE.md`

@@ -9,9 +9,15 @@ use elcarax_render::{Rect, RenderStats, batch_scene, image_stats, text_stats};
 use elcarax_ui::{PaintContext, Theme, UiContext, build_editor_shell_with_content};
 
 use crate::adapter_state::AdapterState;
-use crate::asset_state::AssetState;
+use crate::asset_state::{ASSET_SCAN_COMMAND, AssetState};
 use crate::inspector_state::InspectorState;
-use crate::project_state::ProjectState;
+use crate::project_config::AppProjectConfig;
+use crate::project_effects::apply_project_command_side_effects;
+use crate::project_state::{
+    PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
+    PROJECT_REOPEN_LAST_COMMAND, PROJECT_SHOW_RECENT_COMMAND, PROJECT_VALIDATE_COMMAND,
+    ProjectState,
+};
 use crate::project_ui::editor_snapshots;
 use crate::scene_state::SceneState;
 use crate::scene_ui::shell_content_from_editor_state;
@@ -44,6 +50,7 @@ pub fn run_console_proof() -> Result<()> {
     println!("devtools: {}", startup.devtools);
     println!("status: Ready - open a project or connect an adapter");
 
+    run_project_proof()?;
     run_viewport_proof()?;
     Ok(())
 }
@@ -133,6 +140,126 @@ fn build_startup_summary() -> Result<StartupSummary> {
         image_primitive_count: devtools.render.image_primitive_count,
         devtools: devtools.summary(),
     })
+}
+
+fn run_project_proof() -> Result<()> {
+    use std::fs;
+
+    let temp = std::env::temp_dir().join(format!("elcarax-console-project-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp);
+    let recent_path = temp.join("recent-projects.toml");
+    let project_root = temp.join("project");
+
+    println!("project_proof: begin");
+    let config = AppProjectConfig {
+        create_root: Some(project_root.clone()),
+        create_name: Some("Console Proof Project".to_string()),
+        recent_store_path: Some(recent_path.clone()),
+        ..AppProjectConfig::default()
+    };
+    let mut project_state = ProjectState::new(config);
+    let mut asset_state = AssetState::default();
+    let mut scene_state = SceneState::default();
+    let mut inspector_state = InspectorState::default();
+
+    assert!(!project_state.is_project_loaded());
+    println!("project.startup: no project open");
+
+    let create = project_state
+        .execute_command_id(PROJECT_CREATE_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing create result".to_string());
+    println!("project.create: {create}");
+    apply_project_command_side_effects(
+        PROJECT_CREATE_COMMAND,
+        &mut project_state,
+        &mut asset_state,
+        &mut scene_state,
+        &mut inspector_state,
+    );
+    assert!(project_state.is_project_loaded());
+
+    let open_config = AppProjectConfig {
+        open_path: Some(project_root.clone()),
+        recent_store_path: Some(recent_path.clone()),
+        ..AppProjectConfig::default()
+    };
+    project_state = ProjectState::new(open_config);
+    let open = project_state
+        .execute_command_id(PROJECT_OPEN_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing open result".to_string());
+    println!("project.open: {open}");
+    apply_project_command_side_effects(
+        PROJECT_OPEN_COMMAND,
+        &mut project_state,
+        &mut asset_state,
+        &mut scene_state,
+        &mut inspector_state,
+    );
+
+    let validate = project_state
+        .execute_command_id(PROJECT_VALIDATE_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing validate result".to_string());
+    println!("project.validate: {validate}");
+
+    let scan = asset_state
+        .execute_command_id(ASSET_SCAN_COMMAND, project_state.is_project_loaded())
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing scan result".to_string());
+    println!("asset.scan: {scan}");
+    apply_project_command_side_effects(
+        ASSET_SCAN_COMMAND,
+        &mut project_state,
+        &mut asset_state,
+        &mut scene_state,
+        &mut inspector_state,
+    );
+
+    let recent = project_state
+        .execute_command_id(PROJECT_SHOW_RECENT_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing recent result".to_string());
+    println!("project.show_recent: {recent}");
+
+    let close = project_state
+        .execute_command_id(PROJECT_CLOSE_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing close result".to_string());
+    println!("project.close: {close}");
+    apply_project_command_side_effects(
+        PROJECT_CLOSE_COMMAND,
+        &mut project_state,
+        &mut asset_state,
+        &mut scene_state,
+        &mut inspector_state,
+    );
+    assert!(!project_state.is_project_loaded());
+    assert!(asset_state.index().is_empty());
+
+    let reopen_config = AppProjectConfig {
+        recent_store_path: Some(recent_path),
+        ..AppProjectConfig::default()
+    };
+    project_state = ProjectState::new(reopen_config);
+    let reopen = project_state
+        .execute_command_id(PROJECT_REOPEN_LAST_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing reopen result".to_string());
+    println!("project.reopen_last: {reopen}");
+    apply_project_command_side_effects(
+        PROJECT_REOPEN_LAST_COMMAND,
+        &mut project_state,
+        &mut asset_state,
+        &mut scene_state,
+        &mut inspector_state,
+    );
+    assert!(project_state.is_project_loaded());
+
+    let _ = fs::remove_dir_all(&temp);
+    println!("project_proof: complete");
+    Ok(())
 }
 
 fn run_viewport_proof() -> Result<()> {

@@ -11,7 +11,9 @@ mod inspector_state;
 mod inspector_ui;
 #[cfg(feature = "native-shell")]
 mod native_shell;
+mod project_config;
 mod project_display;
+mod project_effects;
 mod project_state;
 mod project_ui;
 mod scene_display;

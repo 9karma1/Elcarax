@@ -98,8 +98,14 @@ impl InspectorState {
         }
     }
 
-    fn clear(&mut self) -> InspectorCommandResult {
+    pub(crate) fn on_project_closed(&mut self) {
         self.suppressed = true;
+        self.diagnostics.clear();
+        self.last_command_result = None;
+    }
+
+    fn clear(&mut self) -> InspectorCommandResult {
+        self.on_project_closed();
         InspectorCommandResult::new(INSPECTOR_CLEAR_COMMAND, "Cleared inspector view")
     }
 

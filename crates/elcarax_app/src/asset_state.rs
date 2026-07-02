@@ -1,6 +1,8 @@
 #![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 
-use elcarax_assets::{AssetId, AssetIndex, AssetScan, AssetSelection};
+use std::path::{Path, PathBuf};
+
+use elcarax_assets::{AssetId, AssetIndex, AssetScan, AssetSelection, apply_selection_after_scan};
 
 use crate::asset_display::{AssetUiSnapshot, asset_ui_snapshot};
 
@@ -9,6 +11,7 @@ pub(crate) const ASSET_CLEAR_SELECTION_COMMAND: &str = "asset.clear_selection";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AssetState {
+    asset_root: Option<PathBuf>,
     index: AssetIndex,
     selection: AssetSelection,
     last_scan: Option<AssetScan>,
@@ -28,6 +31,22 @@ impl AssetState {
         };
         self.last_command_result = Some(result.clone());
         Some(result)
+    }
+
+    pub(crate) fn on_project_opened(&mut self, asset_root: &Path) {
+        self.asset_root = Some(asset_root.to_path_buf());
+        self.index = AssetIndex::new();
+        self.selection = AssetSelection::none();
+        self.last_scan = None;
+        self.last_command_result = None;
+    }
+
+    pub(crate) fn on_project_closed(&mut self) {
+        self.asset_root = None;
+        self.index = AssetIndex::new();
+        self.selection = AssetSelection::none();
+        self.last_scan = None;
+        self.last_command_result = None;
     }
 
     #[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
@@ -56,7 +75,12 @@ impl AssetState {
             self.last_command_result
                 .as_ref()
                 .map(AssetCommandResult::message),
+            self.asset_root.is_some(),
         )
+    }
+
+    pub(crate) fn scanned_asset_count(&self) -> Option<usize> {
+        self.last_scan.as_ref().map(|scan| scan.asset_count())
     }
 
     #[cfg_attr(feature = "native-shell", allow(dead_code))]
@@ -78,11 +102,28 @@ impl AssetState {
         if !project_loaded {
             return AssetCommandResult::new(ASSET_SCAN_COMMAND, "No project open");
         }
-        AssetCommandResult::new(ASSET_SCAN_COMMAND, "No asset root loaded")
+        let Some(root) = self.asset_root.clone() else {
+            return AssetCommandResult::new(ASSET_SCAN_COMMAND, "No asset root loaded");
+        };
+        let scan = AssetScan::scan_root(&root);
+        apply_selection_after_scan(&scan, &mut self.selection);
+        let message = if scan.diagnostics().is_empty() {
+            format!("Scanned {} asset(s)", scan.asset_count())
+        } else {
+            format!(
+                "Scanned {} asset(s); {}",
+                scan.asset_count(),
+                scan.diagnostics()[0].summary()
+            )
+        };
+        self.index = scan.index.clone();
+        self.last_scan = Some(scan);
+        AssetCommandResult::new(ASSET_SCAN_COMMAND, message)
     }
 
     #[cfg(test)]
     fn load_fixture_scan(&mut self, scan: AssetScan) {
+        self.asset_root = scan.root.clone();
         self.index = scan.index.clone();
         self.last_scan = Some(scan);
     }
@@ -96,6 +137,7 @@ impl AssetState {
 impl Default for AssetState {
     fn default() -> Self {
         Self {
+            asset_root: None,
             index: AssetIndex::new(),
             selection: AssetSelection::none(),
             last_scan: None,
@@ -134,7 +176,7 @@ impl AssetCommandResult {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(any(not(test), feature = "native-shell"), allow(dead_code))]
     pub(crate) fn command_id(&self) -> &str {
         self.command_id.as_str()
     }
@@ -149,12 +191,10 @@ mod tests {
     use super::*;
     use elcarax_assets::{AssetKind, AssetRecord, stable_asset_id};
     use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
+    use elcarax_project::{ProjectCreateRequest, create_project};
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
+    use std::fs;
     use std::path::PathBuf;
-
-    fn project_loaded() -> bool {
-        true
-    }
 
     #[test]
     fn fixture_scan_kind_summary_is_stable() {
@@ -164,13 +204,26 @@ mod tests {
     }
 
     #[test]
+    fn asset_scan_uses_project_asset_root() {
+        let temp =
+            std::env::temp_dir().join(format!("elcarax-app-asset-scan-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
+        let _ = create_project(&ProjectCreateRequest::new(&temp, "Asset Scan"));
+        let mut state = AssetState::default();
+        state.on_project_opened(temp.join("assets").as_path());
+        let result = state.execute_command_id(ASSET_SCAN_COMMAND, true);
+        assert_eq!(
+            result.as_ref().map(AssetCommandResult::message),
+            Some("Scanned 0 asset(s)")
+        );
+        assert_eq!(state.index().len(), 0);
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
     fn asset_scan_without_root_reports_empty_state() {
         let mut state = AssetState::default();
-        let result = state.execute_command_id(ASSET_SCAN_COMMAND, project_loaded());
-        assert_eq!(
-            result.as_ref().map(AssetCommandResult::command_id),
-            Some(ASSET_SCAN_COMMAND)
-        );
+        let result = state.execute_command_id(ASSET_SCAN_COMMAND, true);
         assert_eq!(
             result.as_ref().map(AssetCommandResult::message),
             Some("No asset root loaded")
@@ -202,8 +255,17 @@ mod tests {
         let mut state = AssetState::default();
         state.load_fixture_scan(fixture_scan());
         assert!(state.selection.select_first(&state.index));
-        let _ = state.execute_command_id(ASSET_CLEAR_SELECTION_COMMAND, project_loaded());
+        let _ = state.execute_command_id(ASSET_CLEAR_SELECTION_COMMAND, true);
         assert_eq!(state.selection().selected(), None);
+    }
+
+    #[test]
+    fn close_project_clears_asset_state() {
+        let mut state = AssetState::default();
+        state.load_fixture_scan(fixture_scan());
+        state.on_project_closed();
+        assert!(state.index().is_empty());
+        assert!(state.scanned_asset_count().is_none());
     }
 
     #[test]

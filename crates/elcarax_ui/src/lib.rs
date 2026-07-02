@@ -1500,11 +1500,11 @@ fn empty_asset_row_labels() -> [String; MAX_VISIBLE_ASSET_ROWS] {
 impl EditorShellContent {
     pub fn no_project() -> Self {
         Self {
-            toolbar_title: "Elcarax - No project open".to_string(),
+            toolbar_title: "Elcarax — No Project".to_string(),
             project_title: "Project".to_string(),
             project_name: "No project open".to_string(),
             project_path: "Open Project | Create Project".to_string(),
-            project_status: "Status: No project open".to_string(),
+            project_status: "Assets unavailable until a project is open".to_string(),
             project_recent: "Recent: 0".to_string(),
             project_diagnostics: "Diagnostics: No diagnostics".to_string(),
             project_command: "Command: None".to_string(),
@@ -1512,7 +1512,7 @@ impl EditorShellContent {
             adapter_diagnostics: "Adapter Diagnostics: 0".to_string(),
             adapter_command: "Adapter Command: None".to_string(),
             asset_section_title: "Assets".to_string(),
-            asset_count: "Assets: No asset root loaded".to_string(),
+            asset_count: "Assets: Unavailable".to_string(),
             asset_row_labels: empty_asset_row_labels(),
             asset_selected_summary: "Selected: None".to_string(),
             scene_section_title: "Scene".to_string(),
@@ -3342,14 +3342,14 @@ mod tests {
                 assert!(
                     tree.set_label_text(
                         shell.ids.status_label,
-                        "Not implemented yet: project opening"
+                        "Set ELCARAX_PROJECT_PATH or pass --project <path>"
                     )
                     .is_ok()
                 );
             }
         }
         assert!(tree.get(shell.ids.status_label).is_some_and(|node| {
-            matches!(&node.kind, WidgetKind::Label(text) if text == "Not implemented yet: project opening")
+            matches!(&node.kind, WidgetKind::Label(text) if text == "Set ELCARAX_PROJECT_PATH or pass --project <path>")
         }));
     }
 
@@ -3362,7 +3362,7 @@ mod tests {
         )));
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
-        assert!(texts.contains(&"Elcarax - No project open"));
+        assert!(texts.contains(&"Elcarax — No Project"));
         assert!(texts.contains(&"No project open"));
         assert!(texts.contains(&"Ready - open a project or connect an adapter"));
     }
@@ -3371,14 +3371,17 @@ mod tests {
     fn loaded_project_shell_paints_project_metadata() {
         let theme = Theme::editor_dark();
         let content = EditorShellContent {
-            toolbar_title: "Elcarax - Fixture Project".to_string(),
+            toolbar_title: "Elcarax — Fixture Project".to_string(),
             project_name: "Name: Fixture Project".to_string(),
-            project_path: "Path: fixtures/project.elcarax".to_string(),
-            project_status: "Status: Loaded".to_string(),
+            project_path: "Root: fixtures/project".to_string(),
+            project_status:
+                "Asset root: fixtures/project/assets | Scene root: fixtures/project/scenes"
+                    .to_string(),
             project_recent: "Recent: 1".to_string(),
-            project_diagnostics: "Diagnostics: No diagnostics".to_string(),
+            project_diagnostics: "Validation: Loaded | No diagnostics".to_string(),
             project_command: "Command: project.open".to_string(),
-            status: "Project: Loaded | Diagnostics: 0 | Command: project.open".to_string(),
+            status: "Project: Loaded | Diagnostics: 0".to_string(),
+            asset_count: "Assets: No assets scanned".to_string(),
             ..EditorShellContent::default()
         };
         let shell = must(build_editor_shell_with_content(
@@ -3387,10 +3390,10 @@ mod tests {
         ));
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
-        assert!(texts.contains(&"Elcarax - Fixture Project"));
+        assert!(texts.contains(&"Elcarax — Fixture Project"));
         assert!(texts.contains(&"Name: Fixture Project"));
-        assert!(texts.contains(&"Diagnostics: No diagnostics"));
-        assert!(texts.contains(&"Project: Loaded | Diagnostics: 0 | Command: project.open"));
+        assert!(texts.contains(&"Root: fixtures/project"));
+        assert!(texts.contains(&"Project: Loaded | Diagnostics: 0"));
     }
 
     #[test]
