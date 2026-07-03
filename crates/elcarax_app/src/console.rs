@@ -21,7 +21,7 @@ use crate::project_state::{
     ProjectState,
 };
 use crate::project_ui::editor_snapshots;
-use crate::scene_state::SceneState;
+use crate::scene_state::{SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND, SceneState};
 use crate::scene_ui::shell_content_from_editor_state;
 use crate::viewport_state::{
     AppViewportState, VIEWPORT_CLEAR_COMMAND, VIEWPORT_REQUEST_FRAME_COMMAND,
@@ -181,6 +181,13 @@ fn run_project_proof() -> Result<()> {
     );
     assert!(project_state.is_project_loaded());
 
+    let scene_load = scene_state
+        .execute_command_id(SCENE_LOAD_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing scene load result".to_string());
+    println!("scene.load: {scene_load}");
+    assert!(scene_state.snapshot().is_some());
+
     let open_config = AppProjectConfig {
         open_path: Some(project_root.clone()),
         recent_store_path: Some(recent_path.clone()),
@@ -288,6 +295,17 @@ fn run_project_proof() -> Result<()> {
         &mut inspector_state,
     );
     assert!(project_state.is_project_loaded());
+
+    let scene_reload = scene_state
+        .execute_command_id(SCENE_LOAD_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing scene reload result".to_string());
+    println!("scene.reload: {scene_reload}");
+    let scene_save = scene_state
+        .execute_command_id(SCENE_SAVE_COMMAND)
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing scene save result".to_string());
+    println!("scene.save: {scene_save}");
 
     let _ = fs::remove_dir_all(&temp);
     println!("project_proof: complete");

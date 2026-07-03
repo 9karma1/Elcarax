@@ -42,6 +42,7 @@ pub fn open_project(request: &ProjectOpenRequest) -> Result<ProjectLoadResult, P
         file.manifest.name.as_str(),
         &root,
         resolved,
+        file.manifest.editor.clone(),
     )?;
     let validation = validate_opened_project(&project, &manifest_path);
     Ok(ProjectLoadResult {

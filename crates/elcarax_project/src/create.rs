@@ -1,6 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use elcarax_scene_model::{
+    DEFAULT_SCENE_FILENAME, create_default_scene_file, scene_file_path_in_root,
+};
+
 use crate::domain::{Project, project_id_from_root};
 use crate::error::ProjectError;
 use crate::manifest::{MANIFEST_FILENAME, ProjectFile, manifest_path_for_root};
@@ -64,11 +68,20 @@ pub fn create_project(request: &ProjectCreateRequest) -> Result<ProjectLoadResul
             manifest_path.display()
         ))
     })?;
+    let default_scene_path =
+        scene_file_path_in_root(resolved.scene_root.as_path(), DEFAULT_SCENE_FILENAME);
+    create_default_scene_file(&default_scene_path, "Main Scene").map_err(|error| {
+        ProjectError::Io(format!(
+            "failed to write default scene {}: {error}",
+            default_scene_path.display()
+        ))
+    })?;
     let project = Project::new(
         project_id_from_root(&request.root),
         manifest.name.as_str(),
         &request.root,
         resolved,
+        manifest.editor.clone(),
     )?;
     let validation = validate_opened_project(&project, &manifest_path);
     Ok(ProjectLoadResult {
@@ -93,6 +106,7 @@ pub fn ensure_manifest_filename(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elcarax_scene_model::DEFAULT_SCENE_FILENAME;
     use std::fs;
 
     #[test]
@@ -109,6 +123,7 @@ mod tests {
         assert!(temp.join("assets").is_dir());
         assert!(temp.join("scenes").is_dir());
         assert!(temp.join(".elcarax").is_dir());
+        assert!(temp.join("scenes").join(DEFAULT_SCENE_FILENAME).is_file());
         let _ = fs::remove_dir_all(&temp);
     }
 

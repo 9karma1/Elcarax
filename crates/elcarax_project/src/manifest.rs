@@ -58,6 +58,23 @@ pub struct ResolvedProjectPaths {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ProjectEditorSettings {
+    pub active_scene: Option<PathBuf>,
+}
+
+impl ProjectEditorSettings {
+    pub fn with_default_active_scene() -> Self {
+        Self {
+            active_scene: Some(PathBuf::from(elcarax_scene_model::DEFAULT_SCENE_FILENAME)),
+        }
+    }
+
+    pub fn active_scene_relative(&self) -> Option<&Path> {
+        self.active_scene.as_deref()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProjectSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +83,7 @@ pub struct ProjectManifest {
     pub name: String,
     pub paths: ProjectPaths,
     pub settings: ProjectSettings,
+    pub editor: ProjectEditorSettings,
 }
 
 impl ProjectManifest {
@@ -75,6 +93,7 @@ impl ProjectManifest {
             name: name.into(),
             paths: ProjectPaths::defaults(),
             settings: ProjectSettings,
+            editor: ProjectEditorSettings::with_default_active_scene(),
         }
     }
 }
@@ -121,6 +140,13 @@ struct ManifestDocument {
     schema_version: u32,
     name: String,
     paths: ManifestPathsDocument,
+    #[serde(default)]
+    editor: ManifestEditorDocument,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct ManifestEditorDocument {
+    active_scene: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -140,6 +166,13 @@ impl ManifestDocument {
                 scene_root: manifest.paths.scene_root.display().to_string(),
                 settings_dir: manifest.paths.settings_dir.display().to_string(),
             },
+            editor: ManifestEditorDocument {
+                active_scene: manifest
+                    .editor
+                    .active_scene
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+            },
         }
     }
 
@@ -155,6 +188,9 @@ impl ManifestDocument {
                 settings_dir: PathBuf::from(self.paths.settings_dir),
             },
             settings: ProjectSettings,
+            editor: ProjectEditorSettings {
+                active_scene: self.editor.active_scene.map(PathBuf::from),
+            },
         })
     }
 }

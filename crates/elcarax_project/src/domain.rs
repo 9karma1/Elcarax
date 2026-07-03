@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use elcarax_core::{Id, Severity};
 use std::num::NonZeroU64;
 
+use crate::manifest::ProjectEditorSettings;
 use crate::manifest::ResolvedProjectPaths;
 
 pub enum ProjectMarker {}
@@ -14,6 +15,7 @@ pub struct Project {
     name: ProjectName,
     root: ProjectPath,
     paths: ResolvedProjectPaths,
+    editor: ProjectEditorSettings,
 }
 
 impl Project {
@@ -22,12 +24,14 @@ impl Project {
         name: impl Into<String>,
         root: impl Into<PathBuf>,
         paths: ResolvedProjectPaths,
+        editor: ProjectEditorSettings,
     ) -> std::result::Result<Self, super::error::ProjectError> {
         Ok(Self {
             id,
             name: ProjectName::new(name)?,
             root: ProjectPath::new(root)?,
             paths,
+            editor,
         })
     }
 
@@ -36,12 +40,14 @@ impl Project {
         name: impl Into<String>,
         root: impl Into<PathBuf>,
         paths: ResolvedProjectPaths,
+        editor: ProjectEditorSettings,
     ) -> Self {
         Self {
             id,
             name: ProjectName::from_unvalidated(name),
             root: ProjectPath::from_unvalidated(root),
             paths,
+            editor,
         }
     }
 
@@ -72,6 +78,10 @@ impl Project {
 
     pub fn settings_dir(&self) -> &Path {
         self.paths.settings_dir.as_path()
+    }
+
+    pub fn editor_settings(&self) -> &ProjectEditorSettings {
+        &self.editor
     }
 
     pub fn resolved_paths(&self) -> &ResolvedProjectPaths {

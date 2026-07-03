@@ -97,12 +97,22 @@ impl SceneSnapshot {
     }
 
     fn with_id_and_name(scene_id: SceneId, name: SceneName) -> Self {
+        Self::from_storage(scene_id, name, Vec::new(), BTreeMap::new(), BTreeMap::new())
+    }
+
+    pub(crate) fn from_storage(
+        scene_id: SceneId,
+        name: SceneName,
+        root_objects: Vec<SceneObjectId>,
+        objects: BTreeMap<SceneObjectId, SceneObject>,
+        schemas: BTreeMap<ObjectTypeId, ObjectSchema>,
+    ) -> Self {
         Self {
             scene_id,
             name,
-            root_objects: Vec::new(),
-            objects: BTreeMap::new(),
-            schemas: BTreeMap::new(),
+            root_objects,
+            objects,
+            schemas,
         }
     }
 

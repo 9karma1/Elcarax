@@ -11,12 +11,14 @@ mod property;
 mod property_display;
 mod property_edit;
 mod reference_scene;
+mod scene_file;
+mod scene_io;
 mod schema;
 mod selection;
 mod snapshot;
 
 pub use diagnostic::SceneDiagnostic;
-pub use error::SceneError;
+pub use error::{SceneError, SceneIoError};
 pub use hierarchy::{SceneHierarchy, SceneTreeRow};
 pub use inspector::{
     InspectorDiagnostic, InspectorObject, InspectorRow, InspectorSection,
@@ -34,6 +36,14 @@ pub use property_edit::{
     apply_property_change, edit_scene_property, parse_property_text, prepare_property_change,
 };
 pub use reference_scene::reference_scene_snapshot;
+pub use scene_file::{
+    DEFAULT_SCENE_FILENAME, SCENE_FILE_SUFFIX, SceneFile, SceneFileVersion, is_scene_file_name,
+    scene_file_path_in_root,
+};
+pub use scene_io::{
+    create_default_scene_file, discover_scene_files, load_scene_from_project, read_scene_file,
+    resolve_scene_load_path, write_scene_file,
+};
 pub use schema::{
     NumericEditMetadata, ObjectSchema, ObjectTypeId, PropertyEditKind, PropertyKind, PropertySchema,
 };

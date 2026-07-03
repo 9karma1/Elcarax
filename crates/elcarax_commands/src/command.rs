@@ -337,7 +337,13 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
         registered(
             "scene.load",
             "Load Scene",
-            "Load a scene from a project or adapter when available",
+            "Load the active scene from the open project scene root",
+            CommandCategory::Scene,
+        )?,
+        registered(
+            "scene.save",
+            "Save Scene",
+            "Save the loaded project scene back to disk",
             CommandCategory::Scene,
         )?,
         registered(
@@ -560,6 +566,7 @@ mod tests {
                 "asset.show_selected",
                 "asset.reveal_root",
                 "scene.load",
+                "scene.save",
                 "scene.clear",
                 "scene.clear_selection",
                 "inspector.clear",
@@ -611,6 +618,7 @@ mod tests {
             .map(|command| command.id().as_str())
             .collect();
         assert!(ids.contains(&"scene.load"));
+        assert!(ids.contains(&"scene.save"));
         assert!(ids.contains(&"scene.clear"));
         assert!(ids.contains(&"scene.clear_selection"));
     }

@@ -241,7 +241,7 @@ impl Default for RecentProjects {
 mod tests {
     use super::*;
     use crate::domain::{Project, project_id_from_root};
-    use crate::manifest::ResolvedProjectPaths;
+    use crate::manifest::{ProjectEditorSettings, ResolvedProjectPaths};
     use std::fs;
 
     fn fixture_project(name: &str, path: PathBuf) -> Project {
@@ -254,6 +254,7 @@ mod tests {
                 scene_root: path.join("scenes"),
                 settings_dir: path.join(".elcarax"),
             },
+            ProjectEditorSettings::default(),
         )
     }
 

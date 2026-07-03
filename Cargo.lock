@@ -718,6 +718,7 @@ name = "elcarax_project"
 version = "0.1.0"
 dependencies = [
  "elcarax_core",
+ "elcarax_scene_model",
  "serde",
  "toml",
 ]
@@ -738,6 +739,7 @@ version = "0.1.0"
 dependencies = [
  "elcarax_core",
  "serde",
+ "toml",
 ]
 
 [[package]]

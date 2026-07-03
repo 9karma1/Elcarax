@@ -115,6 +115,18 @@ impl ProjectState {
             .map(|project| project.root().as_path())
     }
 
+    pub(crate) fn scene_root(&self) -> Option<&std::path::Path> {
+        self.current_project
+            .as_ref()
+            .map(|project| project.scene_root())
+    }
+
+    pub(crate) fn active_scene_relative(&self) -> Option<&std::path::Path> {
+        self.current_project
+            .as_ref()
+            .and_then(|project| project.editor_settings().active_scene_relative())
+    }
+
     pub(crate) fn set_scanned_asset_count(&mut self, count: Option<usize>) {
         self.scanned_asset_count = count;
     }
@@ -477,6 +489,7 @@ mod tests {
                 scene_root: PathBuf::from("fixtures/project/scenes"),
                 settings_dir: PathBuf::from("fixtures/project/.elcarax"),
             },
+            elcarax_project::ProjectEditorSettings::default(),
         )
     }
 

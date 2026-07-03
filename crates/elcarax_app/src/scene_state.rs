@@ -1,13 +1,17 @@
 #![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 
+use std::path::{Path, PathBuf};
+
 use elcarax_adapter_api::AdapterId;
 use elcarax_scene_model::{
-    SceneDiagnostic, SceneExpansion, SceneObjectId, SceneSelection, SceneSnapshot,
+    SceneDiagnostic, SceneExpansion, SceneIoError, SceneObjectId, SceneSelection, SceneSnapshot,
+    load_scene_from_project, write_scene_file,
 };
 
 use crate::scene_display::{SceneUiSnapshot, scene_ui_snapshot};
 
 pub(crate) const SCENE_LOAD_COMMAND: &str = "scene.load";
+pub(crate) const SCENE_SAVE_COMMAND: &str = "scene.save";
 pub(crate) const SCENE_CLEAR_COMMAND: &str = "scene.clear";
 pub(crate) const SCENE_CLEAR_SELECTION_COMMAND: &str = "scene.clear_selection";
 
@@ -15,10 +19,17 @@ pub(crate) const SCENE_CLEAR_SELECTION_COMMAND: &str = "scene.clear_selection";
 pub(crate) struct SceneState {
     snapshot: Option<SceneSnapshot>,
     source: SceneSource,
+    project_binding: Option<SceneProjectBinding>,
     selection: SceneSelection,
     expansion: SceneExpansion,
     diagnostics: Vec<SceneDiagnostic>,
     last_command_result: Option<SceneCommandResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SceneProjectBinding {
+    scene_root: PathBuf,
+    active_scene: Option<PathBuf>,
 }
 
 impl SceneState {
@@ -26,6 +37,7 @@ impl SceneState {
         let command = SceneCommand::from_id(id)?;
         let result = match command {
             SceneCommand::Load => self.load(),
+            SceneCommand::Save => self.save(),
             SceneCommand::Clear => self.clear(),
             SceneCommand::ClearSelection => self.clear_selection(),
         };
@@ -97,7 +109,7 @@ impl SceneState {
             SceneSource::Adapter(id) => Some(id),
             #[cfg(test)]
             SceneSource::Local => None,
-            SceneSource::None => None,
+            SceneSource::None | SceneSource::Project(_) => None,
         }
     }
 
@@ -131,16 +143,72 @@ impl SceneState {
         self.last_command_result = Some(SceneCommandResult::new(command_id, message));
     }
 
+    pub(crate) fn on_project_opened(&mut self, scene_root: &Path, active_scene: Option<&Path>) {
+        self.clear_loaded_scene();
+        self.project_binding = Some(SceneProjectBinding {
+            scene_root: scene_root.to_path_buf(),
+            active_scene: active_scene.map(Path::to_path_buf),
+        });
+    }
+
     fn load(&mut self) -> SceneCommandResult {
-        SceneCommandResult::new(SCENE_LOAD_COMMAND, "No scene source configured")
+        let Some(binding) = self.project_binding.as_ref() else {
+            return SceneCommandResult::new(SCENE_LOAD_COMMAND, "No project open");
+        };
+        match load_scene_from_project(
+            binding.scene_root.as_path(),
+            binding.active_scene.as_deref(),
+        ) {
+            Ok((snapshot, path)) => {
+                self.apply_loaded_snapshot(snapshot, SceneSource::Project(path.clone()));
+                SceneCommandResult::new(
+                    SCENE_LOAD_COMMAND,
+                    format!("Loaded scene from {}", path.display()),
+                )
+            }
+            Err(SceneIoError::NoSceneFileFound) => SceneCommandResult::new(
+                SCENE_LOAD_COMMAND,
+                "No scene file found in project scene root",
+            ),
+            Err(error) => SceneCommandResult::new(SCENE_LOAD_COMMAND, error.to_string()),
+        }
+    }
+
+    fn save(&mut self) -> SceneCommandResult {
+        let Some(snapshot) = self.snapshot.as_ref() else {
+            return SceneCommandResult::new(SCENE_SAVE_COMMAND, "No scene loaded");
+        };
+        let SceneSource::Project(path) = &self.source else {
+            return SceneCommandResult::new(
+                SCENE_SAVE_COMMAND,
+                "Only project-owned scenes can be saved in this milestone",
+            );
+        };
+        match write_scene_file(path.as_path(), snapshot) {
+            Ok(()) => SceneCommandResult::new(
+                SCENE_SAVE_COMMAND,
+                format!("Saved scene to {}", path.display()),
+            ),
+            Err(error) => SceneCommandResult::new(SCENE_SAVE_COMMAND, error.to_string()),
+        }
     }
 
     fn clear(&mut self) -> SceneCommandResult {
-        self.on_project_closed();
+        self.clear_loaded_scene();
         SceneCommandResult::new(SCENE_CLEAR_COMMAND, "Cleared loaded scene")
     }
 
     pub(crate) fn on_project_closed(&mut self) {
+        self.clear_loaded_scene();
+        self.project_binding = None;
+    }
+
+    fn clear_selection(&mut self) -> SceneCommandResult {
+        self.selection.clear();
+        SceneCommandResult::new(SCENE_CLEAR_SELECTION_COMMAND, "Cleared scene selection")
+    }
+
+    fn clear_loaded_scene(&mut self) {
         self.snapshot = None;
         self.source = SceneSource::None;
         self.selection.clear();
@@ -149,19 +217,18 @@ impl SceneState {
         self.last_command_result = None;
     }
 
-    fn clear_selection(&mut self) -> SceneCommandResult {
-        self.selection.clear();
-        SceneCommandResult::new(SCENE_CLEAR_SELECTION_COMMAND, "Cleared scene selection")
-    }
-
-    #[cfg(test)]
-    pub(crate) fn load_fixture_snapshot(&mut self, snapshot: SceneSnapshot) {
+    fn apply_loaded_snapshot(&mut self, snapshot: SceneSnapshot, source: SceneSource) {
         self.snapshot = Some(snapshot);
-        self.source = SceneSource::Local;
+        self.source = source;
         self.selection.clear();
         self.expansion.collapse_all();
         self.diagnostics.clear();
         self.last_command_result = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn load_fixture_snapshot(&mut self, snapshot: SceneSnapshot) {
+        self.apply_loaded_snapshot(snapshot, SceneSource::Local);
     }
 
     #[cfg(test)]
@@ -188,6 +255,7 @@ impl Default for SceneState {
         Self {
             snapshot: None,
             source: SceneSource::None,
+            project_binding: None,
             selection: SceneSelection::none(),
             expansion: SceneExpansion::new(),
             diagnostics: Vec::new(),
@@ -201,6 +269,7 @@ pub(crate) enum SceneSource {
     None,
     #[cfg(test)]
     Local,
+    Project(PathBuf),
     #[allow(dead_code)]
     Adapter(AdapterId),
 }
@@ -208,6 +277,7 @@ pub(crate) enum SceneSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SceneCommand {
     Load,
+    Save,
     Clear,
     ClearSelection,
 }
@@ -216,6 +286,7 @@ impl SceneCommand {
     fn from_id(id: &str) -> Option<Self> {
         match id {
             SCENE_LOAD_COMMAND => Some(Self::Load),
+            SCENE_SAVE_COMMAND => Some(Self::Save),
             SCENE_CLEAR_COMMAND => Some(Self::Clear),
             SCENE_CLEAR_SELECTION_COMMAND => Some(Self::ClearSelection),
             _ => None,
@@ -246,21 +317,82 @@ impl SceneCommandResult {
 mod tests {
     use super::*;
     use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
+    use elcarax_project::{ProjectCreateRequest, create_project};
     use elcarax_scene_model::{
         ObjectSchema, PropertyGroup, PropertyKind, PropertyPath, PropertySchema, PropertyValue,
         SceneName, SceneObject, SceneObjectKind,
     };
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
+    use std::fs;
 
     #[test]
-    fn scene_load_reports_missing_source_without_fixture_data() {
+    fn scene_load_reports_no_project_when_unbound() {
         let mut state = SceneState::default();
         let result = state.execute_command_id(SCENE_LOAD_COMMAND);
         assert_eq!(
             result.as_ref().map(SceneCommandResult::message),
-            Some("No scene source configured")
+            Some("No project open")
         );
         assert!(state.snapshot().is_none());
+    }
+
+    #[test]
+    fn scene_load_reads_default_scene_from_created_project() {
+        let temp = std::env::temp_dir().join(format!("elcarax-scene-load-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
+        let loaded = create_project(&ProjectCreateRequest::new(&temp, "Scene Load"));
+        let loaded = match loaded {
+            Ok(value) => value,
+            Err(error) => panic!("create should succeed: {error}"),
+        };
+        let mut state = SceneState::default();
+        state.on_project_opened(
+            loaded.project.scene_root(),
+            loaded.project.editor_settings().active_scene_relative(),
+        );
+        let result = state.execute_command_id(SCENE_LOAD_COMMAND);
+        assert!(
+            result
+                .as_ref()
+                .map(SceneCommandResult::message)
+                .is_some_and(|message| message.starts_with("Loaded scene from")),
+        );
+        assert!(state.snapshot().is_some());
+        assert!(matches!(state.source, SceneSource::Project(_)));
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn scene_save_writes_loaded_project_scene() {
+        let temp = std::env::temp_dir().join(format!("elcarax-scene-save-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
+        let loaded = create_project(&ProjectCreateRequest::new(&temp, "Scene Save"));
+        let loaded = match loaded {
+            Ok(value) => value,
+            Err(error) => panic!("create should succeed: {error}"),
+        };
+        let mut state = SceneState::default();
+        state.on_project_opened(
+            loaded.project.scene_root(),
+            loaded.project.editor_settings().active_scene_relative(),
+        );
+        let _ = state.execute_command_id(SCENE_LOAD_COMMAND);
+        if let Some(snapshot) = state.snapshot_mut() {
+            let schema = ObjectSchema::new("Marker");
+            let object = SceneObject::new("Saved Root", SceneObjectKind::World, schema.type_id);
+            snapshot.add_schema(schema);
+            snapshot.add_root_object(object);
+        }
+        let save = state.execute_command_id(SCENE_SAVE_COMMAND);
+        assert!(
+            save.as_ref()
+                .map(SceneCommandResult::message)
+                .is_some_and(|message| message.starts_with("Saved scene to"))
+        );
+        let reload = state.execute_command_id(SCENE_LOAD_COMMAND);
+        assert!(reload.is_some());
+        assert_eq!(state.snapshot().map(|value| value.object_count()), Some(1));
+        let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
@@ -299,11 +431,13 @@ mod tests {
             Ok(registry) => registry,
             Err(error) => panic!("built-ins should register: {error}"),
         };
-        let id = match CommandId::new(SCENE_LOAD_COMMAND) {
-            Ok(id) => id,
-            Err(error) => panic!("scene command ID should be valid: {error}"),
-        };
-        assert!(matches!(registry.invoke(&id), CommandResult::Invoked(_)));
+        for command_id in [SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND] {
+            let id = match CommandId::new(command_id) {
+                Ok(id) => id,
+                Err(error) => panic!("scene command ID should be valid: {error}"),
+            };
+            assert!(matches!(registry.invoke(&id), CommandResult::Invoked(_)));
+        }
     }
 
     #[test]

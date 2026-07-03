@@ -8,7 +8,7 @@ use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
     PROJECT_REOPEN_LAST_COMMAND, ProjectState,
 };
-use crate::scene_state::SceneState;
+use crate::scene_state::{SceneState, SCENE_LOAD_COMMAND};
 
 pub(crate) fn apply_project_open_side_effects(
     project_state: &mut ProjectState,
@@ -21,7 +21,12 @@ pub(crate) fn apply_project_open_side_effects(
     if let (Some(project_root), Some(asset_root)) = (project_root, asset_root) {
         asset_state.on_project_opened(project_root.as_path(), asset_root.as_path());
     }
-    scene_state.on_project_closed();
+    if let Some(scene_root) = project_state.scene_root() {
+        scene_state.on_project_opened(scene_root, project_state.active_scene_relative());
+        let _ = scene_state.execute_command_id(SCENE_LOAD_COMMAND);
+    } else {
+        scene_state.on_project_closed();
+    }
     inspector_state.on_project_closed();
     project_state.set_scanned_asset_count(None);
 }

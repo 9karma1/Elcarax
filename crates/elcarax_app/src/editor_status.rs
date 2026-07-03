@@ -9,11 +9,18 @@ pub(crate) fn editor_status_bar(
     scene: &SceneUiSnapshot,
     adapter: &AdapterUiSnapshot,
 ) -> String {
-    if project.project_name == "No project open"
+    let empty_startup = project.project_name == "No project open"
         && assets.asset_count == "Assets unavailable - no project open"
         && scene.scene_name == "No scene loaded"
-        && adapter.status_adapter_suffix == "Adapter: Disconnected"
-    {
+        && adapter.status_adapter_suffix == "Adapter: Disconnected";
+
+    if empty_startup {
+        if project.project_command != "Command: None" {
+            return format!(
+                "Ready - open a project or connect an adapter | {}",
+                project.project_command
+            );
+        }
         return "Ready - open a project or connect an adapter".to_string();
     }
     let project_label = project

@@ -162,6 +162,7 @@ mod tests {
                 scene_root: PathBuf::from("/tmp/project/scenes"),
                 settings_dir: PathBuf::from("/tmp/project/.elcarax"),
             },
+            elcarax_project::ProjectEditorSettings::default(),
         );
         let snapshot = project_ui_snapshot(
             Some(&project),
@@ -187,6 +188,7 @@ mod tests {
                 scene_root: PathBuf::from("/tmp/project/scenes"),
                 settings_dir: PathBuf::from("/tmp/project/.elcarax"),
             },
+            elcarax_project::ProjectEditorSettings::default(),
         );
         let snapshot = project_ui_snapshot(
             Some(&project),

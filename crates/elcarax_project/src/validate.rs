@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use crate::domain::{Project, ProjectDiagnostic, ProjectValidation};
 use crate::manifest::MANIFEST_FILENAME;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectValidationResult {
     pub validation: ProjectValidation,
@@ -82,7 +81,7 @@ mod tests {
     use super::*;
     use crate::create::{ProjectCreateRequest, create_project};
     use crate::domain::project_id_from_root;
-    use crate::manifest::{ResolvedProjectPaths, manifest_path_for_root};
+    use crate::manifest::{ProjectEditorSettings, ResolvedProjectPaths, manifest_path_for_root};
     use std::fs;
 
     #[test]
@@ -116,6 +115,7 @@ settings_dir = ".elcarax"
             "Missing Asset Root",
             &temp,
             paths,
+            ProjectEditorSettings::default(),
         );
         let validation = validate_opened_project(&project, &manifest);
         assert!(!validation.asset_root_exists);

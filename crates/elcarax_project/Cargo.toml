@@ -11,5 +11,6 @@ workspace = true
 
 [dependencies]
 elcarax_core = { path = "../elcarax_core" }
+elcarax_scene_model = { path = "../elcarax_scene_model" }
 serde = { version = "1.0.219", features = ["derive"] }
 toml = "0.8.23"

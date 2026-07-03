@@ -15,8 +15,8 @@ pub use domain::{
 };
 pub use error::ProjectError;
 pub use manifest::{
-    MANIFEST_FILENAME, ProjectFile, ProjectFileVersion, ProjectManifest, ProjectPaths,
-    ProjectSettings, ResolvedProjectPaths, manifest_path_for_root,
+    MANIFEST_FILENAME, ProjectEditorSettings, ProjectFile, ProjectFileVersion, ProjectManifest,
+    ProjectPaths, ProjectSettings, ResolvedProjectPaths, manifest_path_for_root,
 };
 pub use open::{ProjectLoadResult, ProjectOpenRequest, open_project};
 pub use recent::{RecentProjectEntry, RecentProjects, RecentProjectsError, RecentProjectsStore};
@@ -45,6 +45,7 @@ mod tests {
                 scene_root: PathBuf::from("/tmp/invalid/scenes"),
                 settings_dir: PathBuf::from("/tmp/invalid/.elcarax"),
             },
+            ProjectEditorSettings::default(),
         );
         let validation = project.validate();
         assert_eq!(validation.status(), ProjectStatus::Invalid);
@@ -63,6 +64,7 @@ mod tests {
                 scene_root: PathBuf::from("/tmp/a/scenes"),
                 settings_dir: PathBuf::from("/tmp/a/.elcarax"),
             },
+            ProjectEditorSettings::default(),
         );
         let second = Project::from_loaded_data(
             project_id_from_root(PathBuf::from("/tmp/b").as_path()),
@@ -73,6 +75,7 @@ mod tests {
                 scene_root: PathBuf::from("/tmp/b/scenes"),
                 settings_dir: PathBuf::from("/tmp/b/.elcarax"),
             },
+            ProjectEditorSettings::default(),
         );
         recent.record(&first);
         recent.record(&second);
