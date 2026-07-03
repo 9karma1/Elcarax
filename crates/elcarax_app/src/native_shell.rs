@@ -8,7 +8,7 @@ use elcarax_core::{ElcaraxError, Result};
 use elcarax_gpu::{GpuContext, GpuContextSpec, GpuSurface, RenderError, SurfaceSize};
 use elcarax_platform::{
     ElementState, MouseButton, NativeApp, NativeAppError, NativeAppHandler, NativeShellSpec,
-    PlatformEvent, run_native_app,
+    PlatformCursor, PlatformEvent, run_native_app,
 };
 use elcarax_render::{Rect, RenderScene, Renderer, RendererConfig, RendererError, text_stats};
 use elcarax_ui::{
@@ -81,6 +81,7 @@ struct UiState {
     shell_layout_path: std::path::PathBuf,
     panel_resize: Option<PanelResizeDrag>,
     last_pointer: Option<PointerPosition>,
+    shell_cursor: PlatformCursor,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -230,6 +231,7 @@ impl ShellState {
             return Ok(());
         }
         if handle_panel_resize(ui, &input)? {
+            apply_shell_cursor(ui, app);
             app.request_redraw();
             return Ok(());
         }
@@ -240,6 +242,7 @@ impl ShellState {
             ui.scene_dirty = true;
             app.request_redraw();
         }
+        apply_shell_cursor(ui, app);
         Ok(())
     }
 }
@@ -298,6 +301,7 @@ fn build_ui_state(
         shell_layout_path,
         panel_resize: None,
         last_pointer: None,
+        shell_cursor: PlatformCursor::Default,
     };
     apply_shell_layout(&mut ui)?;
     repaint_ui_scene(&mut ui)?;
@@ -307,6 +311,32 @@ fn build_ui_state(
 
 fn body_width_for_bounds(bounds: Rect) -> f32 {
     bounds.width
+}
+
+fn apply_shell_cursor(ui: &mut UiState, app: &NativeApp) {
+    let cursor = desired_shell_cursor(ui);
+    if ui.shell_cursor != cursor {
+        ui.shell_cursor = cursor;
+        app.set_cursor(cursor);
+    }
+}
+
+fn desired_shell_cursor(ui: &UiState) -> PlatformCursor {
+    if ui.panel_resize.is_some() || splitter_under_pointer(ui) {
+        PlatformCursor::ResizeHorizontal
+    } else {
+        PlatformCursor::Default
+    }
+}
+
+fn splitter_under_pointer(ui: &UiState) -> bool {
+    let Some(position) = ui.last_pointer.or(ui.tree.pointer_position()) else {
+        return false;
+    };
+    let Some(hit) = ui.tree.hit_test(position) else {
+        return false;
+    };
+    hit.id == ui.ids.left_splitter || hit.id == ui.ids.right_splitter
 }
 
 fn apply_shell_layout(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
@@ -806,18 +836,47 @@ fn apply_ui_events(
                 changed = true;
             }
         }
-        if let UiEvent::Clicked { id } = event
+        if let UiEvent::TextCommitted { id, text } = event
             && let Some(row_index) = inspector_value_index_for_widget(ui.ids, *id)
         {
-            let snapshot = ui.inspector_state.ui_snapshot(&ui.scene_state);
-            let command_id = snapshot.row_command_ids[row_index].clone();
-            if !command_id.is_empty() && execute_editor_edit_command(ui, command_id.as_str())? {
-                apply_editor_snapshot_to_ui(ui)?;
-                changed = true;
-            }
+            commit_inspector_row(ui, row_index, text.clone())?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::TextCancelled { id } = event
+            && inspector_value_index_for_widget(ui.ids, *id).is_some()
+        {
+            apply_editor_snapshot_to_ui(ui)?;
+            changed = true;
+            continue;
         }
     }
     Ok(changed)
+}
+
+fn commit_inspector_row(
+    ui: &mut UiState,
+    row_index: usize,
+    text: String,
+) -> std::result::Result<(), NativeAppError> {
+    let snapshot = ui.inspector_state.ui_snapshot(&ui.scene_state);
+    let path = snapshot.row_property_paths[row_index].clone();
+    let edit_kind = snapshot.row_edit_kinds[row_index];
+    let label = snapshot.row_labels[row_index].clone();
+    if path.is_empty() {
+        return Ok(());
+    }
+    let result = ui.inspector_state.commit_inspector_property(
+        &mut ui.scene_state,
+        &mut ui.edit_history,
+        path.as_str(),
+        edit_kind,
+        text.as_str(),
+        label.as_str(),
+    );
+    set_status_text(ui, result.message().to_string())?;
+    apply_editor_snapshot_to_ui(ui)?;
+    Ok(())
 }
 
 fn execute_editor_edit_command(
@@ -846,6 +905,9 @@ fn events_affect_paint(events: &[UiEvent]) -> bool {
                 | UiEvent::FocusChanged(_)
                 | UiEvent::ActiveChanged { .. }
                 | UiEvent::Clicked { .. }
+                | UiEvent::TextChanged { .. }
+                | UiEvent::TextCommitted { .. }
+                | UiEvent::TextCancelled { .. }
         )
     })
 }

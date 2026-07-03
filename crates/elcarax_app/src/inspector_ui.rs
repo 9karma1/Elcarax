@@ -41,7 +41,7 @@ pub(crate) fn apply_inspector_snapshot(
     }
     for (index, value_id) in ids.inspector_row_values.iter().enumerate() {
         if snapshot.row_editable[index] {
-            tree.set_button_text(*value_id, snapshot.row_values[index].clone())?;
+            tree.set_text_field(*value_id, snapshot.row_values[index].clone())?;
             tree.set_text_role(*value_id, TextRole::Accent)?;
         } else {
             tree.set_sized_label_text(

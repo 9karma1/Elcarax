@@ -1,8 +1,14 @@
 //! Retained UI tree, layout, style, and paint foundation for Elcarax.
 
+mod text_field;
+
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+
+use text_field::{
+    TextFieldKeyAction, TextFieldState, handle_key as handle_text_field_key, paint_text_field,
+};
 
 use elcarax_core::{Id, IdGenerator};
 use elcarax_render::{
@@ -54,6 +60,7 @@ pub enum WidgetKind {
     Label(String),
     Button(String),
     IconButton(String),
+    TextField(TextFieldState),
     Separator(Axis),
     ResizeSplitter(Axis),
     StatusBar,
@@ -379,6 +386,8 @@ pub enum KeyboardKey {
     Tab,
     Escape,
     Backspace,
+    ArrowLeft,
+    ArrowRight,
     ArrowUp,
     ArrowDown,
     Character(String),
@@ -394,6 +403,8 @@ impl KeyboardKey {
             "Tab" | "Named(Tab)" => Self::Tab,
             "Escape" | "Named(Escape)" => Self::Escape,
             "Backspace" | "Named(Backspace)" => Self::Backspace,
+            "ArrowLeft" | "Named(ArrowLeft)" => Self::ArrowLeft,
+            "ArrowRight" | "Named(ArrowRight)" => Self::ArrowRight,
             "ArrowUp" | "Named(ArrowUp)" => Self::ArrowUp,
             "ArrowDown" | "Named(ArrowDown)" => Self::ArrowDown,
             _ if key.chars().count() == 1 => Self::Character(key),
@@ -690,12 +701,15 @@ impl InteractionState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiEvent {
     HoverChanged { id: WidgetId, hovered: bool },
     FocusChanged(FocusChange),
     ActiveChanged { id: WidgetId, active: bool },
     Clicked { id: WidgetId },
+    TextCommitted { id: WidgetId, text: String },
+    TextCancelled { id: WidgetId },
+    TextChanged { id: WidgetId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1052,6 +1066,33 @@ impl UiTree {
         Ok(())
     }
 
+    pub fn set_text_field(&mut self, id: WidgetId, text: impl Into<String>) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        let text = text.into();
+        let has_text = !text.is_empty();
+        node.kind = if has_text {
+            WidgetKind::TextField(TextFieldState::new(text))
+        } else {
+            WidgetKind::Label(String::new())
+        };
+        node.layout.height = if has_text {
+            SizePolicy::Fixed(28.0)
+        } else {
+            SizePolicy::Fixed(0.0)
+        };
+        node.interaction.disabled = !has_text;
+        node.interaction.interactive = has_text;
+        node.interaction.focusable = has_text;
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
     pub fn set_button_text(
         &mut self,
         id: WidgetId,
@@ -1251,6 +1292,11 @@ impl UiTree {
     }
 
     fn press_key(&mut self, key: KeyboardKey) -> Result<Vec<UiEvent>, UiError> {
+        if let Some(id) = self.focused_id
+            && is_text_field(self.nodes.get(&id))
+        {
+            return self.route_text_field_key(id, key);
+        }
         match key {
             KeyboardKey::Enter | KeyboardKey::Space => {
                 if let Some(id) = self.focused_id
@@ -1263,6 +1309,43 @@ impl UiTree {
             KeyboardKey::Tab => self.focus_next(),
             _ => Ok(Vec::new()),
         }
+    }
+
+    fn route_text_field_key(
+        &mut self,
+        id: WidgetId,
+        key: KeyboardKey,
+    ) -> Result<Vec<UiEvent>, UiError> {
+        if key == KeyboardKey::Tab {
+            return self.focus_next();
+        }
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        let WidgetKind::TextField(state) = &mut node.kind else {
+            return Ok(Vec::new());
+        };
+        let action = handle_text_field_key(state, key);
+        let mut events = Vec::new();
+        match action {
+            TextFieldKeyAction::None => {}
+            TextFieldKeyAction::Changed => {
+                node.dirty.insert(DirtyFlags::TEXT);
+                node.dirty.insert(DirtyFlags::PAINT);
+                events.push(UiEvent::TextChanged { id });
+            }
+            TextFieldKeyAction::Committed => {
+                events.push(UiEvent::TextCommitted {
+                    id,
+                    text: state.text.clone(),
+                });
+            }
+            TextFieldKeyAction::Cancelled => {
+                events.push(UiEvent::TextCancelled { id });
+                events.extend(self.set_focused(None)?);
+            }
+        }
+        Ok(events)
     }
 
     fn focus_next(&mut self) -> Result<Vec<UiEvent>, UiError> {
@@ -2200,7 +2283,9 @@ pub fn build_editor_shell_with_layout(
             UiNode::new(
                 inspector_row_values[index],
                 if has_row && content.inspector_row_editable[index] {
-                    WidgetKind::Button(content.inspector_row_values[index].clone())
+                    WidgetKind::TextField(TextFieldState::new(
+                        content.inspector_row_values[index].clone(),
+                    ))
                 } else if has_row {
                     WidgetKind::Label(content.inspector_row_values[index].clone())
                 } else {
@@ -2462,6 +2547,7 @@ fn text_content(kind: &WidgetKind) -> Option<&str> {
 fn default_interaction_for(kind: &WidgetKind) -> InteractionState {
     match kind {
         WidgetKind::Button(_) | WidgetKind::IconButton(_) => InteractionState::control(),
+        WidgetKind::TextField(_) => InteractionState::control(),
         WidgetKind::Label(_) | WidgetKind::Separator(_) => InteractionState::passive(),
         WidgetKind::ResizeSplitter(_) => InteractionState::hit_target(),
         WidgetKind::Root
@@ -2481,6 +2567,10 @@ fn is_clickable(node: Option<&UiNode>) -> bool {
         matches!(node.kind, WidgetKind::Button(_) | WidgetKind::IconButton(_))
             && node.interaction.can_hit_test()
     })
+}
+
+fn is_text_field(node: Option<&UiNode>) -> bool {
+    node.is_some_and(|node| matches!(node.kind, WidgetKind::TextField(_)))
 }
 
 fn rect_contains(rect: Rect, position: PointerPosition) -> bool {
@@ -2511,6 +2601,7 @@ fn paint_node(
         WidgetKind::Button(text) | WidgetKind::IconButton(text) => {
             paint_button(text, node, context, scene);
         }
+        WidgetKind::TextField(state) => paint_text_field(state, node, context, scene),
     }
 }
 
@@ -3797,14 +3888,14 @@ mod tests {
         let mut row_editable = [false; MAX_VISIBLE_INSPECTOR_ROWS];
         row_labels[0] = "Gameplay".to_string();
         row_labels[1] = "Health".to_string();
-        row_values[1] = "100  [Set]".to_string();
+        row_values[1] = "100".to_string();
         row_editable[1] = true;
         row_labels[2] = "Speed".to_string();
-        row_values[2] = "6.50  [Set]".to_string();
+        row_values[2] = "6.50".to_string();
         row_editable[2] = true;
         row_labels[3] = "Transform".to_string();
         row_labels[4] = "Position".to_string();
-        row_values[4] = "0.00, 1.00, 0.00  [Set]".to_string();
+        row_values[4] = "0.00, 1.00, 0.00".to_string();
         row_editable[4] = true;
         let content = EditorShellContent {
             inspector_object_name: "Player".to_string(),
@@ -3823,16 +3914,19 @@ mod tests {
         assert!(texts.contains(&"Player"));
         assert!(texts.contains(&"Kind: Character"));
         assert!(texts.contains(&"Health"));
-        assert!(texts.contains(&"100  [Set]"));
-        assert!(texts.contains(&"6.50  [Set]"));
-        assert!(texts.contains(&"0.00, 1.00, 0.00  [Set]"));
+        assert!(texts.contains(&"100"));
+        assert!(texts.contains(&"6.50"));
+        assert!(texts.contains(&"0.00, 1.00, 0.00"));
         assert!(
             shell
                 .tree
                 .get(shell.ids.inspector_row_values[1])
                 .is_some_and(|node| {
                     node.interaction.focusable
-                        && matches!(&node.kind, WidgetKind::Button(text) if text == "100  [Set]")
+                        && matches!(
+                            &node.kind,
+                            WidgetKind::TextField(state) if state.text == "100"
+                        )
                 })
         );
     }
@@ -3871,7 +3965,7 @@ mod tests {
         let mut row_values = std::array::from_fn(|_| String::new());
         let mut row_editable = [false; MAX_VISIBLE_INSPECTOR_ROWS];
         row_labels[1] = "Health".to_string();
-        row_values[1] = "65  [Set]".to_string();
+        row_values[1] = "65".to_string();
         row_editable[1] = true;
         let content = EditorShellContent {
             adapter_status: "Adapter: Fixture Adapter 0.1.0 Connected".to_string(),
@@ -3896,7 +3990,7 @@ mod tests {
                 .get(shell.ids.inspector_row_values[1])
                 .is_some_and(|node| {
                     node.interaction.focusable
-                        && matches!(&node.kind, WidgetKind::Button(text) if text == "65  [Set]")
+                        && matches!(&node.kind, WidgetKind::TextField(state) if state.text == "65")
                 })
         );
     }
@@ -3908,7 +4002,7 @@ mod tests {
         let mut row_values = std::array::from_fn(|_| String::new());
         let mut row_editable = [false; MAX_VISIBLE_INSPECTOR_ROWS];
         row_labels[1] = "Health".to_string();
-        row_values[1] = "65  [Set]".to_string();
+        row_values[1] = "65".to_string();
         row_editable[1] = true;
         let content = EditorShellContent {
             adapter_command: "Adapter Command: adapter write confirmed: Set Adapter Player Health"
@@ -3925,7 +4019,7 @@ mod tests {
         ));
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
-        assert!(texts.contains(&"65  [Set]"));
+        assert!(texts.contains(&"65"));
         assert!(
             texts.contains(&"Adapter Command: adapter write confirmed: Set Adapter Player Health")
         );
@@ -3956,13 +4050,13 @@ mod tests {
     }
 
     #[test]
-    fn clicked_editable_inspector_row_dispatches_click_event() {
+    fn editable_inspector_text_field_accepts_typing_and_commit() {
         let theme = Theme::editor_dark();
         let mut row_labels = std::array::from_fn(|_| String::new());
         let mut row_values = std::array::from_fn(|_| String::new());
         let mut row_editable = [false; MAX_VISIBLE_INSPECTOR_ROWS];
         row_labels[1] = "Health".to_string();
-        row_values[1] = "100  [Set]".to_string();
+        row_values[1] = "100".to_string();
         row_editable[1] = true;
         let content = EditorShellContent {
             inspector_row_labels: row_labels,
@@ -3975,14 +4069,14 @@ mod tests {
             &content,
         ));
         let mut tree = shell.tree;
-        let button = must_some(
+        let field = must_some(
             tree.get(shell.ids.inspector_row_values[1])
                 .map(|node| node.rect),
         );
         assert!(
             tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(
-                button.x + 4.0,
-                button.y + 4.0,
+                field.x + 4.0,
+                field.y + 4.0,
             )))
             .is_ok()
         );
@@ -3990,10 +4084,22 @@ mod tests {
             tree.process_input(UiInputEvent::PointerButtonPressed(PointerButton::Primary))
                 .is_ok()
         );
-        let events =
-            must(tree.process_input(UiInputEvent::PointerButtonReleased(PointerButton::Primary)));
-        assert!(events.contains(&UiEvent::Clicked {
+        assert!(
+            tree.process_input(UiInputEvent::PointerButtonReleased(PointerButton::Primary))
+                .is_ok()
+        );
+        let events = must(
+            tree.process_input(UiInputEvent::KeyPressed(KeyboardKey::Character(
+                "5".to_string(),
+            ))),
+        );
+        assert!(events.contains(&UiEvent::TextChanged {
             id: shell.ids.inspector_row_values[1],
+        }));
+        let events = must(tree.process_input(UiInputEvent::KeyPressed(KeyboardKey::Enter)));
+        assert!(events.contains(&UiEvent::TextCommitted {
+            id: shell.ids.inspector_row_values[1],
+            text: "1005".to_string(),
         }));
     }
 

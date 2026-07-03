@@ -68,6 +68,12 @@ impl KeyInput {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformCursor {
+    Default,
+    ResizeHorizontal,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlatformEvent {
     CloseRequested,

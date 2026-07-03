@@ -30,6 +30,8 @@ Real project create/open commands use configured CLI/env paths when provided. Th
 
 The native shell supports drag-resizing the project and inspector side panels. Widths persist in `.elcarax/shell-layout.toml`.
 
+Editable inspector properties render as text fields. Click a value, type, and press Enter to commit. Escape cancels editing.
+
 CLI:
 
 ```bash
@@ -118,4 +120,4 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 
 ## Current Exclusions
 
-The current shell deliberately excludes full tabbed/floating docking, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
+The current shell deliberately excludes full tabbed/floating docking, IME, full caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.

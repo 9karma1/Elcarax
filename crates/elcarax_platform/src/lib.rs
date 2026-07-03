@@ -7,7 +7,9 @@ mod events;
 mod native;
 mod spec;
 
-pub use events::{ElementState, KeyInput, ModifierState, MouseButton, PlatformEvent, WindowSize};
+pub use events::{
+    ElementState, KeyInput, ModifierState, MouseButton, PlatformCursor, PlatformEvent, WindowSize,
+};
 pub use spec::{FramePolicy, NativeShellSpec};
 
 #[cfg(feature = "native")]

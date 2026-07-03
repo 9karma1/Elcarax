@@ -31,7 +31,7 @@ pub use property_display::{
 };
 pub use property_edit::{
     PropertyChange, PropertyChangeValue, PropertyEditError, PropertyEditResult,
-    apply_property_change, edit_scene_property, prepare_property_change,
+    apply_property_change, edit_scene_property, parse_property_text, prepare_property_change,
 };
 pub use reference_scene::reference_scene_snapshot;
 pub use schema::{
