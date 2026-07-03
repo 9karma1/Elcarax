@@ -55,6 +55,7 @@ pub enum WidgetKind {
     Button(String),
     IconButton(String),
     Separator(Axis),
+    ResizeSplitter(Axis),
     StatusBar,
     Toolbar,
     ViewportPlaceholder,
@@ -668,6 +669,18 @@ impl InteractionState {
         }
     }
 
+    pub const fn hit_target() -> Self {
+        Self {
+            hovered: false,
+            focused: false,
+            active: false,
+            disabled: false,
+            visible: true,
+            focusable: false,
+            interactive: true,
+        }
+    }
+
     pub const fn can_hit_test(self) -> bool {
         self.visible && !self.disabled && self.interactive
     }
@@ -838,6 +851,22 @@ impl UiTree {
 
     pub fn get_mut(&mut self, id: WidgetId) -> Option<&mut UiNode> {
         self.nodes.get_mut(&id)
+    }
+
+    pub fn pointer_position(&self) -> Option<PointerPosition> {
+        self.pointer_position
+    }
+
+    pub fn set_fixed_panel_width(&mut self, id: WidgetId, width: f32) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        node.layout.width = SizePolicy::Fixed(width);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
     }
 
     pub fn create_node(
@@ -1420,6 +1449,10 @@ pub struct EditorShell {
 pub struct EditorShellIds {
     pub toolbar_title: WidgetId,
     pub run_button: WidgetId,
+    pub project_panel: WidgetId,
+    pub left_splitter: WidgetId,
+    pub inspector_panel: WidgetId,
+    pub right_splitter: WidgetId,
     pub project_title: WidgetId,
     pub project_name: WidgetId,
     pub project_path: WidgetId,
@@ -1449,6 +1482,23 @@ pub struct EditorShellIds {
     pub viewport_title: WidgetId,
     pub viewport_message: WidgetId,
     pub status_label: WidgetId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EditorShellLayout {
+    pub left_panel_width: f32,
+    pub right_panel_width: f32,
+    pub splitter_width: f32,
+}
+
+impl Default for EditorShellLayout {
+    fn default() -> Self {
+        Self {
+            left_panel_width: 248.0,
+            right_panel_width: 292.0,
+            splitter_width: 4.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1551,6 +1601,14 @@ pub fn build_editor_shell_with_ids(context: &UiContext) -> Result<EditorShell, U
 pub fn build_editor_shell_with_content(
     context: &UiContext,
     content: &EditorShellContent,
+) -> Result<EditorShell, UiError> {
+    build_editor_shell_with_layout(context, content, &EditorShellLayout::default())
+}
+
+pub fn build_editor_shell_with_layout(
+    context: &UiContext,
+    content: &EditorShellContent,
+    layout: &EditorShellLayout,
 ) -> Result<EditorShell, UiError> {
     let mut tree = UiTree::new();
     let root = WidgetId::new(1).ok_or(UiError::MissingRoot)?;
@@ -1801,7 +1859,7 @@ pub fn build_editor_shell_with_content(
             WidgetKind::Panel,
             UiStyle::PANEL,
             LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
-                .with_width(SizePolicy::Fixed(248.0))
+                .with_width(SizePolicy::Fixed(layout.left_panel_width))
                 .with_padding(Insets::uniform(context.theme.spacing.md)),
         ),
     )?;
@@ -1809,10 +1867,11 @@ pub fn build_editor_shell_with_content(
         body,
         UiNode::new(
             left_separator,
-            WidgetKind::Separator(Axis::Vertical),
+            WidgetKind::ResizeSplitter(Axis::Vertical),
             UiStyle::SEPARATOR,
-            LayoutNode::fixed(1.0, 0.0),
-        ),
+            LayoutNode::fixed(layout.splitter_width, 0.0),
+        )
+        .with_interaction(InteractionState::hit_target()),
     )?;
     tree.insert_child(
         body,
@@ -1829,10 +1888,11 @@ pub fn build_editor_shell_with_content(
         body,
         UiNode::new(
             right_separator,
-            WidgetKind::Separator(Axis::Vertical),
+            WidgetKind::ResizeSplitter(Axis::Vertical),
             UiStyle::SEPARATOR,
-            LayoutNode::fixed(1.0, 0.0),
-        ),
+            LayoutNode::fixed(layout.splitter_width, 0.0),
+        )
+        .with_interaction(InteractionState::hit_target()),
     )?;
     tree.insert_child(
         body,
@@ -1841,7 +1901,7 @@ pub fn build_editor_shell_with_content(
             WidgetKind::Panel,
             UiStyle::PANEL,
             LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
-                .with_width(SizePolicy::Fixed(292.0))
+                .with_width(SizePolicy::Fixed(layout.right_panel_width))
                 .with_padding(Insets::uniform(context.theme.spacing.md)),
         ),
     )?;
@@ -2192,6 +2252,10 @@ pub fn build_editor_shell_with_content(
         ids: EditorShellIds {
             toolbar_title: title,
             run_button,
+            project_panel: project,
+            left_splitter: left_separator,
+            inspector_panel: inspector,
+            right_splitter: right_separator,
             project_title,
             project_name,
             project_path,
@@ -2399,6 +2463,7 @@ fn default_interaction_for(kind: &WidgetKind) -> InteractionState {
     match kind {
         WidgetKind::Button(_) | WidgetKind::IconButton(_) => InteractionState::control(),
         WidgetKind::Label(_) | WidgetKind::Separator(_) => InteractionState::passive(),
+        WidgetKind::ResizeSplitter(_) => InteractionState::hit_target(),
         WidgetKind::Root
         | WidgetKind::Panel
         | WidgetKind::StatusBar
@@ -2439,7 +2504,9 @@ fn paint_node(
         WidgetKind::ViewportPlaceholder => {
             paint_viewport(node, context, viewport_paint, scene);
         }
-        WidgetKind::Separator(axis) => paint_separator(*axis, node, context, scene),
+        WidgetKind::Separator(axis) | WidgetKind::ResizeSplitter(axis) => {
+            paint_separator(*axis, node, context, scene)
+        }
         WidgetKind::Label(text) => paint_label(text, node, context, scene),
         WidgetKind::Button(text) | WidgetKind::IconButton(text) => {
             paint_button(text, node, context, scene);

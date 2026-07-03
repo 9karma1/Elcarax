@@ -26,7 +26,9 @@ The default app command is a console proof. It does not require a desktop sessio
 
 ## Project Paths
 
-Real project create/open commands use configured paths rather than a native file dialog.
+Real project create/open commands use configured CLI/env paths when provided. The native shell falls back to an `rfd` folder picker when no path is configured.
+
+The native shell supports drag-resizing the project and inspector side panels. Widths persist in `.elcarax/shell-layout.toml`.
 
 CLI:
 
@@ -52,11 +54,22 @@ cargo run -p elcarax_app --features native-shell
 
 The native shell is a manual desktop smoke test. It opens an `Elcarax` window through `winit`, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes pointer and keyboard input into the UI tree and command palette, renders primitive rectangles/lines through `elcarax_render`, and renders static labels through `elcarax_text`.
 
-The toolbar `Open` button executes `project.open` using the configured project path. Without `ELCARAX_PROJECT_PATH` or `--project`, it reports the missing-path diagnostic.
+The toolbar `Open` button executes `project.open`, using a configured path when present or the native folder picker otherwise.
+
+## Windows MSVC Linker (LNK1104)
+
+If `link.exe` fails with `LNK1104` while building a dependency build script (for example `rfd`), MSVC cannot write linker temp files. This usually means the machine `TMP`/`TEMP` values are missing, invalid, or list multiple directories. The workspace `.cargo/config.toml` forces `TMP` and `TEMP` to the checked-in `.msvc-tmp/` directory for all Cargo builds in this repo.
+
+If the error persists after a clean rebuild, check that no antivirus is locking `target/` or your cargo registry, and that no stale `elcarax_app` process is holding build outputs:
+
+```powershell
+cargo clean
+cargo run -p elcarax_app --features native-shell
+```
 
 Ctrl+K should open the command palette. Typing `ready` and pressing Enter should execute `Show Ready Status` and update the status text to `Ready - open a project or connect an adapter`. Escape should close the palette without executing a command.
 
-Typing `project.create`, `project.open`, `project.validate`, `project.close`, `project.show_recent`, or `project.reopen_last` in the command palette should update the status bar and project panel when paths are configured.
+Typing `project.create`, `project.open`, `project.validate`, `project.close`, `project.show_recent`, or `project.reopen_last` in the command palette should update the status bar and project panel. `project.create` and `project.open` use configured paths when present, otherwise the native folder picker.
 
 `asset.scan` scans the loaded project's asset root. Without a loaded project it reports `No project open`. `project.open` prepares the asset root but does not scan automatically.
 
@@ -105,4 +118,4 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 
 ## Current Exclusions
 
-The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, native file dialogs, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
+The current shell deliberately excludes full tabbed/floating docking, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
