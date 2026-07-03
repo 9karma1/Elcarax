@@ -269,7 +269,8 @@ mod tests {
 
     #[test]
     fn parse_property_text_covers_supported_kinds() {
-        let integer = parse_property_text(&path("gameplay.health"), PropertyEditKind::Integer, "42");
+        let integer =
+            parse_property_text(&path("gameplay.health"), PropertyEditKind::Integer, "42");
         assert_eq!(integer.ok(), Some(PropertyValue::I64(42)));
         let float = parse_property_text(&path("gameplay.speed"), PropertyEditKind::Float, "6.5");
         assert_eq!(float.ok(), Some(PropertyValue::F64(6.5)));
