@@ -613,7 +613,11 @@ fn apply_command_invocation(
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
-    if let Some(result) = ui.editor.session_mut().execute_project_command(invocation.id.as_str()) {
+    if let Some(result) = ui
+        .editor
+        .session_mut()
+        .execute_project_command(invocation.id.as_str())
+    {
         set_status_text(ui, result.message().to_string())?;
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
@@ -621,7 +625,10 @@ fn apply_command_invocation(
     if ui
         .editor
         .assets
-        .execute_command_id(invocation.id.as_str(), ui.editor.project.is_project_loaded())
+        .execute_command_id(
+            invocation.id.as_str(),
+            ui.editor.project.is_project_loaded(),
+        )
         .is_some()
     {
         ui.editor
@@ -891,7 +898,11 @@ fn execute_editor_edit_command(
     Ok(ui
         .editor
         .inspector
-        .execute_edit_command_id(command_id, &mut ui.editor.scene, &mut ui.editor.edit_history)
+        .execute_edit_command_id(
+            command_id,
+            &mut ui.editor.scene,
+            &mut ui.editor.edit_history,
+        )
         .is_some())
 }
 

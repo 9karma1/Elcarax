@@ -192,12 +192,17 @@ fn run_project_proof() -> Result<()> {
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing scan result".to_string());
     println!("asset.scan: {scan}");
-    session.session_mut().after_asset_command(ASSET_SCAN_COMMAND);
+    session
+        .session_mut()
+        .after_asset_command(ASSET_SCAN_COMMAND);
     println!("asset.kinds: {}", session.assets.kind_summary());
     if session.assets.select_row(0) {
         let selected = session
             .assets
-            .execute_command_id(ASSET_SHOW_SELECTED_COMMAND, session.project.is_project_loaded())
+            .execute_command_id(
+                ASSET_SHOW_SELECTED_COMMAND,
+                session.project.is_project_loaded(),
+            )
             .map(|result| result.message().to_string())
             .unwrap_or_else(|| "missing selected result".to_string());
         println!("asset.show_selected: {selected}");
@@ -213,7 +218,9 @@ fn run_project_proof() -> Result<()> {
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing refresh result".to_string());
     println!("asset.refresh: {refresh}");
-    session.session_mut().after_asset_command(ASSET_REFRESH_COMMAND);
+    session
+        .session_mut()
+        .after_asset_command(ASSET_REFRESH_COMMAND);
 
     let recent = session
         .session_mut()
@@ -286,9 +293,10 @@ fn prove_scene_document_round_trip(session: &mut EditorSessionState) -> Result<(
         .scene_root()
         .map(std::path::Path::to_path_buf)
         .ok_or_else(|| elcarax_core::ElcaraxError::Internal("missing scene root".to_string()))?;
-    session
-        .scene
-        .on_project_opened(scene_root.as_path(), session.project.active_scene_relative());
+    session.scene.on_project_opened(
+        scene_root.as_path(),
+        session.project.active_scene_relative(),
+    );
     let reload = session
         .session_mut()
         .execute_scene_command(SCENE_LOAD_COMMAND)
@@ -296,7 +304,10 @@ fn prove_scene_document_round_trip(session: &mut EditorSessionState) -> Result<(
         .unwrap_or_else(|| "missing round-trip reload result".to_string());
     println!("scene.round_trip_reload: {reload}");
     assert_eq!(
-        session.scene.snapshot().map(|snapshot| snapshot.object_count()),
+        session
+            .scene
+            .snapshot()
+            .map(|snapshot| snapshot.object_count()),
         Some(1)
     );
     Ok(())

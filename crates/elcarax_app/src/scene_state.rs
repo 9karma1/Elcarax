@@ -15,8 +15,7 @@ pub(crate) const SCENE_SAVE_COMMAND: &str = "scene.save";
 pub(crate) const SCENE_CLEAR_COMMAND: &str = "scene.clear";
 pub(crate) const SCENE_CLEAR_SELECTION_COMMAND: &str = "scene.clear_selection";
 
-pub(crate) const UNSAVED_SCENE_MESSAGE: &str =
-    "Unsaved scene changes — save with scene.save or reload with scene.load before closing the project";
+pub(crate) const UNSAVED_SCENE_MESSAGE: &str = "Unsaved scene changes — save with scene.save or reload with scene.load before closing the project";
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SceneState {
@@ -377,8 +376,7 @@ mod tests {
 
     #[test]
     fn scene_save_clears_document_dirty_flag() {
-        let temp =
-            std::env::temp_dir().join(format!("elcarax-scene-dirty-{}", std::process::id()));
+        let temp = std::env::temp_dir().join(format!("elcarax-scene-dirty-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp);
         let loaded = create_project(&ProjectCreateRequest::new(&temp, "Scene Dirty"));
         let loaded = match loaded {

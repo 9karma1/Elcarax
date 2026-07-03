@@ -13,7 +13,7 @@ use crate::project_state::{
     PROJECT_REOPEN_LAST_COMMAND, ProjectCommandResult, ProjectState,
 };
 use crate::scene_state::{
-    SceneCommandResult, SceneState, SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND, UNSAVED_SCENE_MESSAGE,
+    SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND, SceneCommandResult, SceneState, UNSAVED_SCENE_MESSAGE,
 };
 
 pub(crate) const SWITCH_PROJECT_COMMANDS: [&str; 3] = [
@@ -138,7 +138,10 @@ impl<'a> EditorSession<'a> {
         })
     }
 
-    pub(crate) fn execute_scene_command(&mut self, command_id: &str) -> Option<SceneCommandOutcome> {
+    pub(crate) fn execute_scene_command(
+        &mut self,
+        command_id: &str,
+    ) -> Option<SceneCommandOutcome> {
         let result = self.state.scene.execute_command_id(command_id)?;
         let manifest_warning = if scene_save_succeeded(&result) {
             self.persist_active_scene_to_manifest()
@@ -166,7 +169,11 @@ impl<'a> EditorSession<'a> {
         if !self.can_leave_project() {
             return self.blocked_project_switch(PROJECT_REOPEN_LAST_COMMAND);
         }
-        let result = match self.state.project.execute_command_id(PROJECT_REOPEN_LAST_COMMAND) {
+        let result = match self
+            .state
+            .project
+            .execute_command_id(PROJECT_REOPEN_LAST_COMMAND)
+        {
             Some(result) => result,
             None => blocked_project_command(
                 PROJECT_REOPEN_LAST_COMMAND,
@@ -189,10 +196,9 @@ impl<'a> EditorSession<'a> {
                 .on_project_opened(project_root.as_path(), asset_root.as_path());
         }
         if let Some(scene_root) = self.state.project.scene_root() {
-            self.state.scene.on_project_opened(
-                scene_root,
-                self.state.project.active_scene_relative(),
-            );
+            self.state
+                .scene
+                .on_project_opened(scene_root, self.state.project.active_scene_relative());
             let _ = self.state.scene.execute_command_id(SCENE_LOAD_COMMAND);
         } else {
             self.state.scene.on_project_closed();
@@ -221,9 +227,7 @@ impl<'a> EditorSession<'a> {
             self.clear_project_dependents();
             return;
         }
-        if SWITCH_PROJECT_COMMANDS.contains(&command_id)
-            && self.state.project.is_project_loaded()
-        {
+        if SWITCH_PROJECT_COMMANDS.contains(&command_id) && self.state.project.is_project_loaded() {
             self.bind_opened_project();
         }
     }
@@ -283,15 +287,15 @@ impl SceneCommandOutcome {
     }
 }
 
-fn blocked_project_command(command_id: &'static str, message: &'static str) -> ProjectCommandResult {
+fn blocked_project_command(
+    command_id: &'static str,
+    message: &'static str,
+) -> ProjectCommandResult {
     ProjectCommandResult::blocked(command_id, message)
 }
 
 pub(crate) fn scene_save_succeeded(result: &SceneCommandResult) -> bool {
-    result.command_id() == SCENE_SAVE_COMMAND
-        && result
-            .message()
-            .starts_with("Saved scene to")
+    result.command_id() == SCENE_SAVE_COMMAND && result.message().starts_with("Saved scene to")
 }
 
 impl Default for EditorSessionState {
@@ -362,9 +366,8 @@ mod tests {
         }
         let outcome = session.session_mut().save_scene();
         assert!(outcome.is_some_and(|value| value.manifest_warning.is_none()));
-        let reopened = elcarax_project::open_project(&elcarax_project::ProjectOpenRequest::new(
-            &temp,
-        ));
+        let reopened =
+            elcarax_project::open_project(&elcarax_project::ProjectOpenRequest::new(&temp));
         let reopened = match reopened {
             Ok(value) => value,
             Err(error) => panic!("reopen should succeed: {error}"),

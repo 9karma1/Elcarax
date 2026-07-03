@@ -37,8 +37,7 @@ mod tests {
 
     #[test]
     fn save_project_editor_settings_persists_active_scene() {
-        let temp =
-            std::env::temp_dir().join(format!("elcarax-save-editor-{}", std::process::id()));
+        let temp = std::env::temp_dir().join(format!("elcarax-save-editor-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp);
         let _ = create_project(&ProjectCreateRequest::new(&temp, "Save Editor"));
         let mut editor = ProjectEditorSettings::with_default_active_scene();

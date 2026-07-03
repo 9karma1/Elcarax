@@ -152,11 +152,11 @@ mod tests {
         if let Err(error) = create_default_scene_file(&active, "Active") {
             panic!("write active should succeed: {error}");
         }
-        let resolved = match resolve_scene_load_path(&temp, Some(Path::new("active.elcarax.scene.toml")))
-        {
-            Ok(value) => value,
-            Err(error) => panic!("resolve active should succeed: {error}"),
-        };
+        let resolved =
+            match resolve_scene_load_path(&temp, Some(Path::new("active.elcarax.scene.toml"))) {
+                Ok(value) => value,
+                Err(error) => panic!("resolve active should succeed: {error}"),
+            };
         assert_eq!(resolved, active);
         let _ = fs::remove_dir_all(&temp);
     }
