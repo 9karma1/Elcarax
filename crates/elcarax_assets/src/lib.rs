@@ -1,6 +1,5 @@
 //! File-based asset indexing foundation for Elcarax.
 
-mod demo;
 mod diagnostic;
 mod error;
 mod index;
@@ -12,20 +11,18 @@ mod scan;
 mod selection;
 mod watch;
 
-pub use demo::{demo_asset_index, demo_asset_records, demo_asset_scan};
 pub use diagnostic::AssetDiagnostic;
 pub use error::AssetError;
 pub use index::{AssetIndex, AssetIndexSnapshot};
 pub use kind::{AssetKind, detect_kind_from_extension, detect_kind_from_path};
 pub use metadata::AssetMetadata;
 pub use record::{
-    AssetId, AssetName, AssetPath, AssetRecord, normalized_asset_path_string, stable_asset_id,
+    AssetId, AssetName, AssetPath, AssetRecord, normalized_asset_path_string,
     stable_asset_id_from_path,
 };
 pub use root::AssetRoot;
 pub use scan::{
     AssetScan, AssetScanDiagnostic, AssetScanRequest, AssetScanResult, apply_selection_after_scan,
-    scan_demo_assets,
 };
 pub use selection::AssetSelection;
 pub use watch::{
@@ -34,7 +31,7 @@ pub use watch::{
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::*;
 
@@ -44,27 +41,6 @@ mod tests {
         assert!(index.is_empty());
         assert_eq!(index.len(), 0);
         assert_eq!(index.kind_summary(), "none");
-    }
-
-    #[test]
-    fn demo_asset_index_has_stable_order() {
-        let records: Vec<_> = demo_asset_index()
-            .records()
-            .iter()
-            .map(|record| record.path.display())
-            .collect();
-        assert_eq!(
-            records,
-            vec![
-                "README.md",
-                "assets/audio/click.wav",
-                "assets/materials/default.material",
-                "assets/models/cube.glb",
-                "assets/scenes/demo.scene",
-                "assets/textures/checker.png",
-                "scripts/player.rs",
-            ]
-        );
     }
 
     #[test]
@@ -103,7 +79,7 @@ mod tests {
 
     #[test]
     fn selecting_first_asset_works() {
-        let index = demo_asset_index();
+        let index = fixture_asset_index();
         let mut selection = AssetSelection::none();
         assert!(selection.select_first(&index));
         let selected = match selection.selected() {
@@ -118,7 +94,7 @@ mod tests {
 
     #[test]
     fn clearing_selection_works() {
-        let index = demo_asset_index();
+        let index = fixture_asset_index();
         let mut selection = AssetSelection::none();
         assert!(selection.select_first(&index));
         selection.clear();
@@ -127,10 +103,10 @@ mod tests {
 
     #[test]
     fn asset_index_selection_by_id_works() {
-        let index = demo_asset_index();
+        let index = fixture_asset_index();
         let first = match index.first() {
             Some(record) => record.id,
-            None => panic!("demo index should contain records"),
+            None => panic!("fixture index should contain records"),
         };
         assert_eq!(
             index.find(first).map(|record| record.path.display()),
@@ -143,5 +119,22 @@ mod tests {
         let scan = AssetScan::scan_root(PathBuf::from("definitely/missing/root"));
         assert!(scan.index.is_empty());
         assert!(!scan.diagnostics.is_empty());
+    }
+
+    fn fixture_asset_index() -> AssetIndex {
+        AssetIndex::from_records(vec![
+            AssetRecord::from_parts(
+                stable_asset_id_from_path(Path::new("README.md")),
+                "README.md",
+                PathBuf::from("README.md"),
+                AssetKind::Text,
+            ),
+            AssetRecord::from_parts(
+                stable_asset_id_from_path(Path::new("assets/models/cube.glb")),
+                "cube.glb",
+                PathBuf::from("assets/models/cube.glb"),
+                AssetKind::Model,
+            ),
+        ])
     }
 }

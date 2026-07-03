@@ -1,6 +1,6 @@
 # Elcarax v0.1 scaffold status
 
-Generated: 2026-06-29
+Generated: 2026-07-03
 
 ## Included
 
@@ -8,13 +8,13 @@ Generated: 2026-06-29
 - Engine-neutral scene/property/schema model
 - Command and undo/redo path
 - Platform-neutral command registry, built-in editor commands, command filtering, and invocation results
-- Adapter API, SDK, host boundary, and mock game adapter
+- Adapter API, SDK, host boundary, and stdio reference game adapter
 - UI tree and layout foundation for the editor shell
 - UI input routing, hit testing, hover/focus/pressed state, keyboard focus traversal foundation, and basic button clicks
 - Command palette shell with query filtering, keyboard selection, execution, cancel behavior, and status feedback
 - Project system UI with project status, recent project count, validation diagnostics, project panel metadata, and command-palette project commands
 - Real asset index with project-relative paths, stable path-derived IDs, cheap metadata, diagnostics, explicit scan/refresh, watcher dirty-state foundation, asset panel rows, selection state, and command-palette asset commands
-- Scene tree foundation with engine-neutral scene model, demo snapshot, scene panel hierarchy, selection/expand state, and command-palette scene commands
+- Scene tree foundation with engine-neutral scene model, reference scene snapshot for adapter/tests, scene panel hierarchy, selection/expand state, and command-palette scene commands
 - Read-only inspector foundation with property formatting, grouped inspector rows, selection-driven updates, and command-palette inspector commands
 - Editable inspector undo foundation with primitive property edit metadata, model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo
 - Adapter host integration with JSON-line protocol, mock process spawning, versioned handshake, request/response correlation, diagnostics/logs, scene snapshot import, status UI, and command-palette adapter commands
@@ -35,10 +35,17 @@ Generated: 2026-06-29
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive empty shell and project-status foundation
 - Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, native file dialogs, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, drag-and-drop asset behavior, asset rename/move/delete, asset dependency graph, asset build/import cache, scene object creation/deletion, continuous viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
-- Normal runtime fixture commands, automatic fake data loading, and mock adapter startup as user-facing editor behavior
+- Normal runtime automatic fake data loading as user-facing editor behavior
 - Real `AccessKit` adapter integration
 - Real game engine binding
 - CI execution of the native window path
+
+## Beta readiness cleanup
+
+- Removed in-memory asset demo index and `examples/demo_project` placeholders; asset behavior now uses real scans and temp-dir tests only.
+- Renamed scene `demo_scene_snapshot` to `reference_scene_snapshot` for adapter and test boundaries.
+- Consolidated adapter capabilities to `AdapterCapabilities::stdio_game_adapter()`.
+- Ignored local `.elcarax/` runtime state in git.
 
 ## Running
 

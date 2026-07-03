@@ -5,8 +5,8 @@ use crate::schema::ObjectSchema;
 use crate::snapshot::{SceneId, SceneObject, SceneObjectId, SceneSnapshot};
 use crate::{PropertyKind, PropertyPath, PropertySchema, PropertyValue};
 
-pub fn demo_scene_snapshot() -> SceneSnapshot {
-    let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Demo Scene"));
+pub fn reference_scene_snapshot() -> SceneSnapshot {
+    let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Reference Scene"));
     snapshot.set_scene_id(stable_scene_id(100));
 
     let mut world = object(1, "World", SceneObjectKind::World);
@@ -250,7 +250,7 @@ fn read_only_property(
     kind: PropertyKind,
     group: &PropertyGroup,
 ) -> PropertySchema {
-    let path = PropertyPath::demo_from_segments(segments);
+    let path = PropertyPath::fixture_from_segments(segments);
     PropertySchema::read_only(path, display_name, kind, group.clone())
 }
 
@@ -260,7 +260,7 @@ fn editable_property(
     kind: PropertyKind,
     group: &PropertyGroup,
 ) -> PropertySchema {
-    let path = PropertyPath::demo_from_segments(segments);
+    let path = PropertyPath::fixture_from_segments(segments);
     PropertySchema::editable(path, display_name, kind, group.clone())
 }
 
@@ -271,7 +271,7 @@ fn apply_schema(
 ) {
     object.type_id = schema.type_id;
     for (segments, value) in values {
-        let path = PropertyPath::demo_from_segments(segments);
+        let path = PropertyPath::fixture_from_segments(segments);
         object.set_property(path, value.clone());
     }
 }

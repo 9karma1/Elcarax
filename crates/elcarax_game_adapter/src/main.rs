@@ -11,7 +11,7 @@ use elcarax_adapter_api::{
 };
 use elcarax_core::{ElcaraxError, Result, ViewportFrameFormat};
 use elcarax_scene_model::{
-    PropertyEditError, ScenePatch, SceneSnapshot, demo_scene_snapshot, prepare_property_change,
+    PropertyEditError, ScenePatch, SceneSnapshot, prepare_property_change, reference_scene_snapshot,
 };
 
 fn main() -> Result<()> {
@@ -58,11 +58,11 @@ struct MockAdapter {
 impl MockAdapter {
     fn new() -> Self {
         Self {
-            scene: demo_scene_snapshot(),
+            scene: reference_scene_snapshot(),
             project_loaded: false,
             diagnostics: vec![AdapterDiagnostic::info(
                 "mock-adapter",
-                "Mock adapter ready with deterministic demo scene",
+                "Reference stdio adapter ready with deterministic scene snapshot",
             )],
         }
     }
@@ -86,7 +86,7 @@ impl MockAdapter {
                         adapter_name: AdapterName::new("Mock Adapter"),
                         adapter_version: AdapterVersion::new(env!("CARGO_PKG_VERSION")),
                         protocol_version: ProtocolVersion::V0,
-                        capabilities: AdapterCapabilities::mock_milestone_14(),
+                        capabilities: AdapterCapabilities::stdio_game_adapter(),
                     })
                 }
             }
@@ -96,7 +96,7 @@ impl MockAdapter {
                     display_name: "Mock Adapter Demo Project".to_string(),
                     root_path: request
                         .project_path
-                        .or_else(|| Some(PathBuf::from("adapter/mock-demo"))),
+                        .or_else(|| Some(PathBuf::from("adapter/reference"))),
                 })
             }
             AdapterRequestMessage::GetSceneSnapshot(_) => {
@@ -445,7 +445,7 @@ mod tests {
     }
 
     fn request(path: &str, new_value: PropertyValue) -> SetPropertyRequest {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let player = match snapshot.object_by_name("Player") {
             Some(player) => player,
             None => panic!("player should exist"),

@@ -30,7 +30,7 @@ impl PropertyPath {
         Self::parse(&joined)
     }
 
-    pub(crate) fn demo_from_segments(segments: &[&str]) -> Self {
+    pub(crate) fn fixture_from_segments(segments: &[&str]) -> Self {
         Self(
             segments
                 .iter()

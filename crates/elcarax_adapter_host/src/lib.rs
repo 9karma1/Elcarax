@@ -571,7 +571,7 @@ mod tests {
         AdapterCapabilities, AdapterEditSource, AdapterId, AdapterName, ProtocolVersion,
         SetPropertyResponse, SetPropertyStatus, decode_request_line,
     };
-    use elcarax_scene_model::{PropertyPath, PropertyValue, ScenePatch, demo_scene_snapshot};
+    use elcarax_scene_model::{PropertyPath, PropertyValue, ScenePatch, reference_scene_snapshot};
 
     #[test]
     fn fake_transport_handshake_succeeds() {
@@ -582,7 +582,7 @@ mod tests {
                 adapter_name: AdapterName::new("Mock Adapter"),
                 adapter_version: AdapterVersion::new("0.1.0"),
                 protocol_version: ProtocolVersion::V0,
-                capabilities: AdapterCapabilities::mock_milestone_12(),
+                capabilities: AdapterCapabilities::stdio_game_adapter(),
             }),
         );
         let mut session = AdapterSession::new(FakeAdapterTransport::new(vec![must(response)]));
@@ -596,7 +596,7 @@ mod tests {
         let response = response_line(
             AdapterRequestId(1),
             AdapterResponseMessage::GetSceneSnapshot(GetSceneSnapshotResponse {
-                snapshot: demo_scene_snapshot(),
+                snapshot: reference_scene_snapshot(),
                 source_label: "mock-adapter".to_string(),
             }),
         );
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn fake_transport_set_property_succeeds() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let player = match snapshot.object_by_name("Player") {
             Some(player) => player,
             None => panic!("player should exist"),

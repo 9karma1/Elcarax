@@ -272,7 +272,7 @@ pub fn decode_adapter_line(line: &str) -> Result<AdapterLine, serde_json::Error>
 mod tests {
     use super::*;
     use crate::{AdapterCapabilities, AdapterId, AdapterName, AdapterVersion};
-    use elcarax_scene_model::demo_scene_snapshot;
+    use elcarax_scene_model::reference_scene_snapshot;
 
     #[test]
     fn handshake_request_response_round_trip() -> Result<(), serde_json::Error> {
@@ -290,7 +290,7 @@ mod tests {
                 adapter_name: AdapterName::new("Mock Adapter"),
                 adapter_version: AdapterVersion::new("0.1.0"),
                 protocol_version: ProtocolVersion::V0,
-                capabilities: AdapterCapabilities::mock_milestone_12(),
+                capabilities: AdapterCapabilities::stdio_game_adapter(),
             }),
         );
         let line = encode_response_line(&response)?;
@@ -380,11 +380,11 @@ mod tests {
     }
 
     #[test]
-    fn scene_snapshot_response_can_carry_demo_scene() -> Result<(), serde_json::Error> {
+    fn scene_snapshot_response_can_carry_reference_scene() -> Result<(), serde_json::Error> {
         let response = AdapterResponse::new(
             AdapterRequestId::new(1),
             AdapterResponseMessage::GetSceneSnapshot(GetSceneSnapshotResponse {
-                snapshot: demo_scene_snapshot(),
+                snapshot: reference_scene_snapshot(),
                 source_label: "mock".to_string(),
             }),
         );
@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn set_property_request_round_trips() -> Result<(), serde_json::Error> {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let player = player(&snapshot);
         let request = AdapterRequest::new(
             AdapterRequestId::new(9),
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn set_property_response_round_trips() -> Result<(), serde_json::Error> {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let player = player(&snapshot);
         let response = AdapterResponse::new(
             AdapterRequestId::new(9),
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn rejected_writeback_response_round_trips() -> Result<(), serde_json::Error> {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let response = rejected_response(&snapshot);
         let line = encode_response_line(&response)?;
         assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
@@ -470,7 +470,7 @@ mod tests {
 
     #[test]
     fn diagnostics_round_trip_with_writeback_response() -> Result<(), serde_json::Error> {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let response = rejected_response(&snapshot);
         let line = encode_response_line(&response)?;
         let AdapterLine::Response(AdapterResponse {

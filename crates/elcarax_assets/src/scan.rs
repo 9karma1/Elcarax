@@ -53,15 +53,6 @@ impl AssetScan {
         }
     }
 
-    pub fn from_demo_index(index: AssetIndex) -> Self {
-        Self {
-            root: Some(PathBuf::from("assets")),
-            request: None,
-            index,
-            diagnostics: Vec::new(),
-        }
-    }
-
     pub fn scan_root(root: impl AsRef<Path>) -> Self {
         Self::scan(AssetScanRequest::from_asset_root(
             root.as_ref().to_path_buf(),
@@ -223,10 +214,6 @@ fn should_skip_path(path: &Path) -> bool {
         .is_some_and(|name| name == ".elcarax" || name.starts_with('.'))
 }
 
-pub fn scan_demo_assets() -> AssetScan {
-    crate::demo::demo_asset_scan()
-}
-
 pub fn apply_selection_after_scan(scan: &AssetScan, selection: &mut AssetSelection) {
     if let Some(selected) = selection.selected()
         && scan.index.find(selected).is_some()
@@ -239,7 +226,6 @@ pub fn apply_selection_after_scan(scan: &AssetScan, selection: &mut AssetSelecti
 #[cfg(test)]
 mod scan_tests {
     use super::*;
-    use crate::demo::demo_asset_index;
     use crate::kind::AssetKind;
     use std::fs;
 
@@ -333,18 +319,18 @@ mod scan_tests {
     }
 
     #[test]
-    fn demo_scan_has_expected_count() {
-        let scan = scan_demo_assets();
-        assert_eq!(scan.asset_count(), 7);
-    }
-
-    #[test]
-    fn demo_index_kind_counts_are_correct() {
-        let index = demo_asset_index();
-        let counts = index.kind_counts();
+    fn scanned_index_kind_counts_are_correct() {
+        let root = temp_root("kinds");
+        let assets = root.join("assets");
+        assert!(fs::create_dir_all(&assets).is_ok());
+        assert!(fs::write(assets.join("hero.png"), "image").is_ok());
+        assert!(fs::write(assets.join("level.scene"), "scene").is_ok());
+        let scan = AssetScan::scan(AssetScanRequest::new(&root, &assets));
+        let counts = scan.index.kind_counts();
         assert_eq!(counts.get(&AssetKind::Scene), Some(&1));
         assert_eq!(counts.get(&AssetKind::Image), Some(&1));
         assert_eq!(counts.get(&AssetKind::Unknown), None);
+        let _ = fs::remove_dir_all(root);
     }
 
     fn temp_root(name: &str) -> PathBuf {

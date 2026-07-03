@@ -72,7 +72,7 @@ Editable inspector tests still cover command-history mutation through fixtures, 
 
 `adapter.connect`, `adapter.handshake`, `adapter.load_project`, `adapter.load_scene`, `adapter.disconnect`, `adapter.show_status`, and `adapter.show_diagnostics` are the normal runtime command names. With the `native-shell` feature, `adapter.connect` spawns the stdio game adapter process; the console build still reports `No adapter configured` for `adapter.connect`. Viewport preview uses `adapter.load_project` (when required by the adapter) followed by `viewport.request_frame`.
 
-Adapter-backed writeback remains covered through adapter tests and fixture commands. Normal UI widgets emit editor actions only and do not spawn adapter processes directly.
+Adapter-backed writeback remains covered through adapter tests and reference scene fixtures. Normal UI widgets emit editor actions only and do not spawn adapter processes directly.
 
 The console proof prints empty startup state, exercises real temporary project create/open/validate, writes real files under `assets/`, runs `asset.scan`, reports asset kinds, selects the first asset, modifies the asset folder, runs `asset.refresh`, proves project close clears asset state, reopens the last project, then runs `viewport.request_frame` without an adapter, spawns the stdio game adapter, requests a viewport frame, prints frame metadata, clears the viewport, and shuts the adapter down.
 

@@ -10,7 +10,7 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 
 - engine-neutral workspace, scene, schema, property, and command types
 - command history with undo/redo proof flow
-- adapter API, SDK, host boundary, and mock game adapter
+- adapter API, SDK, host boundary, and stdio reference game adapter
 - `winit` native shell behind the `native-shell` feature
 - `wgpu` surface/context and rectangle primitive rendering
 - `cosmic-text` shaping and system-font rasterization through `elcarax_text`
@@ -18,12 +18,12 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - interactive editor shell foundation with toolbar, project panel, asset browser, scene tree, viewport, inspector, status bar, and command palette
 - project-domain model, recent project list, validation diagnostics, and project commands
 - real project asset index with project-relative paths, stable path-derived IDs, metadata, diagnostics, refresh, watcher dirty-state foundation, and clickable asset rows
-- scene tree foundation with engine-neutral scene model, hierarchy display, selection/expand state, and scene commands
+- Scene tree foundation with engine-neutral scene model, reference scene snapshot for adapter/tests, hierarchy display, selection/expand state, and scene commands
 - read-only inspector foundation with property formatting, grouped rows, selection-driven updates, and inspector commands
 - editable inspector undo foundation with command-driven primitive property edits, inspector refresh, diagnostics, and undo/redo
 - adapter host integration with JSON-line process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
 - adapter property writeback foundation with mock-adapter-only set-property requests, confirmed scene patches, adapter-backed inspector edits, and adapter undo/redo
-- productionized empty runtime startup with fixture data kept out of normal app flow
+- productionized empty runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
 - real project file format, create/open/validate/close, recent-project persistence, and explicit project asset scanning
 - project, asset, accessibility state, and devtools modules
 - architecture decision records and milestone documentation

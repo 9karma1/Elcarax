@@ -424,12 +424,12 @@ impl AssetCommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elcarax_assets::{AssetKind, AssetRecord, stable_asset_id};
+    use elcarax_assets::{AssetKind, AssetRecord, stable_asset_id_from_path};
     use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
     use elcarax_project::{ProjectCreateRequest, create_project};
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn fixture_scan_kind_summary_is_stable() {
@@ -684,19 +684,19 @@ mod tests {
             request: None,
             index: AssetIndex::from_records(vec![
                 AssetRecord::from_parts(
-                    stable_asset_id(1),
+                    stable_asset_id_from_path(Path::new("README.md")),
                     "README.md",
                     PathBuf::from("README.md"),
                     AssetKind::Text,
                 ),
                 AssetRecord::from_parts(
-                    stable_asset_id(2),
+                    stable_asset_id_from_path(Path::new("models/hero.glb")),
                     "hero.glb",
                     PathBuf::from("models/hero.glb"),
                     AssetKind::Model,
                 ),
                 AssetRecord::from_parts(
-                    stable_asset_id(3),
+                    stable_asset_id_from_path(Path::new("scenes/level.scene")),
                     "level.scene",
                     PathBuf::from("scenes/level.scene"),
                     AssetKind::Scene,

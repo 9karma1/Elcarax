@@ -20,31 +20,7 @@ impl AdapterCapabilities {
         }
     }
 
-    pub const fn mock_milestone_12() -> Self {
-        Self {
-            provides_project_info: true,
-            provides_scene_snapshot: true,
-            provides_diagnostics: true,
-            supports_property_writeback: false,
-            supports_viewport_preview: false,
-        }
-    }
-
-    pub const fn game_editor_v0() -> Self {
-        Self::mock_milestone_12()
-    }
-
-    pub const fn mock_milestone_13() -> Self {
-        Self {
-            provides_project_info: true,
-            provides_scene_snapshot: true,
-            provides_diagnostics: true,
-            supports_property_writeback: true,
-            supports_viewport_preview: false,
-        }
-    }
-
-    pub const fn mock_milestone_14() -> Self {
+    pub const fn stdio_game_adapter() -> Self {
         Self {
             provides_project_info: true,
             provides_scene_snapshot: true,
@@ -52,5 +28,9 @@ impl AdapterCapabilities {
             supports_property_writeback: true,
             supports_viewport_preview: true,
         }
+    }
+
+    pub const fn game_editor_v0() -> Self {
+        Self::stdio_game_adapter()
     }
 }

@@ -1,6 +1,6 @@
 //! Engine-neutral scene, object, schema, and property model.
 
-mod demo;
+mod reference_scene;
 mod diagnostic;
 mod error;
 mod hierarchy;
@@ -15,7 +15,7 @@ mod schema;
 mod selection;
 mod snapshot;
 
-pub use demo::demo_scene_snapshot;
+pub use reference_scene::reference_scene_snapshot;
 pub use diagnostic::SceneDiagnostic;
 pub use error::SceneError;
 pub use hierarchy::{SceneHierarchy, SceneTreeRow};
@@ -48,8 +48,8 @@ mod tests {
     use elcarax_core::Result;
 
     #[test]
-    fn demo_scene_has_stable_object_order() {
-        let snapshot = demo_scene_snapshot();
+    fn reference_scene_has_stable_object_order() {
+        let snapshot = reference_scene_snapshot();
         let mut expansion = SceneExpansion::new();
         expansion.expand_all(&snapshot);
         let rows = SceneHierarchy::visible_rows(&snapshot, &expansion);
@@ -73,26 +73,26 @@ mod tests {
 
     #[test]
     fn hierarchy_parent_child_relationships_are_valid() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         assert!(SceneHierarchy::validate(&snapshot).is_ok());
         let world = match snapshot.object_by_name("World") {
             Some(object) => object,
-            None => panic!("world should exist in demo scene"),
+            None => panic!("world should exist in reference scene"),
         };
         assert_eq!(world.children.len(), 4);
         let player = match snapshot.object_by_name("Player") {
             Some(object) => object,
-            None => panic!("player should exist in demo scene"),
+            None => panic!("player should exist in reference scene"),
         };
         assert_eq!(player.children.len(), 2);
     }
 
     #[test]
     fn selecting_existing_object_succeeds() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let player = match snapshot.object_by_name("Player") {
             Some(object) => object,
-            None => panic!("player should exist in demo scene"),
+            None => panic!("player should exist in reference scene"),
         };
         let mut selection = SceneSelection::none();
         assert!(selection.select_existing(&snapshot, player.id).is_ok());
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn selecting_missing_object_returns_clear_result() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let mut selection = SceneSelection::none();
         let missing = match std::num::NonZeroU64::new(999) {
             Some(value) => SceneObjectId::from_non_zero(value),
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn expand_all_includes_all_expandable_nodes() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let mut expansion = SceneExpansion::new();
         expansion.expand_all(&snapshot);
         assert_eq!(expansion.len(), 3);
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn collapse_all_clears_expanded_state() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let mut expansion = SceneExpansion::new();
         expansion.expand_all(&snapshot);
         expansion.collapse_all();
@@ -138,10 +138,10 @@ mod tests {
 
     #[test]
     fn scene_object_lookup_by_id_works() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let player = match snapshot.object_by_name("Player") {
             Some(object) => object,
-            None => panic!("player should exist in demo scene"),
+            None => panic!("player should exist in reference scene"),
         };
         assert_eq!(
             snapshot
@@ -153,13 +153,13 @@ mod tests {
 
     #[test]
     fn scene_object_lookup_by_name_works() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         assert!(snapshot.object_by_name("Trigger Zone").is_some());
     }
 
     #[test]
     fn collapsed_node_hides_descendants() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let expansion = SceneExpansion::new();
         let rows = SceneHierarchy::visible_rows(&snapshot, &expansion);
         let names: Vec<_> = rows.iter().map(|row| row.display_name.as_str()).collect();
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn expanded_scene_tree_includes_descendants() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let mut expansion = SceneExpansion::new();
         expansion.expand_all(&snapshot);
         let rows = SceneHierarchy::visible_rows(&snapshot, &expansion);
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn property_value_formatting_covers_core_kinds() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let context = PropertyFormatContext {
             snapshot: &snapshot,
         };
@@ -213,8 +213,8 @@ mod tests {
     }
 
     #[test]
-    fn demo_player_has_expected_properties() {
-        let snapshot = demo_scene_snapshot();
+    fn reference_player_has_expected_properties() {
+        let snapshot = reference_scene_snapshot();
         let player = match snapshot.object_by_name("Player") {
             Some(object) => object,
             None => panic!("player should exist"),
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn editing_editable_int_property_succeeds() -> Result<()> {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let path = path("gameplay.health");
         let change = edit_scene_property(&mut snapshot, player_id, &path, PropertyValue::I64(75))
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn editing_editable_float_property_succeeds() -> Result<()> {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let path = path("gameplay.speed");
         let change = edit_scene_property(&mut snapshot, player_id, &path, PropertyValue::F64(8.0))
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn editing_editable_string_property_succeeds() -> Result<()> {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let path = path("general.name");
         edit_scene_property(
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn editing_editable_vec3_property_succeeds() -> Result<()> {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let path = path("transform.position");
         let change = edit_scene_property(
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn editing_read_only_asset_ref_fails_clearly() {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let path = path("references.mesh");
         let result = edit_scene_property(
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn editing_missing_property_fails_clearly() {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let result = edit_scene_property(
             &mut snapshot,
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn editing_missing_object_fails_clearly() {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let missing = match std::num::NonZeroU64::new(999) {
             Some(value) => SceneObjectId::from_non_zero(value),
             None => panic!("missing test ID should be non-zero"),
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn editing_type_mismatch_fails_clearly() {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let result = edit_scene_property(
             &mut snapshot,
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn property_update_patch_applies_successfully() -> Result<()> {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let path = path("gameplay.health");
         let patch = ScenePatch::property_updated(player_id, path.clone(), PropertyValue::I64(65));
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn property_update_patch_missing_object_fails_clearly() {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let missing = match std::num::NonZeroU64::new(999) {
             Some(value) => SceneObjectId::from_non_zero(value),
             None => panic!("missing test ID should be non-zero"),
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn property_update_patch_missing_property_fails_clearly() {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let patch =
             ScenePatch::property_updated(player_id, path("gameplay.mana"), PropertyValue::I64(65));
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn property_update_patch_type_mismatch_fails_clearly() {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let patch = ScenePatch::property_updated(
             player_id,
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn property_update_patch_preserves_unrelated_properties() -> Result<()> {
-        let mut snapshot = demo_scene_snapshot();
+        let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let speed = path("gameplay.speed");
         let patch = ScenePatch::property_updated(
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn missing_object_returns_clear_inspector_diagnostic() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let missing = match std::num::NonZeroU64::new(999) {
             Some(value) => SceneObjectId::from_non_zero(value),
             None => panic!("missing test ID should be non-zero"),
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn read_only_inspector_rows_are_stable_sorted_and_grouped() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         let player = match snapshot.object_by_name("Player") {
             Some(object) => object,
             None => panic!("player should exist"),
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn no_selection_returns_clear_inspector_diagnostic() {
-        let snapshot = demo_scene_snapshot();
+        let snapshot = reference_scene_snapshot();
         assert_eq!(
             build_inspector_for_selection(&snapshot, None),
             Err(InspectorDiagnostic::NoObjectSelected)
