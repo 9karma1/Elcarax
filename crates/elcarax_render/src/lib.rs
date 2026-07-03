@@ -381,6 +381,14 @@ struct Vertex {
 struct RectInstance {
     rect: [f32; 4],
     color: [f32; 4],
+    /// Rect size in physical pixels, used by the fragment shader to evaluate
+    /// the rounded-corner distance field in the same units as `radius_px`.
+    size_px: [f32; 2],
+    /// Per-corner radius in physical pixels, ordered like [`CornerRadius`]:
+    /// top-left, top-right, bottom-right, bottom-left. All zero means a sharp
+    /// rectangle and skips the distance-field/anti-aliasing path entirely, so
+    /// pixel-perfect primitives (glyphs, lines, border strips) are unaffected.
+    radius_px: [f32; 4],
 }
 
 impl Renderer {
@@ -659,10 +667,18 @@ fn primitive_instances(
 ) -> Result<Vec<RectInstance>, RendererError> {
     let instances = match &primitive.kind {
         RenderPrimitiveKind::Image(_) => Vec::new(),
-        RenderPrimitiveKind::SolidRect { rect, color }
-        | RenderPrimitiveKind::RoundedRect { rect, color, .. } => {
-            rect_instance(*rect, *color, size).into_iter().collect()
+        RenderPrimitiveKind::SolidRect { rect, color } => {
+            rect_instance(*rect, *color, CornerRadius::ZERO, size)
+                .into_iter()
+                .collect()
         }
+        RenderPrimitiveKind::RoundedRect {
+            rect,
+            radius,
+            color,
+        } => rect_instance(*rect, *color, *radius, size)
+            .into_iter()
+            .collect(),
         RenderPrimitiveKind::BorderRect { rect, border } => border_instances(*rect, *border, size),
         RenderPrimitiveKind::Text(text_primitive) => text_instances(text_primitive, size, text)?,
         RenderPrimitiveKind::Line {
@@ -818,11 +834,17 @@ fn image_instance(image: &ImagePrimitive, size: SurfaceSize) -> Option<ImageInst
         _pad: [0.0; 3],
     })
 }
-fn rect_instance(rect: Rect, color: Color, size: SurfaceSize) -> Option<RectInstance> {
+fn rect_instance(
+    rect: Rect,
+    color: Color,
+    radius: CornerRadius,
+    size: SurfaceSize,
+) -> Option<RectInstance> {
     let r = rect.normalized();
     if !r.is_visible() {
         return None;
     }
+    let radius = radius.normalized();
     Some(RectInstance {
         rect: [
             to_ndc_x(r.x, size),
@@ -831,6 +853,13 @@ fn rect_instance(rect: Rect, color: Color, size: SurfaceSize) -> Option<RectInst
             r.height * -2.0 / size.height.max(1) as f32,
         ],
         color: [color.r, color.g, color.b, color.a],
+        size_px: [r.width, r.height],
+        radius_px: [
+            radius.top_left,
+            radius.top_right,
+            radius.bottom_right,
+            radius.bottom_left,
+        ],
     })
 }
 fn border_instances(rect: Rect, border: Border, size: SurfaceSize) -> Vec<RectInstance> {
@@ -846,7 +875,7 @@ fn border_instances(rect: Rect, border: Border, size: SurfaceSize) -> Vec<RectIn
         Rect::new(r.x + r.width - w, r.y, w, r.height),
     ]
     .into_iter()
-    .filter_map(|part| rect_instance(part, border.color, size))
+    .filter_map(|part| rect_instance(part, border.color, CornerRadius::ZERO, size))
     .collect()
 }
 fn line_instance(
@@ -865,6 +894,7 @@ fn line_instance(
                 (from[1] - to[1]).abs(),
             ),
             color,
+            CornerRadius::ZERO,
             size,
         )
     } else {
@@ -876,6 +906,7 @@ fn line_instance(
                 width,
             ),
             color,
+            CornerRadius::ZERO,
             size,
         )
     }
@@ -913,6 +944,7 @@ fn text_instances(
                     pixel.height as f32,
                 ),
                 Color::srgb(pixel.color.r, pixel.color.g, pixel.color.b, pixel.color.a),
+                CornerRadius::ZERO,
                 size,
             )
         })
@@ -946,8 +978,12 @@ fn image_instance_layout() -> wgpu::VertexBufferLayout<'static> {
 }
 
 fn instance_layout() -> wgpu::VertexBufferLayout<'static> {
-    const ATTRIBUTES: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![1 => Float32x4, 2 => Float32x4];
+    const ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+        1 => Float32x4,
+        2 => Float32x4,
+        3 => Float32x2,
+        4 => Float32x4
+    ];
     wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<RectInstance>() as u64,
         step_mode: wgpu::VertexStepMode::Instance,
