@@ -1,6 +1,5 @@
 //! Engine-neutral scene, object, schema, and property model.
 
-mod reference_scene;
 mod diagnostic;
 mod error;
 mod hierarchy;
@@ -11,11 +10,11 @@ mod patch;
 mod property;
 mod property_display;
 mod property_edit;
+mod reference_scene;
 mod schema;
 mod selection;
 mod snapshot;
 
-pub use reference_scene::reference_scene_snapshot;
 pub use diagnostic::SceneDiagnostic;
 pub use error::SceneError;
 pub use hierarchy::{SceneHierarchy, SceneTreeRow};
@@ -34,6 +33,7 @@ pub use property_edit::{
     PropertyChange, PropertyChangeValue, PropertyEditError, PropertyEditResult,
     apply_property_change, edit_scene_property, prepare_property_change,
 };
+pub use reference_scene::reference_scene_snapshot;
 pub use schema::{
     NumericEditMetadata, ObjectSchema, ObjectTypeId, PropertyEditKind, PropertyKind, PropertySchema,
 };
