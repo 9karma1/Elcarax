@@ -11,3 +11,4 @@ workspace = true
 
 [dependencies]
 elcarax_core = { path = "../elcarax_core" }
+notify = "8.2.0"

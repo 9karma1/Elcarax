@@ -161,6 +161,10 @@ impl ShellState {
         let Some(ui) = &mut self.ui else {
             return Ok(());
         };
+        if poll_asset_watch(ui)? {
+            ui.scene_dirty = true;
+            app.request_redraw();
+        }
         if ui.scene_dirty {
             repaint_ui_scene(ui)?;
             ui.scene_dirty = false;
@@ -196,6 +200,9 @@ impl ShellState {
         let Some(ui) = &mut self.ui else {
             return Ok(());
         };
+        if poll_asset_watch(ui)? {
+            app.request_redraw();
+        }
         if handle_palette_shortcut(ui, &input, self.modifiers)? {
             app.request_redraw();
             return Ok(());
@@ -565,6 +572,14 @@ fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), Nati
         ui.bounds,
     )
     .map_err(|error| NativeAppError::Window(format!("failed to update editor UI: {error}")))
+}
+
+fn poll_asset_watch(ui: &mut UiState) -> std::result::Result<bool, NativeAppError> {
+    if !ui.asset_state.poll_watch_events() {
+        return Ok(false);
+    }
+    apply_editor_snapshot_to_ui(ui)?;
+    Ok(true)
 }
 
 fn apply_ui_events(

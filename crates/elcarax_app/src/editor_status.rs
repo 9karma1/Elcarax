@@ -10,8 +10,7 @@ pub(crate) fn editor_status_bar(
     adapter: &AdapterUiSnapshot,
 ) -> String {
     if project.project_name == "No project open"
-        && (assets.asset_count == "Assets: Unavailable"
-            || assets.asset_count == "Assets: No asset root loaded")
+        && assets.asset_count == "Assets unavailable - no project open"
         && scene.scene_name == "No scene loaded"
         && adapter.status_adapter_suffix == "Adapter: Disconnected"
     {
@@ -37,14 +36,14 @@ pub(crate) fn editor_status_bar(
 }
 
 fn asset_status_label(assets: &AssetUiSnapshot) -> String {
-    if assets.asset_count == "Assets: No asset root loaded" {
-        return "No asset root loaded".to_string();
+    if assets.asset_count == "Assets unavailable - no project open" {
+        return "No project open".to_string();
     }
     if let Some(index) = assets.selected_row_index
         && let Some(label) = assets.asset_row_labels.get(index)
         && !label.is_empty()
     {
-        return match label.split(" (").next() {
+        return match label.split(" - ").next() {
             Some(name) => name.to_string(),
             None => "None".to_string(),
         };

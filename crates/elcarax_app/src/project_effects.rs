@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::asset_state::{ASSET_SCAN_COMMAND, AssetState};
+use crate::asset_state::{ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, AssetState};
 use crate::inspector_state::InspectorState;
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
@@ -16,9 +16,10 @@ pub(crate) fn apply_project_open_side_effects(
     scene_state: &mut SceneState,
     inspector_state: &mut InspectorState,
 ) {
+    let project_root = project_state.project_root().map(PathBuf::from);
     let asset_root = project_state.asset_root().map(PathBuf::from);
-    if let Some(root) = asset_root {
-        asset_state.on_project_opened(root.as_path());
+    if let (Some(project_root), Some(asset_root)) = (project_root, asset_root) {
+        asset_state.on_project_opened(project_root.as_path(), asset_root.as_path());
     }
     scene_state.on_project_closed();
     inspector_state.on_project_closed();
@@ -56,7 +57,7 @@ pub(crate) fn apply_project_command_side_effects(
                 );
             }
         }
-        ASSET_SCAN_COMMAND => {
+        ASSET_SCAN_COMMAND | ASSET_REFRESH_COMMAND => {
             project_state.set_scanned_asset_count(asset_state.scanned_asset_count());
         }
         _ => {}

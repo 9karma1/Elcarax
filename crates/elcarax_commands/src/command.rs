@@ -299,9 +299,39 @@ pub fn built_in_commands() -> std::result::Result<CommandRegistry, CommandRegist
             CommandCategory::Asset,
         )?,
         registered(
+            "asset.refresh",
+            "Refresh Assets",
+            "Rescan the loaded project's asset root and clear dirty state",
+            CommandCategory::Asset,
+        )?,
+        registered(
+            "asset.start_watching",
+            "Start Asset Watcher",
+            "Watch the loaded project's asset root for filesystem changes",
+            CommandCategory::Asset,
+        )?,
+        registered(
+            "asset.stop_watching",
+            "Stop Asset Watcher",
+            "Stop watching the current project asset root",
+            CommandCategory::Asset,
+        )?,
+        registered(
             "asset.clear_selection",
             "Clear Asset Selection",
             "Clear the current asset selection",
+            CommandCategory::Asset,
+        )?,
+        registered(
+            "asset.show_selected",
+            "Show Selected Asset",
+            "Report the current selected asset",
+            CommandCategory::Asset,
+        )?,
+        registered(
+            "asset.reveal_root",
+            "Reveal Asset Root",
+            "Report the current project asset root path",
             CommandCategory::Asset,
         )?,
         registered(
@@ -523,7 +553,12 @@ mod tests {
                 "project.show_recent",
                 "project.reopen_last",
                 "asset.scan",
+                "asset.refresh",
+                "asset.start_watching",
+                "asset.stop_watching",
                 "asset.clear_selection",
+                "asset.show_selected",
+                "asset.reveal_root",
                 "scene.load",
                 "scene.clear",
                 "scene.clear_selection",
@@ -556,7 +591,12 @@ mod tests {
             .map(|command| command.id().as_str())
             .collect();
         assert!(ids.contains(&"asset.scan"));
+        assert!(ids.contains(&"asset.refresh"));
+        assert!(ids.contains(&"asset.start_watching"));
+        assert!(ids.contains(&"asset.stop_watching"));
         assert!(ids.contains(&"asset.clear_selection"));
+        assert!(ids.contains(&"asset.show_selected"));
+        assert!(ids.contains(&"asset.reveal_root"));
     }
 
     #[test]

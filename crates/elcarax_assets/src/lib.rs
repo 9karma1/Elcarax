@@ -5,18 +5,32 @@ mod diagnostic;
 mod error;
 mod index;
 mod kind;
+mod metadata;
 mod record;
+mod root;
 mod scan;
 mod selection;
+mod watch;
 
 pub use demo::{demo_asset_index, demo_asset_records, demo_asset_scan};
 pub use diagnostic::AssetDiagnostic;
 pub use error::AssetError;
-pub use index::AssetIndex;
+pub use index::{AssetIndex, AssetIndexSnapshot};
 pub use kind::{AssetKind, detect_kind_from_extension, detect_kind_from_path};
-pub use record::{AssetId, AssetName, AssetPath, AssetRecord, stable_asset_id};
-pub use scan::{AssetScan, apply_selection_after_scan, scan_demo_assets};
+pub use metadata::AssetMetadata;
+pub use record::{
+    AssetId, AssetName, AssetPath, AssetRecord, normalized_asset_path_string, stable_asset_id,
+    stable_asset_id_from_path,
+};
+pub use root::AssetRoot;
+pub use scan::{
+    AssetScan, AssetScanDiagnostic, AssetScanRequest, AssetScanResult, apply_selection_after_scan,
+    scan_demo_assets,
+};
 pub use selection::AssetSelection;
+pub use watch::{
+    AssetWatchError, AssetWatchEvent, AssetWatchEventKind, AssetWatchService, AssetWatchStatus,
+};
 
 #[cfg(test)]
 mod tests {
@@ -74,6 +88,20 @@ mod tests {
     }
 
     #[test]
+    fn path_normalization_uses_forward_slashes_for_ids() {
+        let windows = PathBuf::from("assets\\models\\hero.glb");
+        let portable = PathBuf::from("assets/models/hero.glb");
+        assert_eq!(
+            normalized_asset_path_string(windows.as_path()),
+            "assets/models/hero.glb"
+        );
+        assert_eq!(
+            stable_asset_id_from_path(windows.as_path()),
+            stable_asset_id_from_path(portable.as_path())
+        );
+    }
+
+    #[test]
     fn selecting_first_asset_works() {
         let index = demo_asset_index();
         let mut selection = AssetSelection::none();
@@ -95,6 +123,19 @@ mod tests {
         assert!(selection.select_first(&index));
         selection.clear();
         assert_eq!(selection.selected(), None);
+    }
+
+    #[test]
+    fn asset_index_selection_by_id_works() {
+        let index = demo_asset_index();
+        let first = match index.first() {
+            Some(record) => record.id,
+            None => panic!("demo index should contain records"),
+        };
+        assert_eq!(
+            index.find(first).map(|record| record.path.display()),
+            Some("README.md".to_string())
+        );
     }
 
     #[test]

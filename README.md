@@ -17,18 +17,18 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - retained UI tree, layout primitives, hit testing, interaction state, dirty flags, style/theme resolution, and paint output
 - interactive editor shell foundation with toolbar, project panel, asset browser, scene tree, viewport, inspector, status bar, and command palette
 - project-domain model, recent project list, validation diagnostics, and project commands
-- asset browser foundation with file-based asset indexing, scan state, selection state, and clickable asset rows
+- real project asset index with project-relative paths, stable path-derived IDs, metadata, diagnostics, refresh, watcher dirty-state foundation, and clickable asset rows
 - scene tree foundation with engine-neutral scene model, hierarchy display, selection/expand state, and scene commands
 - read-only inspector foundation with property formatting, grouped rows, selection-driven updates, and inspector commands
 - editable inspector undo foundation with command-driven primitive property edits, inspector refresh, diagnostics, and undo/redo
 - adapter host integration with JSON-line process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
 - adapter property writeback foundation with mock-adapter-only set-property requests, confirmed scene patches, adapter-backed inspector edits, and adapter undo/redo
 - productionized empty runtime startup with fixture data kept out of normal app flow
-- real project file format, create/open/validate/close, recent-project persistence, and project-root asset scanning
+- real project file format, create/open/validate/close, recent-project persistence, and explicit project asset scanning
 - project, asset, accessibility state, and devtools modules
 - architecture decision records and milestone documentation
 
-This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, real text input fields, IME/caret/selection editing, component add/remove, asset assignment editing, multi-object editing, scroll views, real accessibility integration, file dialogs, file watching, hot reload, plugin/marketplace runtime loading, asset import pipeline, scene save/writeback, viewport scene rendering or frame streaming, real engine synchronization, C++ integration, real engine writeback, and real engine binding are intentionally out of scope for the current milestone.
+This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, real text input fields, IME/caret/selection editing, component add/remove, asset assignment editing, multi-object editing, scroll views, real accessibility integration, file dialogs, hot reload, plugin/marketplace runtime loading, asset import pipeline, asset thumbnails/previews, asset drag/drop, asset rename/move/delete, scene save/writeback, viewport scene rendering or frame streaming, real engine synchronization, C++ integration, real engine writeback, and real engine binding are intentionally out of scope for the current milestone.
 
 ## Requirements
 
@@ -86,7 +86,7 @@ Environment variables:
 - `ELCARAX_PROJECT_NAME`
 - `ELCARAX_RECENT_PROJECTS_PATH`
 
-The console flow builds the empty editor shell without opening a GPU window, then exercises real project create/open/validate/scan/close/reopen behavior in a temporary folder before running the adapter viewport proof.
+The console flow builds the empty editor shell without opening a GPU window, then exercises real project create/open/validate, writes real files under the temporary project `assets/`, runs `asset.scan`, selects an asset, modifies the asset folder, runs `asset.refresh`, closes/reopens the project, and then runs the adapter viewport proof.
 
 Manual native shell smoke test:
 
@@ -100,12 +100,12 @@ Suggested manual flow:
 
 1. Open the native shell
 2. Confirm no project, asset root, scene, viewport source, selected object, or adapter is loaded automatically
-3. Confirm the left panel shows `No project open`, assets unavailable until a project/root exists, and `No scene loaded`
+3. Confirm the left panel shows `No project open`, `Assets unavailable - no project open`, and `No scene loaded`
 4. Confirm the center viewport says `No viewport source`
 5. Confirm the right inspector says `No object selected`
 6. Confirm the status bar says `Ready - open a project or connect an adapter`
-7. Press Ctrl+K and confirm the palette exposes real editor commands such as `project.create`, `project.open`, `asset.scan`, `scene.load`, `inspector.clear`, `edit.undo`, `edit.redo`, `adapter.connect`, `adapter.load_scene`, and adapter status/diagnostic commands
-8. Run `project.create` or `project.open` with CLI/env paths configured and confirm the toolbar, project panel, asset scan, validate, close, and reopen-last behavior update from real project state
+7. Press Ctrl+K and confirm the palette exposes real editor commands such as `project.create`, `project.open`, `asset.scan`, `asset.refresh`, `asset.start_watching`, `asset.stop_watching`, `scene.load`, `inspector.clear`, `edit.undo`, `edit.redo`, `adapter.connect`, `adapter.load_scene`, and adapter status/diagnostic commands
+8. Run `project.create` or `project.open` with CLI/env paths configured and confirm the toolbar, project panel, asset scan/refresh/watch, validate, close, and reopen-last behavior update from real project state
 
 The command palette shows eight rows at a time and filters with query text. The toolbar `Open` button reports that project opening is not implemented yet.
 
@@ -117,7 +117,7 @@ Elcarax keeps external systems behind crate boundaries:
 - `elcarax_scene_model`: engine-neutral scene/property/schema model
 - `elcarax_commands`: command and undo/redo behavior
 - `elcarax_project`: project model, validation, status, and recent-project domain types
-- `elcarax_assets`: asset index, scan, selection, and extension-based kind detection
+- `elcarax_assets`: asset index, project-relative scanning, stable path-derived IDs, metadata, diagnostics, selection, extension-based kind detection, and watch service abstraction
 - `elcarax_adapter_api`: stable adapter boundary
 - `elcarax_adapter_host`: adapter process, JSON-line transport, request correlation, events, and failure handling
 - `elcarax_platform`: platform event loop and native window integration
@@ -146,6 +146,7 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - Milestone 13: adapter property writeback foundation
 - Milestone 14A: productionized empty runtime startup
 - Milestone 15: real project open and persistence
+- Milestone 16: real asset index and file watching
 - Milestone 14: viewport preview foundation
 
 See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
@@ -157,3 +158,4 @@ See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
 - `docs/MILESTONE_14_VIEWPORT_PREVIEW_FOUNDATION.md`
 - `docs/MILESTONE_14A_PRODUCTIONIZE_RUNTIME.md`
 - `docs/MILESTONE_15_REAL_PROJECT_OPEN_CREATE.md`
+- `docs/MILESTONE_16_REAL_ASSET_INDEX_WATCH.md`
