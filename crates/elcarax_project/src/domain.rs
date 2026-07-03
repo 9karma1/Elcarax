@@ -84,6 +84,10 @@ impl Project {
         &self.editor
     }
 
+    pub fn set_active_scene(&mut self, relative_path: Option<PathBuf>) {
+        self.editor.active_scene = relative_path;
+    }
+
     pub fn resolved_paths(&self) -> &ResolvedProjectPaths {
         &self.paths
     }

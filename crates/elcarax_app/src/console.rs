@@ -1,6 +1,6 @@
 use elcarax_adapter_api::{HandshakeRequest, LoadProjectRequest};
 use elcarax_adapter_host::{AdapterHost, AdapterProcessSpec};
-use elcarax_commands::{CommandHistory, built_in_commands};
+use elcarax_commands::built_in_commands;
 use elcarax_core::{Result, ViewportStatus};
 use elcarax_devtools::DevtoolsSnapshot;
 use elcarax_gpu::FrameStats;
@@ -9,19 +9,15 @@ use elcarax_render::{Rect, RenderStats, batch_scene, image_stats, text_stats};
 use elcarax_ui::{PaintContext, Theme, UiContext, build_editor_shell_with_content};
 
 use crate::adapter_state::AdapterState;
-use crate::asset_state::{
-    ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, ASSET_SHOW_SELECTED_COMMAND, AssetState,
-};
-use crate::inspector_state::InspectorState;
+use crate::asset_state::{ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, ASSET_SHOW_SELECTED_COMMAND};
+use crate::editor_session::EditorSessionState;
 use crate::project_config::AppProjectConfig;
-use crate::project_effects::apply_project_command_side_effects;
 use crate::project_state::{
-    PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
-    PROJECT_REOPEN_LAST_COMMAND, PROJECT_SHOW_RECENT_COMMAND, PROJECT_VALIDATE_COMMAND,
-    ProjectState,
+    PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND, PROJECT_REOPEN_LAST_COMMAND,
+    PROJECT_SHOW_RECENT_COMMAND, PROJECT_VALIDATE_COMMAND,
 };
 use crate::project_ui::editor_snapshots;
-use crate::scene_state::{SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND, SceneState};
+use crate::scene_state::SCENE_LOAD_COMMAND;
 use crate::scene_ui::shell_content_from_editor_state;
 use crate::viewport_state::{
     AppViewportState, VIEWPORT_CLEAR_COMMAND, VIEWPORT_REQUEST_FRAME_COMMAND,
@@ -83,21 +79,17 @@ fn build_startup_summary() -> Result<StartupSummary> {
         theme,
         Rect::new(0.0, 0.0, shell.width as f32, shell.height as f32),
     );
-    let project_state = ProjectState::default();
-    let asset_state = AssetState::default();
-    let scene_state = SceneState::default();
-    let inspector_state = InspectorState::default();
+    let editor = EditorSessionState::default();
     let adapter_state = AdapterState::default();
     let viewport_state = AppViewportState::default();
-    let history = CommandHistory::new();
     let registry = built_in_commands().map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to register commands: {error}"))
     })?;
     let content = shell_content_from_editor_state(editor_snapshots(
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        &editor.project.ui_snapshot(),
+        &editor.assets.ui_snapshot(),
+        &editor.scene.ui_snapshot(),
+        &editor.inspector.ui_snapshot(&editor.scene),
         &adapter_state.ui_snapshot(),
         &viewport_state.ui_snapshot(),
     ));
@@ -132,8 +124,8 @@ fn build_startup_summary() -> Result<StartupSummary> {
         scene_state: "No scene loaded".to_string(),
         inspector_state: "No object selected".to_string(),
         viewport_state: "No viewport source".to_string(),
-        undo_count: history.undo_count(),
-        redo_count: history.redo_count(),
+        undo_count: editor.edit_history.undo_count(),
+        redo_count: editor.edit_history.redo_count(),
         node_count: shell.tree.node_count(),
         layout_count: shell.tree.node_count(),
         primitive_count: devtools.render.primitive_count,
@@ -159,80 +151,53 @@ fn run_project_proof() -> Result<()> {
         recent_store_path: Some(recent_path.clone()),
         ..AppProjectConfig::default()
     };
-    let mut project_state = ProjectState::new(config);
-    let mut asset_state = AssetState::default();
-    let mut scene_state = SceneState::default();
-    let mut inspector_state = InspectorState::default();
+    let mut session = EditorSessionState::new(config);
 
-    assert!(!project_state.is_project_loaded());
+    assert!(!session.project.is_project_loaded());
     println!("project.startup: no project open");
 
-    let create = project_state
-        .execute_command_id(PROJECT_CREATE_COMMAND)
+    let create = session
+        .session_mut()
+        .execute_project_command(PROJECT_CREATE_COMMAND)
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing create result".to_string());
     println!("project.create: {create}");
-    apply_project_command_side_effects(
-        PROJECT_CREATE_COMMAND,
-        &mut project_state,
-        &mut asset_state,
-        &mut scene_state,
-        &mut inspector_state,
-    );
-    assert!(project_state.is_project_loaded());
-
-    let scene_load = scene_state
-        .execute_command_id(SCENE_LOAD_COMMAND)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing scene load result".to_string());
-    println!("scene.load: {scene_load}");
-    assert!(scene_state.snapshot().is_some());
+    assert!(session.project.is_project_loaded());
+    assert!(session.scene.snapshot().is_some());
 
     let open_config = AppProjectConfig {
         open_path: Some(project_root.clone()),
         recent_store_path: Some(recent_path.clone()),
         ..AppProjectConfig::default()
     };
-    project_state = ProjectState::new(open_config);
-    let open = project_state
-        .execute_command_id(PROJECT_OPEN_COMMAND)
+    session = EditorSessionState::new(open_config);
+    let open = session
+        .session_mut()
+        .execute_project_command(PROJECT_OPEN_COMMAND)
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing open result".to_string());
     println!("project.open: {open}");
-    apply_project_command_side_effects(
-        PROJECT_OPEN_COMMAND,
-        &mut project_state,
-        &mut asset_state,
-        &mut scene_state,
-        &mut inspector_state,
-    );
     create_console_asset_files(project_root.join("assets").as_path())?;
 
-    let validate = project_state
-        .execute_command_id(PROJECT_VALIDATE_COMMAND)
+    let validate = session
+        .session_mut()
+        .execute_project_command(PROJECT_VALIDATE_COMMAND)
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing validate result".to_string());
     println!("project.validate: {validate}");
 
-    let scan = asset_state
-        .execute_command_id(ASSET_SCAN_COMMAND, project_state.is_project_loaded())
+    let scan = session
+        .assets
+        .execute_command_id(ASSET_SCAN_COMMAND, session.project.is_project_loaded())
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing scan result".to_string());
     println!("asset.scan: {scan}");
-    apply_project_command_side_effects(
-        ASSET_SCAN_COMMAND,
-        &mut project_state,
-        &mut asset_state,
-        &mut scene_state,
-        &mut inspector_state,
-    );
-    println!("asset.kinds: {}", asset_state.kind_summary());
-    if asset_state.select_row(0) {
-        let selected = asset_state
-            .execute_command_id(
-                ASSET_SHOW_SELECTED_COMMAND,
-                project_state.is_project_loaded(),
-            )
+    session.session_mut().after_asset_command(ASSET_SCAN_COMMAND);
+    println!("asset.kinds: {}", session.assets.kind_summary());
+    if session.assets.select_row(0) {
+        let selected = session
+            .assets
+            .execute_command_id(ASSET_SHOW_SELECTED_COMMAND, session.project.is_project_loaded())
             .map(|result| result.message().to_string())
             .unwrap_or_else(|| "missing selected result".to_string());
         println!("asset.show_selected: {selected}");
@@ -242,73 +207,98 @@ fn run_project_proof() -> Result<()> {
     fs::write(assets_root.join("notes.txt"), "notes").map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to update console asset: {error}"))
     })?;
-    let refresh = asset_state
-        .execute_command_id(ASSET_REFRESH_COMMAND, project_state.is_project_loaded())
+    let refresh = session
+        .assets
+        .execute_command_id(ASSET_REFRESH_COMMAND, session.project.is_project_loaded())
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing refresh result".to_string());
     println!("asset.refresh: {refresh}");
-    apply_project_command_side_effects(
-        ASSET_REFRESH_COMMAND,
-        &mut project_state,
-        &mut asset_state,
-        &mut scene_state,
-        &mut inspector_state,
-    );
+    session.session_mut().after_asset_command(ASSET_REFRESH_COMMAND);
 
-    let recent = project_state
-        .execute_command_id(PROJECT_SHOW_RECENT_COMMAND)
+    let recent = session
+        .session_mut()
+        .execute_project_command(PROJECT_SHOW_RECENT_COMMAND)
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing recent result".to_string());
     println!("project.show_recent: {recent}");
 
-    let close = project_state
-        .execute_command_id(PROJECT_CLOSE_COMMAND)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing close result".to_string());
-    println!("project.close: {close}");
-    apply_project_command_side_effects(
-        PROJECT_CLOSE_COMMAND,
-        &mut project_state,
-        &mut asset_state,
-        &mut scene_state,
-        &mut inspector_state,
-    );
-    assert!(!project_state.is_project_loaded());
-    assert!(asset_state.index().is_empty());
-    assert!(asset_state.scanned_asset_count().is_none());
+    let close = session.session_mut().close_project();
+    println!("project.close: {}", close.message());
+    assert!(!session.project.is_project_loaded());
+    assert!(session.assets.index().is_empty());
+    assert!(session.assets.scanned_asset_count().is_none());
 
     let reopen_config = AppProjectConfig {
         recent_store_path: Some(recent_path),
         ..AppProjectConfig::default()
     };
-    project_state = ProjectState::new(reopen_config);
-    let reopen = project_state
-        .execute_command_id(PROJECT_REOPEN_LAST_COMMAND)
+    session = EditorSessionState::new(reopen_config);
+    let reopen = session
+        .session_mut()
+        .execute_project_command(PROJECT_REOPEN_LAST_COMMAND)
         .map(|result| result.message().to_string())
         .unwrap_or_else(|| "missing reopen result".to_string());
     println!("project.reopen_last: {reopen}");
-    apply_project_command_side_effects(
-        PROJECT_REOPEN_LAST_COMMAND,
-        &mut project_state,
-        &mut asset_state,
-        &mut scene_state,
-        &mut inspector_state,
-    );
-    assert!(project_state.is_project_loaded());
+    assert!(session.project.is_project_loaded());
 
-    let scene_reload = scene_state
-        .execute_command_id(SCENE_LOAD_COMMAND)
-        .map(|result| result.message().to_string())
+    let scene_reload = session
+        .session_mut()
+        .execute_scene_command(SCENE_LOAD_COMMAND)
+        .map(|outcome| outcome.status_message())
         .unwrap_or_else(|| "missing scene reload result".to_string());
     println!("scene.reload: {scene_reload}");
-    let scene_save = scene_state
-        .execute_command_id(SCENE_SAVE_COMMAND)
-        .map(|result| result.message().to_string())
+    let scene_save = session
+        .session_mut()
+        .save_scene()
+        .map(|outcome| outcome.status_message())
         .unwrap_or_else(|| "missing scene save result".to_string());
     println!("scene.save: {scene_save}");
 
+    prove_scene_document_round_trip(&mut session)?;
+
     let _ = fs::remove_dir_all(&temp);
     println!("project_proof: complete");
+    Ok(())
+}
+
+fn prove_scene_document_round_trip(session: &mut EditorSessionState) -> Result<()> {
+    use elcarax_scene_model::{ObjectSchema, SceneObject, SceneObjectKind};
+
+    if let Some(snapshot) = session.scene.snapshot_mut() {
+        let schema = ObjectSchema::new("RoundtripMarker");
+        let object = SceneObject::new("Persisted Root", SceneObjectKind::World, schema.type_id);
+        snapshot.add_schema(schema);
+        snapshot.add_root_object(object);
+    }
+    session.scene.mark_document_modified();
+    assert!(session.scene.has_unsaved_changes());
+    let save = session
+        .session_mut()
+        .save_scene()
+        .map(|outcome| outcome.status_message())
+        .unwrap_or_else(|| "missing round-trip save result".to_string());
+    println!("scene.round_trip_save: {save}");
+    assert!(!session.scene.has_unsaved_changes());
+
+    session.scene.on_project_closed();
+    let scene_root = session
+        .project
+        .scene_root()
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| elcarax_core::ElcaraxError::Internal("missing scene root".to_string()))?;
+    session
+        .scene
+        .on_project_opened(scene_root.as_path(), session.project.active_scene_relative());
+    let reload = session
+        .session_mut()
+        .execute_scene_command(SCENE_LOAD_COMMAND)
+        .map(|outcome| outcome.status_message())
+        .unwrap_or_else(|| "missing round-trip reload result".to_string());
+    println!("scene.round_trip_reload: {reload}");
+    assert_eq!(
+        session.scene.snapshot().map(|snapshot| snapshot.object_count()),
+        Some(1)
+    );
     Ok(())
 }
 

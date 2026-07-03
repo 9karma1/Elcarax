@@ -14,6 +14,7 @@ pub(crate) struct SceneUiSnapshot {
     pub(crate) selected_row_index: Option<usize>,
     pub(crate) visible_object_ids: [Option<SceneObjectId>; MAX_VISIBLE_SCENE_ROWS],
     pub(crate) status_scene_suffix: String,
+    pub(crate) has_unsaved_changes: bool,
 }
 
 pub(crate) fn scene_ui_snapshot(
@@ -22,6 +23,7 @@ pub(crate) fn scene_ui_snapshot(
     expansion: &SceneExpansion,
     diagnostics: &[SceneDiagnostic],
     last_command_message: Option<&str>,
+    has_unsaved_changes: bool,
 ) -> SceneUiSnapshot {
     let mut scene_expand_labels = empty_labels();
     let mut scene_row_labels = empty_labels();
@@ -39,9 +41,7 @@ pub(crate) fn scene_ui_snapshot(
         .and_then(|id| row_index_for_object(&visible_rows, id));
     SceneUiSnapshot {
         scene_section_title: "Scene".to_string(),
-        scene_name: snapshot
-            .map(|scene| scene.name().as_str().to_string())
-            .unwrap_or_else(|| "No scene loaded".to_string()),
+        scene_name: scene_name_label(snapshot, has_unsaved_changes),
         scene_expand_labels,
         scene_row_labels,
         scene_selected_summary: selected_object_summary(snapshot, selection),
@@ -52,7 +52,20 @@ pub(crate) fn scene_ui_snapshot(
             selection,
             diagnostics,
             last_command_message,
+            has_unsaved_changes,
         ),
+        has_unsaved_changes,
+    }
+}
+
+fn scene_name_label(snapshot: Option<&SceneSnapshot>, has_unsaved_changes: bool) -> String {
+    let name = snapshot
+        .map(|scene| scene.name().as_str().to_string())
+        .unwrap_or_else(|| "No scene loaded".to_string());
+    if has_unsaved_changes {
+        format!("{name} *")
+    } else {
+        name
     }
 }
 
@@ -92,6 +105,7 @@ fn status_scene_suffix(
     selection: &SceneSelection,
     diagnostics: &[SceneDiagnostic],
     last_command_message: Option<&str>,
+    has_unsaved_changes: bool,
 ) -> String {
     if let Some(message) = last_command_message {
         return format!("Scene: {message}");
@@ -102,6 +116,11 @@ fn status_scene_suffix(
     let scene_name = snapshot
         .map(|scene| scene.name().as_str().to_string())
         .unwrap_or_else(|| "No scene loaded".to_string());
+    let scene_label = if has_unsaved_changes {
+        format!("{scene_name} (unsaved)")
+    } else {
+        scene_name
+    };
     let object = match selection
         .selected()
         .and_then(|id| snapshot.and_then(|scene| scene.object(id).ok()))
@@ -109,7 +128,7 @@ fn status_scene_suffix(
         Some(object) => object.display_name.clone(),
         None => "None".to_string(),
     };
-    format!("Scene: {scene_name} | Object: {object}")
+    format!("Scene: {scene_label} | Object: {object}")
 }
 
 pub(crate) fn selected_object_label(snapshot: &SceneUiSnapshot) -> String {

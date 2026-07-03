@@ -98,6 +98,19 @@ impl ProjectState {
         self.current_project.is_some()
     }
 
+    pub(crate) fn current_project_mut(&mut self) -> Option<&mut Project> {
+        self.current_project.as_mut()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn load_opened_project(&mut self, loaded: elcarax_project::ProjectLoadResult) {
+        self.validation = loaded.validation.validation.clone();
+        self.recent_store.add_project(&loaded.project);
+        self.recent_view.record(&loaded.project);
+        self.current_project = Some(loaded.project);
+        self.scanned_asset_count = None;
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn current_project(&self) -> Option<&Project> {
         self.current_project.as_ref()
@@ -129,6 +142,10 @@ impl ProjectState {
 
     pub(crate) fn set_scanned_asset_count(&mut self, count: Option<usize>) {
         self.scanned_asset_count = count;
+    }
+
+    pub(crate) fn record_command_result(&mut self, result: ProjectCommandResult) {
+        self.last_command_result = Some(result);
     }
 
     fn create_project(&mut self) -> ProjectCommandResult {
@@ -286,6 +303,13 @@ impl ProjectCommandResult {
         Self {
             command_id: command_id.into(),
             message: message.into(),
+        }
+    }
+
+    pub(crate) fn blocked(command_id: &'static str, message: &'static str) -> Self {
+        Self {
+            command_id: command_id.to_string(),
+            message: message.to_string(),
         }
     }
 

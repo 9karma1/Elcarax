@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use elcarax_commands::{
-    CommandHistory, CommandId, CommandInvocation, CommandRegistry, CommandResult,
-    RegisteredCommand, built_in_commands,
+    CommandId, CommandInvocation, CommandRegistry, CommandResult, RegisteredCommand,
+    built_in_commands,
 };
 use elcarax_core::{ElcaraxError, Result};
 use elcarax_gpu::{GpuContext, GpuContextSpec, GpuSurface, RenderError, SurfaceSize};
@@ -21,18 +21,15 @@ use elcarax_ui::{
 use crate::adapter_state::{
     ADAPTER_HANDSHAKE_COMMAND, AdapterState, adapter_command_for_inspector_edit,
 };
-use crate::asset_state::AssetState;
 use crate::asset_ui::asset_row_index_for_widget;
-use crate::inspector_state::InspectorState;
+use crate::editor_session::EditorSessionState;
 use crate::inspector_ui::inspector_value_index_for_widget;
 use crate::project_config::AppProjectConfig;
-use crate::project_effects::apply_project_command_side_effects;
 use crate::project_picker::{
     ProjectPathResolution, resolve_create_project_root, resolve_open_project_path,
 };
-use crate::project_state::{PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND, ProjectState};
+use crate::project_state::{PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND};
 use crate::project_ui::{apply_editor_snapshot, editor_snapshots};
-use crate::scene_state::SceneState;
 use crate::scene_ui::{
     scene_expand_index_for_widget, scene_row_index_for_widget, shell_content_from_editor_state,
 };
@@ -69,13 +66,9 @@ struct UiState {
     scene_dirty: bool,
     command_registry: CommandRegistry,
     command_palette: CommandPaletteState,
-    project_state: ProjectState,
-    asset_state: AssetState,
-    scene_state: SceneState,
-    inspector_state: InspectorState,
+    editor: EditorSessionState,
     adapter_state: AdapterState,
     viewport_state: AppViewportState,
-    edit_history: CommandHistory,
     bounds: Rect,
     shell_layout: ShellLayout,
     shell_layout_path: std::path::PathBuf,
@@ -222,6 +215,10 @@ impl ShellState {
         if poll_asset_watch(ui)? {
             app.request_redraw();
         }
+        if handle_editor_shortcut(ui, &input, self.modifiers)? {
+            app.request_redraw();
+            return Ok(());
+        }
         if handle_palette_shortcut(ui, &input, self.modifiers)? {
             app.request_redraw();
             return Ok(());
@@ -253,19 +250,16 @@ fn build_ui_state(
     height: f32,
 ) -> std::result::Result<UiState, NativeAppError> {
     let context = UiContext::new(theme, Rect::new(0.0, 0.0, width, height));
-    let project_state = ProjectState::new(AppProjectConfig::from_env_and_args(
+    let editor = EditorSessionState::new(AppProjectConfig::from_env_and_args(
         &std::env::args().collect::<Vec<_>>(),
     ));
-    let asset_state = AssetState::default();
-    let scene_state = SceneState::default();
-    let inspector_state = InspectorState::default();
     let adapter_state = AdapterState::default();
     let viewport_state = AppViewportState::default();
     let content = shell_content_from_editor_state(editor_snapshots(
-        &project_state.ui_snapshot(),
-        &asset_state.ui_snapshot(),
-        &scene_state.ui_snapshot(),
-        &inspector_state.ui_snapshot(&scene_state),
+        &editor.project.ui_snapshot(),
+        &editor.assets.ui_snapshot(),
+        &editor.scene.ui_snapshot(),
+        &editor.inspector.ui_snapshot(&editor.scene),
         &adapter_state.ui_snapshot(),
         &viewport_state.ui_snapshot(),
     ));
@@ -289,13 +283,9 @@ fn build_ui_state(
         scene_dirty: true,
         command_registry,
         command_palette,
-        project_state,
-        asset_state,
-        scene_state,
-        inspector_state,
+        editor,
         adapter_state,
         viewport_state,
-        edit_history: CommandHistory::new(),
         bounds,
         shell_layout,
         shell_layout_path,
@@ -443,38 +433,24 @@ fn apply_panel_resize_delta(
 }
 
 fn execute_project_open(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
-    let result = match resolve_open_project_path(ui.project_state.config()) {
-        ProjectPathResolution::Resolved(path) => ui.project_state.open_project_at_path(path),
+    let result = match resolve_open_project_path(ui.editor.project.config()) {
+        ProjectPathResolution::Resolved(path) => ui.editor.session_mut().open_project_at(path),
         ProjectPathResolution::Cancelled => {
             return set_status_text(ui, "Open project cancelled".to_string());
         }
     };
-    apply_project_command_side_effects(
-        PROJECT_OPEN_COMMAND,
-        &mut ui.project_state,
-        &mut ui.asset_state,
-        &mut ui.scene_state,
-        &mut ui.inspector_state,
-    );
     set_status_text(ui, result.message().to_string())?;
     apply_editor_snapshot_to_ui(ui)?;
     Ok(())
 }
 
 fn execute_project_create(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
-    let result = match resolve_create_project_root(ui.project_state.config()) {
-        ProjectPathResolution::Resolved(root) => ui.project_state.create_project_at_root(root),
+    let result = match resolve_create_project_root(ui.editor.project.config()) {
+        ProjectPathResolution::Resolved(root) => ui.editor.session_mut().create_project_at(root),
         ProjectPathResolution::Cancelled => {
             return set_status_text(ui, "Create project cancelled".to_string());
         }
     };
-    apply_project_command_side_effects(
-        PROJECT_CREATE_COMMAND,
-        &mut ui.project_state,
-        &mut ui.asset_state,
-        &mut ui.scene_state,
-        &mut ui.inspector_state,
-    );
     set_status_text(ui, result.message().to_string())?;
     apply_editor_snapshot_to_ui(ui)?;
     Ok(())
@@ -513,6 +489,33 @@ fn palette_entry_from_command(command: &RegisteredCommand) -> CommandPaletteEntr
             .map(|description| description.as_str().to_string()),
         command.enabled(),
     )
+}
+
+fn handle_editor_shortcut(
+    ui: &mut UiState,
+    input: &UiInputEvent,
+    modifiers: elcarax_platform::ModifierState,
+) -> std::result::Result<bool, NativeAppError> {
+    if !modifiers.control {
+        return Ok(false);
+    }
+    let UiInputEvent::KeyPressed(key) = input else {
+        return Ok(false);
+    };
+    if matches!(key, KeyboardKey::Character(value) if value.eq_ignore_ascii_case("s")) {
+        execute_scene_save(ui)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn execute_scene_save(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    let Some(outcome) = ui.editor.session_mut().save_scene() else {
+        return Ok(());
+    };
+    set_status_text(ui, outcome.status_message())?;
+    apply_editor_snapshot_to_ui(ui)?;
+    Ok(())
 }
 
 fn handle_palette_shortcut(
@@ -604,48 +607,42 @@ fn apply_command_invocation(
         execute_project_create(ui)?;
         return Ok(());
     }
-    if ui
-        .project_state
-        .execute_command_id(invocation.id.as_str())
-        .is_some()
-    {
-        apply_project_command_side_effects(
-            invocation.id.as_str(),
-            &mut ui.project_state,
-            &mut ui.asset_state,
-            &mut ui.scene_state,
-            &mut ui.inspector_state,
-        );
+    if invocation.id.as_str() == PROJECT_CLOSE_COMMAND {
+        let result = ui.editor.session_mut().close_project();
+        set_status_text(ui, result.message().to_string())?;
+        apply_editor_snapshot_to_ui(ui)?;
+        return Ok(());
+    }
+    if let Some(result) = ui.editor.session_mut().execute_project_command(invocation.id.as_str()) {
+        set_status_text(ui, result.message().to_string())?;
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
     if ui
-        .asset_state
-        .execute_command_id(invocation.id.as_str(), ui.project_state.is_project_loaded())
+        .editor
+        .assets
+        .execute_command_id(invocation.id.as_str(), ui.editor.project.is_project_loaded())
         .is_some()
     {
-        apply_project_command_side_effects(
-            invocation.id.as_str(),
-            &mut ui.project_state,
-            &mut ui.asset_state,
-            &mut ui.scene_state,
-            &mut ui.inspector_state,
-        );
+        ui.editor
+            .session_mut()
+            .after_asset_command(invocation.id.as_str());
+        apply_editor_snapshot_to_ui(ui)?;
+        return Ok(());
+    }
+    if let Some(outcome) = ui
+        .editor
+        .session_mut()
+        .execute_scene_command(invocation.id.as_str())
+    {
+        set_status_text(ui, outcome.status_message())?;
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
     if ui
-        .scene_state
-        .execute_command_id(invocation.id.as_str())
-        .is_some()
-    {
-        ui.inspector_state.on_scene_selection_changed();
-        apply_editor_snapshot_to_ui(ui)?;
-        return Ok(());
-    }
-    if ui
-        .inspector_state
-        .execute_command_id(invocation.id.as_str(), &mut ui.scene_state)
+        .editor
+        .inspector
+        .execute_command_id(invocation.id.as_str(), &mut ui.editor.scene)
         .is_some()
     {
         apply_editor_snapshot_to_ui(ui)?;
@@ -657,7 +654,7 @@ fn apply_command_invocation(
     }
     if ui
         .adapter_state
-        .execute_command_id(invocation.id.as_str(), &mut ui.scene_state)
+        .execute_command_id(invocation.id.as_str(), &mut ui.editor.scene)
         .is_some()
     {
         if invocation.id.as_str() == ADAPTER_HANDSHAKE_COMMAND
@@ -669,7 +666,7 @@ fn apply_command_invocation(
         if invocation.id.as_str() == "adapter.disconnect" {
             ui.viewport_state.on_adapter_disconnected();
         }
-        ui.inspector_state.on_scene_selection_changed();
+        ui.editor.inspector.on_scene_selection_changed();
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
@@ -777,10 +774,10 @@ fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), Nati
         &mut ui.tree,
         ui.ids,
         editor_snapshots(
-            &ui.project_state.ui_snapshot(),
-            &ui.asset_state.ui_snapshot(),
-            &ui.scene_state.ui_snapshot(),
-            &ui.inspector_state.ui_snapshot(&ui.scene_state),
+            &ui.editor.project.ui_snapshot(),
+            &ui.editor.assets.ui_snapshot(),
+            &ui.editor.scene.ui_snapshot(),
+            &ui.editor.inspector.ui_snapshot(&ui.editor.scene),
             &ui.adapter_state.ui_snapshot(),
             &ui.viewport_state.ui_snapshot(),
         ),
@@ -790,7 +787,7 @@ fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), Nati
 }
 
 fn poll_asset_watch(ui: &mut UiState) -> std::result::Result<bool, NativeAppError> {
-    if !ui.asset_state.poll_watch_events() {
+    if !ui.editor.assets.poll_watch_events() {
         return Ok(false);
     }
     apply_editor_snapshot_to_ui(ui)?;
@@ -810,7 +807,7 @@ fn apply_ui_events(
         }
         if let UiEvent::Clicked { id } = event
             && let Some(row_index) = asset_row_index_for_widget(ui.ids, *id)
-            && ui.asset_state.select_row(row_index)
+            && ui.editor.assets.select_row(row_index)
         {
             apply_editor_snapshot_to_ui(ui)?;
             changed = true;
@@ -818,7 +815,7 @@ fn apply_ui_events(
         }
         if let UiEvent::Clicked { id } = event
             && let Some(row_index) = scene_expand_index_for_widget(ui.ids, *id)
-            && ui.scene_state.toggle_expand_row(row_index)
+            && ui.editor.scene.toggle_expand_row(row_index)
         {
             apply_editor_snapshot_to_ui(ui)?;
             changed = true;
@@ -827,11 +824,11 @@ fn apply_ui_events(
         if let UiEvent::Clicked { id } = event
             && let Some(row_index) = scene_row_index_for_widget(ui.ids, *id)
         {
-            let object_id = ui.scene_state.ui_snapshot().visible_object_ids[row_index];
+            let object_id = ui.editor.scene.ui_snapshot().visible_object_ids[row_index];
             if let Some(object_id) = object_id
-                && ui.scene_state.select_object(object_id)
+                && ui.editor.scene.select_object(object_id)
             {
-                ui.inspector_state.on_scene_selection_changed();
+                ui.editor.inspector.on_scene_selection_changed();
                 apply_editor_snapshot_to_ui(ui)?;
                 changed = true;
             }
@@ -859,16 +856,16 @@ fn commit_inspector_row(
     row_index: usize,
     text: String,
 ) -> std::result::Result<(), NativeAppError> {
-    let snapshot = ui.inspector_state.ui_snapshot(&ui.scene_state);
+    let snapshot = ui.editor.inspector.ui_snapshot(&ui.editor.scene);
     let path = snapshot.row_property_paths[row_index].clone();
     let edit_kind = snapshot.row_edit_kinds[row_index];
     let label = snapshot.row_labels[row_index].clone();
     if path.is_empty() {
         return Ok(());
     }
-    let result = ui.inspector_state.commit_inspector_property(
-        &mut ui.scene_state,
-        &mut ui.edit_history,
+    let result = ui.editor.inspector.commit_inspector_property(
+        &mut ui.editor.scene,
+        &mut ui.editor.edit_history,
         path.as_str(),
         edit_kind,
         text.as_str(),
@@ -883,17 +880,18 @@ fn execute_editor_edit_command(
     ui: &mut UiState,
     command_id: &str,
 ) -> std::result::Result<bool, NativeAppError> {
-    if ui.scene_state.adapter_id().is_some()
+    if ui.editor.scene.adapter_id().is_some()
         && let Some(adapter_command) = adapter_command_for_inspector_edit(command_id)
     {
         return Ok(ui
             .adapter_state
-            .execute_command_id(adapter_command, &mut ui.scene_state)
+            .execute_command_id(adapter_command, &mut ui.editor.scene)
             .is_some());
     }
     Ok(ui
-        .inspector_state
-        .execute_edit_command_id(command_id, &mut ui.scene_state, &mut ui.edit_history)
+        .editor
+        .inspector
+        .execute_edit_command_id(command_id, &mut ui.editor.scene, &mut ui.editor.edit_history)
         .is_some())
 }
 

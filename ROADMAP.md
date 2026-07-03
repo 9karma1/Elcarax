@@ -1,29 +1,25 @@
 # Roadmap
 
-Elcarax v0.1 is building the editor foundation in small milestones while preserving crate boundaries and headless CI proof paths.
+Elcarax v0.1 is building an engine-neutral editor platform in small, reviewable slices while preserving crate boundaries and a headless CI proof path.
 
-## Completed
+Past work is recorded in [CHANGELOG.md](CHANGELOG.md).
 
-- Milestone 1: native shell foundation
-- Milestone 2: GPU render primitive pipeline
-- Milestone 3: text rendering foundation
-- Milestone 4: UI tree and layout foundation
-- Milestone 5: input and interaction foundation
-- Milestone 6: command palette shell
-- Milestone 7: project system UI
+## Completed (through 0.1.0)
 
-## Next Milestones
+Foundation through real project open, asset index, file watching, adapter host, viewport preview, and productionized empty startup. Scene persistence and editor session coordination are in `[Unreleased]` until tagged.
 
-1. Asset browser foundation: visible asset list model, placeholder rows, and command-driven refresh without directory watching.
-2. Scene tree foundation: engine-neutral scene hierarchy display and selection state without adapter coupling.
-3. Inspector foundation: read-only property display before editable fields, IME, or validation-heavy controls.
-4. Project persistence: explicit save/load format, recent-project persistence, and migration policy after the in-memory model stabilizes.
-5. Adapter process integration: IPC transport and adapter lifecycle once editor-owned project/scene state is stable.
-6. Accessibility integration: wire real accessibility output after retained UI semantics settle.
+## Next
 
-## Standing Constraints
+1. **Scroll views** — asset, scene, and inspector panels exceed fixed row caps today; add minimal `ScrollView` in `elcarax_ui`.
+2. **Toolbar and keybinding registry** — declarative bindings for common commands (Ctrl+O, Ctrl+Z/Y) beyond palette and Ctrl+S.
+3. **Recent projects welcome UI** — clickable recent rows when no project is open.
+4. **Multi-scene management** — list `*.elcarax.scene.toml`, switch active scene with dirty guards.
+5. **Accessibility integration** — wire real accessibility output after retained UI semantics settle.
+6. **Editor settings policy** — optional `scan_assets_on_open` and related session policies exposed through project or user config.
+
+## Standing constraints
 
 - Keep core/domain crates free of `wgpu`, `winit`, `cosmic-text`, game engines, and adapter implementations.
 - Keep `cargo run -p elcarax_app` as the headless proof path used by CI.
 - Keep native shell validation manual with `cargo run -p elcarax_app --features native-shell`.
-- Do not add asset scanning, file watching, scene editing, inspector editing, or adapter loading until the relevant milestone explicitly owns it.
+- Route project-bound lifecycle changes through `EditorSession` rather than ad-hoc side effects in UI handlers.

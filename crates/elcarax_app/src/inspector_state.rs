@@ -232,6 +232,7 @@ impl InspectorState {
         message: impl Into<String>,
     ) -> InspectorCommandResult {
         let message = message.into();
+        scene.mark_document_modified();
         scene.record_status(command_id, message.clone());
         InspectorCommandResult::new(command_id, message)
     }

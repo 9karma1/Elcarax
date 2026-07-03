@@ -32,6 +32,8 @@ The native shell supports drag-resizing the project and inspector side panels. W
 
 Editable inspector properties render as text fields. Click a value, type, and press Enter to commit. Escape cancels editing.
 
+**Ctrl+S** saves the loaded project scene. Unsaved project scenes show `*` in the toolbar and scene panel. Project close/open/switch is blocked until the scene is saved or reloaded with `scene.load`.
+
 CLI:
 
 ```bash
@@ -79,7 +81,9 @@ Typing `project.create`, `project.open`, `project.validate`, `project.close`, `p
 
 `asset.clear_selection`, `asset.show_selected`, and `asset.reveal_root` operate on the current real asset index. They do not rename, move, delete, preview, import, or reveal through an OS shell yet.
 
-`scene.load` should report `No scene source configured` until a project or adapter can provide a real scene. `scene.clear` and `scene.clear_selection` remain available and should be safe on an empty scene.
+`scene.load` loads the active scene from the open project's `scenes/` directory. `scene.save` writes a loaded project-owned scene back to disk and syncs `[editor].active_scene` in `elcarax.project.toml`. `scene.clear` and `scene.clear_selection` remain available on empty or loaded scenes.
+
+Project open/create/reopen runs through `EditorSession`, which binds the asset root, auto-loads the active scene, resets inspector state, and clears undo/redo history.
 
 `inspector.clear`, `edit.undo`, and `edit.redo` remain registered. With no loaded scene or selected object, the inspector should show `No object selected`.
 
@@ -89,7 +93,7 @@ Editable inspector tests still cover command-history mutation through fixtures, 
 
 Adapter-backed writeback remains covered through adapter tests and reference scene fixtures. Normal UI widgets emit editor actions only and do not spawn adapter processes directly.
 
-The console proof prints empty startup state, exercises real temporary project create/open/validate, writes real files under `assets/`, runs `asset.scan`, reports asset kinds, selects the first asset, modifies the asset folder, runs `asset.refresh`, proves project close clears asset state, reopens the last project, then runs `viewport.request_frame` without an adapter, spawns the stdio game adapter, requests a viewport frame, prints frame metadata, clears the viewport, and shuts the adapter down.
+The console proof prints empty startup state, exercises real temporary project create/open/validate with auto-loaded default scene, writes real files under `assets/`, runs `asset.scan`, reports asset kinds, selects the first asset, modifies the asset folder, runs `asset.refresh`, proves project close clears asset state, reopens the last project, proves scene save and document round-trip, then runs the viewport proof with the stdio game adapter.
 
 `viewport.request_frame`, `viewport.clear`, and `viewport.show_status` are registered viewport commands. Without a connected adapter, `viewport.request_frame` reports `No adapter connected`. With a connected adapter that supports viewport preview, the center viewport should display the adapter-provided RGBA frame.
 
@@ -116,8 +120,8 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_adapter_api` owns serializable adapter protocol messages only.
 - `elcarax_adapter_host` owns adapter process spawning, JSON-line transport, request correlation, events, and failure handling.
 - `elcarax_assets` owns filesystem asset scanning, stable path-derived asset IDs, metadata, diagnostics, index snapshots, and the contained `notify` watcher service abstraction.
-- `elcarax_app` owns app-level project, asset, scene, inspector, viewport, and adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, coordinates asset scan/refresh/watch commands, then pushes display text into the UI tree.
+- `elcarax_app` owns `EditorSession` / `EditorSessionState`, app-level project/asset/scene/inspector/viewport/adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, then pushes display text into the UI tree
 
 ## Current Exclusions
 
-The current shell deliberately excludes full tabbed/floating docking, IME, full caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
+The current shell deliberately excludes full tabbed/floating docking, IME/full caret selection editing, full keybinding registry, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, multi-scene switcher UI, save-on-close confirmation dialogs, continuous autosave, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.

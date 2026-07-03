@@ -28,7 +28,11 @@ pub(crate) fn editor_status_bar(
         .trim_start_matches("Name: ")
         .to_string();
     let asset_label = asset_status_label(assets);
-    let scene_label = scene.scene_name.clone();
+    let scene_label = if scene.has_unsaved_changes {
+        format!("{} (unsaved)", scene.scene_name.trim_end_matches(" *"))
+    } else {
+        scene.scene_name.clone()
+    };
     let object_label = selected_object_label(scene);
     let base = format!(
         "Project: {project_label} | Asset: {asset_label} | Scene: {scene_label} | Object: {object_label} | {}",

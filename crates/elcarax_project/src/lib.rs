@@ -6,6 +6,7 @@ mod error;
 mod manifest;
 mod open;
 mod recent;
+mod save;
 mod validate;
 
 pub use create::{ProjectCreateRequest, create_project, ensure_manifest_filename};
@@ -20,6 +21,7 @@ pub use manifest::{
 };
 pub use open::{ProjectLoadResult, ProjectOpenRequest, open_project};
 pub use recent::{RecentProjectEntry, RecentProjects, RecentProjectsError, RecentProjectsStore};
+pub use save::save_project_editor_settings;
 pub use validate::{ProjectValidationResult, validate_opened_project};
 
 #[cfg(test)]

@@ -24,11 +24,13 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - adapter host integration with JSON-line process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
 - adapter property writeback foundation with mock-adapter-only set-property requests, confirmed scene patches, adapter-backed inspector edits, and adapter undo/redo
 - productionized empty runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
-- real project file format, create/open/validate/close, recent-project persistence, and explicit project asset scanning
+- real project file format, create/open/validate/close, recent-project persistence, native folder picker, and explicit project asset scanning
+- project-owned scene files (`*.elcarax.scene.toml`), auto-load on project open, `scene.save`, document dirty tracking, unsaved guards, manifest `active_scene` sync, and Ctrl+S in the native shell
+- `EditorSession` coordinator in `elcarax_app` for unified project open/close/switch, dependent state binding, and undo history reset
 - project, asset, accessibility state, and devtools modules
-- architecture decision records and milestone documentation
+- architecture decision records; see [CHANGELOG.md](CHANGELOG.md) for release history
 
-This is not a full editor yet. Docking, drag resizing, hierarchy drag/drop, real text input fields, IME/caret/selection editing, component add/remove, asset assignment editing, multi-object editing, scroll views, real accessibility integration, file dialogs, hot reload, plugin/marketplace runtime loading, asset import pipeline, asset thumbnails/previews, asset drag/drop, asset rename/move/delete, scene save/writeback, viewport scene rendering or frame streaming, real engine synchronization, C++ integration, real engine writeback, and real engine binding are intentionally out of scope for the current milestone.
+This is not a full editor yet. Docking, hierarchy drag/drop, component add/remove, asset assignment editing, multi-object editing, scroll views, full keybinding registry, IME/full caret selection editing, real accessibility integration, hot reload, plugin/marketplace runtime loading, asset import pipeline, asset thumbnails/previews, asset drag/drop, asset rename/move/delete, scene hierarchy mutation, multi-scene switcher UI, save-on-close dialogs, continuous autosave, viewport scene rendering or frame streaming, real engine synchronization, C++ integration, real engine writeback, and real engine binding are intentionally out of scope for the current milestone.
 
 ## Requirements
 
@@ -86,7 +88,7 @@ Environment variables:
 - `ELCARAX_PROJECT_NAME`
 - `ELCARAX_RECENT_PROJECTS_PATH`
 
-The console flow builds the empty editor shell without opening a GPU window, then exercises real project create/open/validate, writes real files under the temporary project `assets/`, runs `asset.scan`, selects an asset, modifies the asset folder, runs `asset.refresh`, closes/reopens the project, and then runs the adapter viewport proof.
+The console flow builds the empty editor shell without opening a GPU window, then exercises real project create/open/validate, auto-loads the default project scene, writes real files under the temporary project `assets/`, runs `asset.scan`, selects an asset, modifies the asset folder, runs `asset.refresh`, proves scene document save round-trip, closes/reopens the project, and runs the adapter viewport proof.
 
 Manual native shell smoke test:
 
@@ -94,7 +96,7 @@ Manual native shell smoke test:
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree and command palette, paints it into a render scene, renders static labels through the `elcarax_text` rasterizer, handles resize/DPI/events, and exits cleanly on close.
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree and command palette, supports resizable side panels with persisted widths, editable inspector text fields, native folder pickers for project open/create, paints into a render scene, renders static labels through `elcarax_text`, handles resize/DPI/events, and exits cleanly on close.
 
 Suggested manual flow:
 
@@ -104,10 +106,9 @@ Suggested manual flow:
 4. Confirm the center viewport says `No viewport source`
 5. Confirm the right inspector says `No object selected`
 6. Confirm the status bar says `Ready - open a project or connect an adapter`
-7. Press Ctrl+K and confirm the palette exposes real editor commands such as `project.create`, `project.open`, `asset.scan`, `asset.refresh`, `asset.start_watching`, `asset.stop_watching`, `scene.load`, `inspector.clear`, `edit.undo`, `edit.redo`, `adapter.connect`, `adapter.load_scene`, and adapter status/diagnostic commands
-8. Run `project.create` or `project.open` with CLI/env paths configured and confirm the toolbar, project panel, asset scan/refresh/watch, validate, close, and reopen-last behavior update from real project state
-
-The command palette shows eight rows at a time and filters with query text. The toolbar `Open` button reports that project opening is not implemented yet.
+7. Press Ctrl+K and confirm the palette exposes editor commands such as `project.create`, `project.open`, `project.close`, `asset.scan`, `asset.refresh`, `scene.load`, `scene.save`, `edit.undo`, `edit.redo`, and adapter commands
+8. Click the toolbar **Open** button or run `project.create` / `project.open` — uses CLI/env paths when configured, otherwise the native folder picker
+9. After opening a project, confirm the default scene loads, edit an inspector value, confirm the `*` unsaved indicator, press **Ctrl+S** to save, then close/reopen the project
 
 ## Architecture
 
@@ -125,37 +126,14 @@ Elcarax keeps external systems behind crate boundaries:
 - `elcarax_text`: `cosmic-text` shaping, layout cache, and system-font rasterization
 - `elcarax_render`: editor render primitives, batching, GPU rendering, and render stats
 - `elcarax_ui`: retained UI tree, layout, hit testing, interaction state, dirty flags, styles, and paint output
-- `elcarax_app`: composition layer for console proof and native shell
+- `elcarax_app`: composition layer — `EditorSession`, console proof, and native shell
 
 The game engine may depend on Elcarax adapter SDK types. Elcarax core crates must not depend on the game engine.
 
-## Milestones
+## Documentation
 
-- Milestone 1: native shell foundation
-- Milestone 2: GPU render primitive pipeline
-- Milestone 3: text rendering foundation
-- Milestone 4: UI tree and layout foundation
-- Milestone 5: input and interaction foundation
-- Milestone 6: command palette shell
-- Milestone 7: project system UI
-- Milestone 8: asset browser foundation
-- Milestone 9: scene tree foundation
-- Milestone 10: read-only inspector foundation
-- Milestone 11: editable inspector undo foundation
-- Milestone 12: adapter host integration
-- Milestone 13: adapter property writeback foundation
-- Milestone 14A: productionized empty runtime startup
-- Milestone 15: real project open and persistence
-- Milestone 16: real asset index and file watching
-- Milestone 14: viewport preview foundation
-
-See `docs/` for detailed milestone notes and ADRs. Latest milestone docs:
-
-- `docs/MILESTONE_10_READ_ONLY_INSPECTOR.md`
-- `docs/MILESTONE_11_EDITABLE_INSPECTOR_UNDO.md`
-- `docs/MILESTONE_12_ADAPTER_HOST_INTEGRATION.md`
-- `docs/MILESTONE_13_ADAPTER_PROPERTY_WRITEBACK.md`
-- `docs/MILESTONE_14_VIEWPORT_PREVIEW_FOUNDATION.md`
-- `docs/MILESTONE_14A_PRODUCTIONIZE_RUNTIME.md`
-- `docs/MILESTONE_15_REAL_PROJECT_OPEN_CREATE.md`
-- `docs/MILESTONE_16_REAL_ASSET_INDEX_WATCH.md`
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [ROADMAP.md](ROADMAP.md) — planned work
+- [STATUS.md](STATUS.md) — current capability snapshot
+- [docs/BUILD_NOTES.md](docs/BUILD_NOTES.md) — console and native-shell behavior
+- [docs/adr/](docs/adr/) — architecture decision records

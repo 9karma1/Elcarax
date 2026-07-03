@@ -15,6 +15,9 @@ pub(crate) const SCENE_SAVE_COMMAND: &str = "scene.save";
 pub(crate) const SCENE_CLEAR_COMMAND: &str = "scene.clear";
 pub(crate) const SCENE_CLEAR_SELECTION_COMMAND: &str = "scene.clear_selection";
 
+pub(crate) const UNSAVED_SCENE_MESSAGE: &str =
+    "Unsaved scene changes — save with scene.save or reload with scene.load before closing the project";
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SceneState {
     snapshot: Option<SceneSnapshot>,
@@ -24,6 +27,7 @@ pub(crate) struct SceneState {
     expansion: SceneExpansion,
     diagnostics: Vec<SceneDiagnostic>,
     last_command_result: Option<SceneCommandResult>,
+    document_dirty: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,7 +90,32 @@ impl SceneState {
             self.last_command_result
                 .as_ref()
                 .map(SceneCommandResult::message),
+            self.has_unsaved_changes(),
         )
+    }
+
+    pub(crate) fn has_unsaved_changes(&self) -> bool {
+        self.document_dirty && self.is_project_document()
+    }
+
+    pub(crate) fn is_project_document(&self) -> bool {
+        matches!(self.source, SceneSource::Project(_))
+    }
+
+    pub(crate) fn mark_document_modified(&mut self) {
+        if self.is_project_document() {
+            self.document_dirty = true;
+        }
+    }
+
+    pub(crate) fn active_scene_relative_path(&self) -> Option<PathBuf> {
+        let SceneSource::Project(path) = &self.source else {
+            return None;
+        };
+        let binding = self.project_binding.as_ref()?;
+        path.strip_prefix(binding.scene_root.as_path())
+            .ok()
+            .map(|relative| relative.to_path_buf())
     }
 
     #[cfg_attr(feature = "native-shell", allow(dead_code))]
@@ -185,10 +214,13 @@ impl SceneState {
             );
         };
         match write_scene_file(path.as_path(), snapshot) {
-            Ok(()) => SceneCommandResult::new(
-                SCENE_SAVE_COMMAND,
-                format!("Saved scene to {}", path.display()),
-            ),
+            Ok(()) => {
+                self.document_dirty = false;
+                SceneCommandResult::new(
+                    SCENE_SAVE_COMMAND,
+                    format!("Saved scene to {}", path.display()),
+                )
+            }
             Err(error) => SceneCommandResult::new(SCENE_SAVE_COMMAND, error.to_string()),
         }
     }
@@ -215,6 +247,7 @@ impl SceneState {
         self.expansion.collapse_all();
         self.diagnostics.clear();
         self.last_command_result = None;
+        self.document_dirty = false;
     }
 
     fn apply_loaded_snapshot(&mut self, snapshot: SceneSnapshot, source: SceneSource) {
@@ -224,6 +257,7 @@ impl SceneState {
         self.expansion.collapse_all();
         self.diagnostics.clear();
         self.last_command_result = None;
+        self.document_dirty = false;
     }
 
     #[cfg(test)]
@@ -260,6 +294,7 @@ impl Default for SceneState {
             expansion: SceneExpansion::new(),
             diagnostics: Vec::new(),
             last_command_result: None,
+            document_dirty: false,
         }
     }
 }
@@ -308,6 +343,10 @@ impl SceneCommandResult {
         }
     }
 
+    pub(crate) fn command_id(&self) -> &str {
+        self.command_id.as_str()
+    }
+
     pub(crate) fn message(&self) -> &str {
         self.message.as_str()
     }
@@ -334,6 +373,29 @@ mod tests {
             Some("No project open")
         );
         assert!(state.snapshot().is_none());
+    }
+
+    #[test]
+    fn scene_save_clears_document_dirty_flag() {
+        let temp =
+            std::env::temp_dir().join(format!("elcarax-scene-dirty-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
+        let loaded = create_project(&ProjectCreateRequest::new(&temp, "Scene Dirty"));
+        let loaded = match loaded {
+            Ok(value) => value,
+            Err(error) => panic!("create should succeed: {error}"),
+        };
+        let mut state = SceneState::default();
+        state.on_project_opened(
+            loaded.project.scene_root(),
+            loaded.project.editor_settings().active_scene_relative(),
+        );
+        let _ = state.execute_command_id(SCENE_LOAD_COMMAND);
+        state.mark_document_modified();
+        assert!(state.has_unsaved_changes());
+        let _ = state.execute_command_id(SCENE_SAVE_COMMAND);
+        assert!(!state.has_unsaved_changes());
+        let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]

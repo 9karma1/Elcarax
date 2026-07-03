@@ -9,7 +9,7 @@ use crate::inspector_display::InspectorUiSnapshot;
 use crate::inspector_ui::apply_inspector_snapshot;
 use crate::project_display::{DiagnosticTone, ProjectUiSnapshot};
 use crate::scene_display::SceneUiSnapshot;
-use crate::scene_ui::apply_scene_snapshot;
+use crate::scene_ui::{apply_scene_snapshot, editor_toolbar_title};
 use crate::viewport_display::ViewportUiSnapshot;
 use crate::viewport_ui::apply_viewport_snapshot;
 
@@ -50,6 +50,7 @@ fn empty_scene_snapshot() -> SceneUiSnapshot {
         selected_row_index: None,
         visible_object_ids: std::array::from_fn(|_| None),
         status_scene_suffix: "Scene: No scene loaded | Object: None".to_string(),
+        has_unsaved_changes: false,
     }
 }
 
@@ -150,7 +151,10 @@ pub(crate) fn apply_editor_snapshot(
     let scene = snapshots.scene;
     let inspector = snapshots.inspector;
     let adapter = snapshots.adapter;
-    tree.set_label_text(ids.toolbar_title, project.toolbar_title.clone())?;
+    tree.set_label_text(
+        ids.toolbar_title,
+        editor_toolbar_title(&project.toolbar_title, scene.has_unsaved_changes),
+    )?;
     tree.set_label_text(ids.project_name, project.project_name.clone())?;
     tree.set_label_text(ids.project_path, project.project_path.clone())?;
     tree.set_label_text(ids.project_status, project.project_status.clone())?;

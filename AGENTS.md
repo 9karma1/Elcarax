@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Elcarax is a Rust workspace of narrow crates. `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, `elcarax_adapter_api`, and `elcarax_project` are engine-, GPU-, window-, renderer-, UI-, and text-library-neutral. `elcarax_platform` owns `winit`; `elcarax_gpu` owns `wgpu`; `elcarax_text` owns `cosmic-text`; `elcarax_render` owns primitives, batching, and draw submission; `elcarax_ui` owns retained UI state, layout, input, paint output, and command palette presentation. `elcarax_app` composes console proof and native shell behavior. Keep new feature logic in the owning crate and pass display state into UI rather than letting widgets load or mutate project data.
+Elcarax is a Rust workspace of narrow crates. `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, `elcarax_adapter_api`, and `elcarax_project` are engine-, GPU-, window-, renderer-, UI-, and text-library-neutral. `elcarax_platform` owns `winit`; `elcarax_gpu` owns `wgpu`; `elcarax_text` owns `cosmic-text`; `elcarax_render` owns primitives, batching, and draw submission; `elcarax_ui` owns retained UI state, layout, input, paint output, and command palette presentation. `elcarax_app` composes console proof and native shell behavior through `EditorSession` for project-bound lifecycle. Keep new feature logic in the owning crate and pass display state into UI rather than letting widgets load or mutate project data.
 
 ## Build, Test, and Development Commands
 
@@ -30,4 +30,4 @@ Tests are Rust unit/doc tests run by `cargo test --workspace`. Add focused tests
 
 ## Commit & Pull Request Guidelines
 
-Recent history uses imperative milestone subjects such as `Milestone 6: Add command palette shell`, plus concise maintenance subjects like `Stop tracking build outputs`. Keep PRs scoped to one milestone or fix, and include the validation commands that were run.
+Recent history uses imperative subjects such as `Add scroll views to asset panel` or `Fix asset path normalization on Windows`. Keep PRs scoped to one feature or fix, update [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`, and include the validation commands that were run.

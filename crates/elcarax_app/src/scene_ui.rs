@@ -15,7 +15,7 @@ pub(crate) fn shell_content_from_editor_state(
     let adapter = snapshots.adapter;
     let viewport = snapshots.viewport;
     EditorShellContent {
-        toolbar_title: project.toolbar_title.clone(),
+        toolbar_title: editor_toolbar_title(&project.toolbar_title, scene.has_unsaved_changes),
         project_title: "Project".to_string(),
         project_name: project.project_name.clone(),
         project_path: project.project_path.clone(),
@@ -49,6 +49,14 @@ pub(crate) fn shell_content_from_editor_state(
         viewport_title: viewport.title.clone(),
         viewport_message: viewport.message.clone(),
         status: editor_status_bar(project, assets, scene, adapter),
+    }
+}
+
+pub(crate) fn editor_toolbar_title(base_title: &str, has_unsaved_changes: bool) -> String {
+    if has_unsaved_changes {
+        format!("{base_title} *")
+    } else {
+        base_title.to_string()
     }
 }
 
