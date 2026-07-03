@@ -156,7 +156,7 @@ pub fn normalized_asset_path_string(path: &Path) -> String {
 
 fn normalize_asset_path(path: &Path) -> PathBuf {
     let unified = path.to_string_lossy().replace('\\', "/");
-    let logical = Path::new(unified.as_ref());
+    let logical = Path::new(unified.as_str());
     let mut normalized = PathBuf::new();
     for component in logical.components() {
         match component {
