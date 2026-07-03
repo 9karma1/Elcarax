@@ -11,7 +11,8 @@ workspace = true
 
 [features]
 default = []
-native = ["dep:winit"]
+native = ["dep:winit", "dep:rfd"]
 
 [dependencies]
+rfd = { version = "0.15.4", optional = true, default-features = false, features = ["xdg-portal", "async-std"] }
 winit = { version = "0.30.12", optional = true }

@@ -1,4 +1,6 @@
 /target/
 /.tmp/
+/.msvc-tmp/*
+!/.msvc-tmp/.gitkeep
 /tmp/__PSScriptPolicyTest_*
 **/.elcarax/

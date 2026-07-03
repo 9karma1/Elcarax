@@ -14,11 +14,15 @@ mod native_shell;
 mod project_config;
 mod project_display;
 mod project_effects;
+#[cfg(feature = "native-shell")]
+mod project_picker;
 mod project_state;
 mod project_ui;
 mod scene_display;
 mod scene_state;
 mod scene_ui;
+#[cfg(feature = "native-shell")]
+mod shell_layout;
 mod viewport_display;
 mod viewport_state;
 mod viewport_ui;

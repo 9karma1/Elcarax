@@ -8,13 +8,13 @@ use elcarax_core::{ElcaraxError, Result};
 use elcarax_gpu::{GpuContext, GpuContextSpec, GpuSurface, RenderError, SurfaceSize};
 use elcarax_platform::{
     ElementState, MouseButton, NativeApp, NativeAppError, NativeAppHandler, NativeShellSpec,
-    PlatformEvent, run_native_app,
+    PlatformCursor, PlatformEvent, run_native_app,
 };
 use elcarax_render::{Rect, RenderScene, Renderer, RendererConfig, RendererError, text_stats};
 use elcarax_ui::{
     CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, EditorShellIds, KeyboardKey,
     LayoutConstraints, ModifierState, PaintContext, PointerButton, PointerPosition, Theme,
-    UiContext, UiEvent, UiInputEvent, UiTree, build_editor_shell_with_content,
+    UiContext, UiEvent, UiInputEvent, UiTree, build_editor_shell_with_layout,
     paint_command_palette_overlay,
 };
 
@@ -27,11 +27,17 @@ use crate::inspector_state::InspectorState;
 use crate::inspector_ui::inspector_value_index_for_widget;
 use crate::project_config::AppProjectConfig;
 use crate::project_effects::apply_project_command_side_effects;
-use crate::project_state::ProjectState;
+use crate::project_picker::{
+    ProjectPathResolution, resolve_create_project_root, resolve_open_project_path,
+};
+use crate::project_state::{PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND, ProjectState};
 use crate::project_ui::{apply_editor_snapshot, editor_snapshots};
 use crate::scene_state::SceneState;
 use crate::scene_ui::{
     scene_expand_index_for_widget, scene_row_index_for_widget, shell_content_from_editor_state,
+};
+use crate::shell_layout::{
+    MIN_PANEL_WIDTH, MIN_VIEWPORT_WIDTH, ShellLayout, default_shell_layout_path,
 };
 use crate::viewport_state::AppViewportState;
 
@@ -71,6 +77,17 @@ struct UiState {
     viewport_state: AppViewportState,
     edit_history: CommandHistory,
     bounds: Rect,
+    shell_layout: ShellLayout,
+    shell_layout_path: std::path::PathBuf,
+    panel_resize: Option<PanelResizeDrag>,
+    last_pointer: Option<PointerPosition>,
+    shell_cursor: PlatformCursor,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PanelResizeDrag {
+    Left { start_x: f32, start_width: f32 },
+    Right { start_x: f32, start_width: f32 },
 }
 
 impl NativeAppHandler for ShellState {
@@ -144,9 +161,11 @@ impl ShellState {
         if let Some(ui) = &mut self.ui {
             let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
             ui.bounds = bounds;
+            ui.shell_layout
+                .clamp_for_body_width(body_width_for_bounds(bounds));
+            apply_shell_layout(ui)?;
             ui.tree
                 .resize_root(bounds)
-                .and_then(|()| ui.tree.layout(elcarax_ui::LayoutConstraints { bounds }))
                 .map_err(|error| NativeAppError::Window(format!("failed to resize UI: {error}")))?;
             ui.scene_dirty = true;
         }
@@ -211,6 +230,11 @@ impl ShellState {
             app.request_redraw();
             return Ok(());
         }
+        if handle_panel_resize(ui, &input)? {
+            apply_shell_cursor(ui, app);
+            app.request_redraw();
+            return Ok(());
+        }
         let events = ui.tree.process_input(input).map_err(|error| {
             NativeAppError::Window(format!("failed to process UI input: {error}"))
         })?;
@@ -218,6 +242,7 @@ impl ShellState {
             ui.scene_dirty = true;
             app.request_redraw();
         }
+        apply_shell_cursor(ui, app);
         Ok(())
     }
 }
@@ -244,8 +269,13 @@ fn build_ui_state(
         &adapter_state.ui_snapshot(),
         &viewport_state.ui_snapshot(),
     ));
-    let shell = build_editor_shell_with_content(&context, &content)
-        .map_err(|error| NativeAppError::Window(format!("failed to build UI shell: {error}")))?;
+    let shell_layout_path = default_shell_layout_path();
+    let shell_layout = ShellLayout::load(&shell_layout_path);
+    let shell =
+        build_editor_shell_with_layout(&context, &content, &shell_layout.editor_shell_layout())
+            .map_err(|error| {
+                NativeAppError::Window(format!("failed to build UI shell: {error}"))
+            })?;
     let command_registry =
         built_in_commands().map_err(|error| NativeAppError::Window(error.to_string()))?;
     let command_palette =
@@ -267,10 +297,187 @@ fn build_ui_state(
         viewport_state,
         edit_history: CommandHistory::new(),
         bounds,
+        shell_layout,
+        shell_layout_path,
+        panel_resize: None,
+        last_pointer: None,
+        shell_cursor: PlatformCursor::Default,
     };
+    apply_shell_layout(&mut ui)?;
     repaint_ui_scene(&mut ui)?;
     ui.scene_dirty = false;
     Ok(ui)
+}
+
+fn body_width_for_bounds(bounds: Rect) -> f32 {
+    bounds.width
+}
+
+fn apply_shell_cursor(ui: &mut UiState, app: &NativeApp) {
+    let cursor = desired_shell_cursor(ui);
+    if ui.shell_cursor != cursor {
+        ui.shell_cursor = cursor;
+        app.set_cursor(cursor);
+    }
+}
+
+fn desired_shell_cursor(ui: &UiState) -> PlatformCursor {
+    if ui.panel_resize.is_some() || splitter_under_pointer(ui) {
+        PlatformCursor::ResizeHorizontal
+    } else {
+        PlatformCursor::Default
+    }
+}
+
+fn splitter_under_pointer(ui: &UiState) -> bool {
+    let Some(position) = ui.last_pointer.or(ui.tree.pointer_position()) else {
+        return false;
+    };
+    let Some(hit) = ui.tree.hit_test(position) else {
+        return false;
+    };
+    hit.id == ui.ids.left_splitter || hit.id == ui.ids.right_splitter
+}
+
+fn apply_shell_layout(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    ui.shell_layout
+        .clamp_for_body_width(body_width_for_bounds(ui.bounds));
+    ui.tree
+        .set_fixed_panel_width(ui.ids.project_panel, ui.shell_layout.left_width)
+        .map_err(|error| {
+            NativeAppError::Window(format!("failed to resize project panel: {error}"))
+        })?;
+    ui.tree
+        .set_fixed_panel_width(ui.ids.inspector_panel, ui.shell_layout.right_width)
+        .map_err(|error| {
+            NativeAppError::Window(format!("failed to resize inspector panel: {error}"))
+        })?;
+    ui.tree
+        .layout(LayoutConstraints { bounds: ui.bounds })
+        .map_err(|error| NativeAppError::Window(format!("failed to layout UI: {error}")))?;
+    Ok(())
+}
+
+fn handle_panel_resize(
+    ui: &mut UiState,
+    input: &UiInputEvent,
+) -> std::result::Result<bool, NativeAppError> {
+    match input {
+        UiInputEvent::PointerMoved(position) => {
+            ui.last_pointer = Some(*position);
+            if let Some(drag) = ui.panel_resize {
+                apply_panel_resize_delta(ui, drag, position.x)?;
+                return Ok(true);
+            }
+        }
+        UiInputEvent::PointerButtonPressed(PointerButton::Primary) => {
+            let Some(position) = ui.last_pointer.or(ui.tree.pointer_position()) else {
+                return Ok(false);
+            };
+            let Some(hit) = ui.tree.hit_test(position) else {
+                return Ok(false);
+            };
+            if hit.id == ui.ids.left_splitter {
+                ui.panel_resize = Some(PanelResizeDrag::Left {
+                    start_x: position.x,
+                    start_width: ui.shell_layout.left_width,
+                });
+                return Ok(true);
+            }
+            if hit.id == ui.ids.right_splitter {
+                ui.panel_resize = Some(PanelResizeDrag::Right {
+                    start_x: position.x,
+                    start_width: ui.shell_layout.right_width,
+                });
+                return Ok(true);
+            }
+        }
+        UiInputEvent::PointerButtonReleased(PointerButton::Primary)
+            if ui.panel_resize.take().is_some() =>
+        {
+            let _ = ui.shell_layout.save(&ui.shell_layout_path);
+            apply_shell_layout(ui)?;
+            return Ok(true);
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn apply_panel_resize_delta(
+    ui: &mut UiState,
+    drag: PanelResizeDrag,
+    current_x: f32,
+) -> std::result::Result<(), NativeAppError> {
+    match drag {
+        PanelResizeDrag::Left {
+            start_x,
+            start_width,
+        } => {
+            let delta = current_x - start_x;
+            let body_width = body_width_for_bounds(ui.bounds);
+            let max_left = body_width
+                - ui.shell_layout.splitter_width * 2.0
+                - MIN_VIEWPORT_WIDTH
+                - MIN_PANEL_WIDTH;
+            ui.shell_layout.left_width =
+                (start_width + delta).clamp(MIN_PANEL_WIDTH, max_left.max(MIN_PANEL_WIDTH));
+        }
+        PanelResizeDrag::Right {
+            start_x,
+            start_width,
+        } => {
+            let delta = start_x - current_x;
+            let body_width = body_width_for_bounds(ui.bounds);
+            let max_right = body_width
+                - ui.shell_layout.splitter_width * 2.0
+                - MIN_VIEWPORT_WIDTH
+                - ui.shell_layout.left_width;
+            ui.shell_layout.right_width =
+                (start_width + delta).clamp(MIN_PANEL_WIDTH, max_right.max(MIN_PANEL_WIDTH));
+        }
+    }
+    apply_shell_layout(ui)?;
+    ui.scene_dirty = true;
+    Ok(())
+}
+
+fn execute_project_open(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    let result = match resolve_open_project_path(ui.project_state.config()) {
+        ProjectPathResolution::Resolved(path) => ui.project_state.open_project_at_path(path),
+        ProjectPathResolution::Cancelled => {
+            return set_status_text(ui, "Open project cancelled".to_string());
+        }
+    };
+    apply_project_command_side_effects(
+        PROJECT_OPEN_COMMAND,
+        &mut ui.project_state,
+        &mut ui.asset_state,
+        &mut ui.scene_state,
+        &mut ui.inspector_state,
+    );
+    set_status_text(ui, result.message().to_string())?;
+    apply_editor_snapshot_to_ui(ui)?;
+    Ok(())
+}
+
+fn execute_project_create(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    let result = match resolve_create_project_root(ui.project_state.config()) {
+        ProjectPathResolution::Resolved(root) => ui.project_state.create_project_at_root(root),
+        ProjectPathResolution::Cancelled => {
+            return set_status_text(ui, "Create project cancelled".to_string());
+        }
+    };
+    apply_project_command_side_effects(
+        PROJECT_CREATE_COMMAND,
+        &mut ui.project_state,
+        &mut ui.asset_state,
+        &mut ui.scene_state,
+        &mut ui.inspector_state,
+    );
+    set_status_text(ui, result.message().to_string())?;
+    apply_editor_snapshot_to_ui(ui)?;
+    Ok(())
 }
 
 fn repaint_ui_scene(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
@@ -389,6 +596,14 @@ fn apply_command_invocation(
     ui: &mut UiState,
     invocation: &CommandInvocation,
 ) -> std::result::Result<(), NativeAppError> {
+    if invocation.id.as_str() == PROJECT_OPEN_COMMAND {
+        execute_project_open(ui)?;
+        return Ok(());
+    }
+    if invocation.id.as_str() == PROJECT_CREATE_COMMAND {
+        execute_project_create(ui)?;
+        return Ok(());
+    }
     if ui
         .project_state
         .execute_command_id(invocation.id.as_str())
@@ -589,20 +804,7 @@ fn apply_ui_events(
     let mut changed = false;
     for event in events {
         if matches!(event, UiEvent::Clicked { id } if *id == ui.ids.run_button) {
-            if let Some(result) = ui
-                .project_state
-                .execute_command_id(crate::project_state::PROJECT_OPEN_COMMAND)
-            {
-                apply_project_command_side_effects(
-                    crate::project_state::PROJECT_OPEN_COMMAND,
-                    &mut ui.project_state,
-                    &mut ui.asset_state,
-                    &mut ui.scene_state,
-                    &mut ui.inspector_state,
-                );
-                set_status_text(ui, result.message().to_string())?;
-                apply_editor_snapshot_to_ui(ui)?;
-            }
+            execute_project_open(ui)?;
             changed = true;
             continue;
         }
@@ -634,18 +836,47 @@ fn apply_ui_events(
                 changed = true;
             }
         }
-        if let UiEvent::Clicked { id } = event
+        if let UiEvent::TextCommitted { id, text } = event
             && let Some(row_index) = inspector_value_index_for_widget(ui.ids, *id)
         {
-            let snapshot = ui.inspector_state.ui_snapshot(&ui.scene_state);
-            let command_id = snapshot.row_command_ids[row_index].clone();
-            if !command_id.is_empty() && execute_editor_edit_command(ui, command_id.as_str())? {
-                apply_editor_snapshot_to_ui(ui)?;
-                changed = true;
-            }
+            commit_inspector_row(ui, row_index, text.clone())?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::TextCancelled { id } = event
+            && inspector_value_index_for_widget(ui.ids, *id).is_some()
+        {
+            apply_editor_snapshot_to_ui(ui)?;
+            changed = true;
+            continue;
         }
     }
     Ok(changed)
+}
+
+fn commit_inspector_row(
+    ui: &mut UiState,
+    row_index: usize,
+    text: String,
+) -> std::result::Result<(), NativeAppError> {
+    let snapshot = ui.inspector_state.ui_snapshot(&ui.scene_state);
+    let path = snapshot.row_property_paths[row_index].clone();
+    let edit_kind = snapshot.row_edit_kinds[row_index];
+    let label = snapshot.row_labels[row_index].clone();
+    if path.is_empty() {
+        return Ok(());
+    }
+    let result = ui.inspector_state.commit_inspector_property(
+        &mut ui.scene_state,
+        &mut ui.edit_history,
+        path.as_str(),
+        edit_kind,
+        text.as_str(),
+        label.as_str(),
+    );
+    set_status_text(ui, result.message().to_string())?;
+    apply_editor_snapshot_to_ui(ui)?;
+    Ok(())
 }
 
 fn execute_editor_edit_command(
@@ -674,6 +905,9 @@ fn events_affect_paint(events: &[UiEvent]) -> bool {
                 | UiEvent::FocusChanged(_)
                 | UiEvent::ActiveChanged { .. }
                 | UiEvent::Clicked { .. }
+                | UiEvent::TextChanged { .. }
+                | UiEvent::TextCommitted { .. }
+                | UiEvent::TextCancelled { .. }
         )
     })
 }

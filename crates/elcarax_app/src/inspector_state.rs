@@ -1,13 +1,13 @@
 #![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 
-#[cfg(test)]
-use elcarax_commands::SetScenePropertyCommand;
-use elcarax_commands::{CommandContext, CommandHistory, RedoCommand, UndoCommand};
-use elcarax_scene_model::{
-    InspectorDiagnostic, build_inspector_for_selection, build_inspector_object,
+use elcarax_commands::{
+    CommandContext, CommandHistory, RedoCommand, SetScenePropertyCommand, UndoCommand,
 };
-#[cfg(test)]
-use elcarax_scene_model::{PropertyPath, PropertyValue, prepare_property_change};
+use elcarax_scene_model::{
+    InspectorDiagnostic, PropertyEditKind, PropertyPath, PropertyValue,
+    build_inspector_for_selection, build_inspector_object, parse_property_text,
+    prepare_property_change,
+};
 
 use crate::inspector_display::{
     InspectorUiSnapshot, inspector_summary_for_object, inspector_ui_snapshot,
@@ -19,6 +19,7 @@ pub(crate) const INSPECTOR_CLEAR_COMMAND: &str = "inspector.clear";
 pub(crate) const INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND: &str = "inspector.show_property_count";
 pub(crate) const EDIT_UNDO_COMMAND: &str = "edit.undo";
 pub(crate) const EDIT_REDO_COMMAND: &str = "edit.redo";
+pub(crate) const EDIT_SET_PROPERTY_COMMAND: &str = "edit.set_property";
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct InspectorState {
@@ -56,6 +57,38 @@ impl InspectorState {
         };
         self.last_command_result = Some(result.clone());
         Some(result)
+    }
+
+    pub(crate) fn commit_inspector_property(
+        &mut self,
+        scene: &mut SceneState,
+        history: &mut CommandHistory,
+        path: &str,
+        edit_kind: PropertyEditKind,
+        text: &str,
+        label: &str,
+    ) -> InspectorCommandResult {
+        self.suppressed = false;
+        let path = match PropertyPath::parse(path) {
+            Ok(path) => path,
+            Err(error) => {
+                return self.edit_error(
+                    scene,
+                    EDIT_SET_PROPERTY_COMMAND,
+                    format!("Invalid property path: {error}"),
+                );
+            }
+        };
+        let value = match parse_property_text(&path, edit_kind, text) {
+            Ok(value) => value,
+            Err(error) => {
+                return self.edit_error(scene, EDIT_SET_PROPERTY_COMMAND, error.message());
+            }
+        };
+        match execute_set_property(scene, history, &path, value, label) {
+            Ok(message) => self.edit_success(scene, EDIT_SET_PROPERTY_COMMAND, message),
+            Err(error) => self.edit_error(scene, EDIT_SET_PROPERTY_COMMAND, error),
+        }
     }
 
     pub(crate) fn on_scene_selection_changed(&mut self) {
@@ -222,7 +255,6 @@ pub(crate) struct InspectorCommandResult {
     message: String,
 }
 
-#[cfg(test)]
 fn execute_set_property(
     scene: &mut SceneState,
     history: &mut CommandHistory,
@@ -380,7 +412,7 @@ mod tests {
         assert!(result.message().contains("Set Fixture Health"));
         assert_eq!(history.undo_count(), 1);
         let snapshot = inspector.ui_snapshot(&scene);
-        assert_eq!(row_value(&snapshot, "Health"), "75  [Set]");
+        assert_eq!(row_value(&snapshot, "Health"), "75");
     }
 
     #[test]
@@ -402,7 +434,7 @@ mod tests {
             Some("Command: edit.undo".to_string())
         );
         let snapshot = inspector.ui_snapshot(&scene);
-        assert_eq!(row_value(&snapshot, "Health"), "100  [Set]");
+        assert_eq!(row_value(&snapshot, "Health"), "100");
     }
 
     #[test]
@@ -425,7 +457,7 @@ mod tests {
             Some("Command: edit.redo".to_string())
         );
         let snapshot = inspector.ui_snapshot(&scene);
-        assert_eq!(row_value(&snapshot, "Health"), "75  [Set]");
+        assert_eq!(row_value(&snapshot, "Health"), "75");
     }
 
     #[test]

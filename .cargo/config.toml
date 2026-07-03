@@ -1,0 +1,7 @@
+# MSVC link.exe writes LNK*.tmp files through TMP/TEMP. When those variables are
+# missing, list multiple directories, or point at an invalid path, link.exe can
+# fall back to the build-script working directory under CARGO_HOME registry
+# sources and fail with LNK1104.
+[env]
+TMP = { value = ".msvc-tmp", relative = true, force = true }
+TEMP = { value = ".msvc-tmp", relative = true, force = true }

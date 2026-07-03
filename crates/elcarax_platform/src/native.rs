@@ -50,6 +50,15 @@ impl NativeApp {
     pub fn request_redraw(&self) {
         self.window.request_redraw();
     }
+
+    pub fn set_cursor(&self, cursor: crate::PlatformCursor) {
+        use winit::window::CursorIcon;
+        let icon = match cursor {
+            crate::PlatformCursor::Default => CursorIcon::Default,
+            crate::PlatformCursor::ResizeHorizontal => CursorIcon::EwResize,
+        };
+        self.window.set_cursor(icon);
+    }
 }
 
 pub fn run_native_app<H: NativeAppHandler + 'static>(

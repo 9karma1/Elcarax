@@ -44,6 +44,32 @@ impl ProjectState {
         }
     }
 
+    pub(crate) fn config(&self) -> &AppProjectConfig {
+        &self.config
+    }
+
+    pub(crate) fn open_project_at_path(
+        &mut self,
+        path: std::path::PathBuf,
+    ) -> ProjectCommandResult {
+        self.open_project_at(path, PROJECT_OPEN_COMMAND)
+    }
+
+    pub(crate) fn create_project_at_root(
+        &mut self,
+        root: std::path::PathBuf,
+    ) -> ProjectCommandResult {
+        let request = ProjectCreateRequest::new(&root, self.config.create_name());
+        match create_project(&request) {
+            Ok(loaded) => {
+                self.apply_loaded_project(loaded, PROJECT_CREATE_COMMAND, "Created project")
+            }
+            Err(error) => {
+                ProjectCommandResult::new(PROJECT_CREATE_COMMAND, format_project_error(error))
+            }
+        }
+    }
+
     pub(crate) fn execute_command_id(&mut self, id: &str) -> Option<ProjectCommandResult> {
         let command = ProjectCommand::from_id(id)?;
         let result = match command {

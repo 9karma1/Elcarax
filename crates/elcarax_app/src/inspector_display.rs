@@ -1,4 +1,6 @@
-use elcarax_scene_model::{InspectorDiagnostic, InspectorObject, build_inspector_for_selection};
+use elcarax_scene_model::{
+    InspectorDiagnostic, InspectorObject, PropertyEditKind, build_inspector_for_selection,
+};
 use elcarax_ui::MAX_VISIBLE_INSPECTOR_ROWS;
 
 use crate::scene_state::SceneState;
@@ -12,6 +14,8 @@ pub(crate) struct InspectorUiSnapshot {
     pub(crate) row_labels: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_values: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_editable: [bool; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub(crate) row_property_paths: [String; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub(crate) row_edit_kinds: [PropertyEditKind; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_command_ids: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) property_count: usize,
     pub(crate) summary: String,
@@ -63,6 +67,8 @@ fn build_selected_snapshot(inspector: InspectorObject) -> InspectorUiSnapshot {
     let mut row_labels = empty_rows();
     let mut row_values = empty_rows();
     let mut row_editable = empty_editable_rows();
+    let mut row_property_paths = empty_rows();
+    let mut row_edit_kinds = empty_edit_kinds();
     let mut row_command_ids = empty_rows();
     let mut index = 0usize;
     for section in &inspector.sections {
@@ -77,8 +83,14 @@ fn build_selected_snapshot(inspector: InspectorObject) -> InspectorUiSnapshot {
                 break;
             }
             row_labels[index] = row.label.as_str().to_string();
-            row_values[index] = inspector_value_label(row);
+            row_values[index] = if row.editable {
+                row.value.clone()
+            } else {
+                read_only_value_label(row)
+            };
             row_editable[index] = row.editable;
+            row_property_paths[index] = row.path.to_string();
+            row_edit_kinds[index] = row.edit_kind;
             row_command_ids[index] = inspector_command_for_row(row);
             index += 1;
         }
@@ -92,6 +104,8 @@ fn build_selected_snapshot(inspector: InspectorObject) -> InspectorUiSnapshot {
         row_labels,
         row_values,
         row_editable,
+        row_property_paths,
+        row_edit_kinds,
         row_command_ids,
         property_count,
         summary: String::new(),
@@ -107,6 +121,8 @@ fn empty_snapshot_with_message(message: &str) -> InspectorUiSnapshot {
         row_labels: empty_rows(),
         row_values: empty_rows(),
         row_editable: empty_editable_rows(),
+        row_property_paths: empty_rows(),
+        row_edit_kinds: empty_edit_kinds(),
         row_command_ids: empty_rows(),
         property_count: 0,
         summary: message.to_string(),
@@ -122,6 +138,8 @@ fn empty_snapshot_with_summary(summary: String) -> InspectorUiSnapshot {
         row_labels: empty_rows(),
         row_values: empty_rows(),
         row_editable: empty_editable_rows(),
+        row_property_paths: empty_rows(),
+        row_edit_kinds: empty_edit_kinds(),
         row_command_ids: empty_rows(),
         property_count: 0,
         summary,
@@ -136,10 +154,11 @@ fn empty_editable_rows() -> [bool; MAX_VISIBLE_INSPECTOR_ROWS] {
     [false; MAX_VISIBLE_INSPECTOR_ROWS]
 }
 
-fn inspector_value_label(row: &elcarax_scene_model::InspectorRow) -> String {
-    if row.editable {
-        return format!("{}  [Set]", row.value);
-    }
+fn empty_edit_kinds() -> [PropertyEditKind; MAX_VISIBLE_INSPECTOR_ROWS] {
+    [PropertyEditKind::Unsupported; MAX_VISIBLE_INSPECTOR_ROWS]
+}
+
+fn read_only_value_label(row: &elcarax_scene_model::InspectorRow) -> String {
     match &row.read_only_reason {
         Some(reason) => format!("{}  [Read-only: {}]", row.value, reason),
         None => format!("{}  [Read-only]", row.value),
@@ -166,12 +185,7 @@ mod tests {
         assert!(snapshot.has_selection);
         assert_eq!(snapshot.object_name, "Fixture Actor");
         assert!(snapshot.row_labels.iter().any(|label| label == "Health"));
-        assert!(
-            snapshot
-                .row_values
-                .iter()
-                .any(|value| value == "100  [Set]")
-        );
+        assert!(snapshot.row_values.iter().any(|value| value == "100"));
         assert!(snapshot.row_editable.iter().any(|editable| *editable));
     }
 

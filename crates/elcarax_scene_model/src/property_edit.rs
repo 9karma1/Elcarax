@@ -107,6 +107,70 @@ pub fn edit_scene_property(
     Ok(change)
 }
 
+pub fn parse_property_text(
+    path: &PropertyPath,
+    edit_kind: PropertyEditKind,
+    text: &str,
+) -> Result<PropertyValue, PropertyEditError> {
+    let text = text.trim();
+    match edit_kind {
+        PropertyEditKind::Bool => match text.to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" => Ok(PropertyValue::Bool(true)),
+            "false" | "0" | "no" => Ok(PropertyValue::Bool(false)),
+            _ => Err(type_mismatch(path, edit_kind, text)),
+        },
+        PropertyEditKind::Integer => text
+            .parse::<i64>()
+            .map(PropertyValue::I64)
+            .map_err(|_| type_mismatch(path, edit_kind, text)),
+        PropertyEditKind::Float => text
+            .parse::<f64>()
+            .map(PropertyValue::F64)
+            .map_err(|_| type_mismatch(path, edit_kind, text)),
+        PropertyEditKind::String => Ok(PropertyValue::String(text.to_string())),
+        PropertyEditKind::Vec2 => {
+            let values = parse_vector_components(text, 2)
+                .map_err(|_| type_mismatch(path, edit_kind, text))?;
+            Ok(PropertyValue::Vec2([values[0], values[1]]))
+        }
+        PropertyEditKind::Vec3 => {
+            let values = parse_vector_components(text, 3)
+                .map_err(|_| type_mismatch(path, edit_kind, text))?;
+            Ok(PropertyValue::Vec3([values[0], values[1], values[2]]))
+        }
+        PropertyEditKind::Unsupported => Err(PropertyEditError::ReadOnly {
+            path: path.clone(),
+            reason: "Property type does not support text entry".to_string(),
+        }),
+    }
+}
+
+fn type_mismatch(
+    path: &PropertyPath,
+    expected: PropertyEditKind,
+    actual: &str,
+) -> PropertyEditError {
+    PropertyEditError::TypeMismatch {
+        path: path.clone(),
+        expected,
+        actual: actual.to_string(),
+    }
+}
+
+fn parse_vector_components(text: &str, size: usize) -> Result<Vec<f32>, ()> {
+    let parts: Vec<f32> = text
+        .split([',', ' '])
+        .filter(|part| !part.is_empty())
+        .map(|part| part.parse::<f32>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ())?;
+    if parts.len() == size {
+        Ok(parts)
+    } else {
+        Err(())
+    }
+}
+
 pub fn apply_property_change(
     snapshot: &mut SceneSnapshot,
     change: &PropertyChange,
@@ -189,5 +253,32 @@ fn value_kind_label(value: &PropertyValue) -> &'static str {
         PropertyValue::ObjectRef(_) => "object ref",
         PropertyValue::Unknown => "unknown",
         PropertyValue::List(_) => "list",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn path(value: &str) -> PropertyPath {
+        match PropertyPath::parse(value) {
+            Ok(path) => path,
+            Err(error) => panic!("fixture path should parse: {error}"),
+        }
+    }
+
+    #[test]
+    fn parse_property_text_covers_supported_kinds() {
+        let integer =
+            parse_property_text(&path("gameplay.health"), PropertyEditKind::Integer, "42");
+        assert_eq!(integer.ok(), Some(PropertyValue::I64(42)));
+        let float = parse_property_text(&path("gameplay.speed"), PropertyEditKind::Float, "6.5");
+        assert_eq!(float.ok(), Some(PropertyValue::F64(6.5)));
+        let vec3 = parse_property_text(
+            &path("transform.position"),
+            PropertyEditKind::Vec3,
+            "0, 1, 0",
+        );
+        assert_eq!(vec3.ok(), Some(PropertyValue::Vec3([0.0, 1.0, 0.0])));
     }
 }
