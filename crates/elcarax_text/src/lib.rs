@@ -2,7 +2,10 @@
 
 use std::{collections::BTreeMap, error::Error, fmt};
 
-use cosmic_text::{Attrs, Buffer, Color as CosmicColor, Metrics, Shaping, SwashCache};
+use cosmic_text::{
+    Attrs, Buffer, Color as CosmicColor, Family as CosmicFamily, Metrics, Shaping, SwashCache,
+    Weight as CosmicWeight,
+};
 
 #[derive(Debug)]
 pub struct FontSystem {
@@ -30,6 +33,36 @@ pub enum FontFamily {
     Serif,
     Monospace,
     Named(String),
+}
+
+impl FontFamily {
+    fn to_cosmic(&self) -> CosmicFamily<'_> {
+        match self {
+            Self::SansSerif => CosmicFamily::SansSerif,
+            Self::Serif => CosmicFamily::Serif,
+            Self::Monospace => CosmicFamily::Monospace,
+            Self::Named(name) => CosmicFamily::Name(name),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FontWeight {
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
+}
+
+impl FontWeight {
+    fn to_cosmic(self) -> CosmicWeight {
+        match self {
+            Self::Regular => CosmicWeight::NORMAL,
+            Self::Medium => CosmicWeight::MEDIUM,
+            Self::Semibold => CosmicWeight::SEMIBOLD,
+            Self::Bold => CosmicWeight::BOLD,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -68,15 +101,23 @@ impl TextColor {
 pub struct TextRun {
     pub content: String,
     pub family: FontFamily,
+    pub weight: FontWeight,
     pub size: FontSize,
     pub color: TextColor,
 }
 impl TextRun {
     #[must_use]
-    pub fn new(content: impl Into<String>, size: FontSize, color: TextColor) -> Self {
+    pub fn new(
+        content: impl Into<String>,
+        family: FontFamily,
+        weight: FontWeight,
+        size: FontSize,
+        color: TextColor,
+    ) -> Self {
         Self {
             content: content.into(),
-            family: FontFamily::SansSerif,
+            family,
+            weight,
             size,
             color,
         }
@@ -139,6 +180,7 @@ impl Error for TextError {}
 struct CacheKey {
     content: String,
     family: FontFamily,
+    weight: FontWeight,
     size_bits: u32,
     width_bits: Option<u32>,
 }
@@ -163,6 +205,7 @@ impl TextLayoutCache {
         let key = CacheKey {
             content: run.content.clone(),
             family: run.family.clone(),
+            weight: run.weight,
             size_bits: run.size.0.to_bits(),
             width_bits: max_width.map(f32::to_bits),
         };
@@ -249,7 +292,7 @@ pub fn shape_static_text(
     let mut buffer = Buffer::new(&mut fonts.inner, Metrics::new(run.size.0, line_height));
     let mut borrowed = buffer.borrow_with(&mut fonts.inner);
     borrowed.set_size(max_width, Some(line_height));
-    borrowed.set_text(&run.content, &Attrs::new(), Shaping::Advanced, None);
+    borrowed.set_text(&run.content, &attrs_for_run(run), Shaping::Advanced, None);
     let mut glyphs = Vec::new();
     let mut width: f32 = 0.0;
     for layout_run in borrowed.layout_runs() {
@@ -295,7 +338,7 @@ fn rasterize_pixels(
     let mut buffer = Buffer::new(&mut fonts.inner, Metrics::new(run.size.0, line_height));
     let mut borrowed = buffer.borrow_with(&mut fonts.inner);
     borrowed.set_size(max_width, Some(line_height));
-    borrowed.set_text(&run.content, &Attrs::new(), Shaping::Advanced, None);
+    borrowed.set_text(&run.content, &attrs_for_run(run), Shaping::Advanced, None);
     let mut pixels = Vec::new();
     borrowed.draw(
         swash,
@@ -321,6 +364,12 @@ fn rasterize_pixels(
     Ok(pixels)
 }
 
+fn attrs_for_run(run: &TextRun) -> Attrs<'_> {
+    Attrs::new()
+        .family(run.family.to_cosmic())
+        .weight(run.weight.to_cosmic())
+}
+
 fn channel_to_u8(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
@@ -331,6 +380,8 @@ mod tests {
     fn run(text: &str, size: f32) -> TextRun {
         TextRun::new(
             text,
+            FontFamily::SansSerif,
+            FontWeight::Regular,
             FontSize::new(size),
             TextColor::srgb(1.0, 1.0, 1.0, 1.0),
         )
@@ -372,6 +423,52 @@ mod tests {
             .unwrap_or_else(|error| panic!("layout failed: {error}"));
         let _ = c
             .layout(&mut fs, &run("Project", 18.0), None)
+            .unwrap_or_else(|error| panic!("layout failed: {error}"));
+        assert_eq!(c.len(), 2);
+    }
+
+    #[test]
+    fn font_weight_distinguishes_cache_entries() {
+        let mut fs = FontSystem::new();
+        let mut c = TextLayoutCache::new();
+        let _ = c
+            .layout(&mut fs, &run("Project", 14.0), None)
+            .unwrap_or_else(|error| panic!("layout failed: {error}"));
+        let _ = c
+            .layout(
+                &mut fs,
+                &TextRun::new(
+                    "Project",
+                    FontFamily::SansSerif,
+                    FontWeight::Semibold,
+                    FontSize::new(14.0),
+                    TextColor::srgb(1.0, 1.0, 1.0, 1.0),
+                ),
+                None,
+            )
+            .unwrap_or_else(|error| panic!("layout failed: {error}"));
+        assert_eq!(c.len(), 2);
+    }
+
+    #[test]
+    fn font_family_distinguishes_cache_entries() {
+        let mut fs = FontSystem::new();
+        let mut c = TextLayoutCache::new();
+        let _ = c
+            .layout(&mut fs, &run("Project", 14.0), None)
+            .unwrap_or_else(|error| panic!("layout failed: {error}"));
+        let _ = c
+            .layout(
+                &mut fs,
+                &TextRun::new(
+                    "Project",
+                    FontFamily::Monospace,
+                    FontWeight::Regular,
+                    FontSize::new(14.0),
+                    TextColor::srgb(1.0, 1.0, 1.0, 1.0),
+                ),
+                None,
+            )
             .unwrap_or_else(|error| panic!("layout failed: {error}"));
         assert_eq!(c.len(), 2);
     }

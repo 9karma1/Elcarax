@@ -14,6 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `EditorSessionPolicy` hook (e.g. future `scan_assets_on_open`)
 - Editable inspector text fields (click value, Enter to commit, Escape to cancel)
 - Resize cursor affordances on resizable side panels
+- Render shadow/elevation primitives for editor chrome, with hard-edge fallback shadows and inner highlights for toolbar and panels
+- Explicit font family/weight text primitives, a 5-step editor type scale, shared text baseline math, layout gaps, and full-width list-item rows for asset and scene panels
+- Theme-backed info rows and clipped text paint so toolbar/status/project/inspector facts render as bounded components instead of loose labels
+- Component-level UI polish for buttons, property rows, and the command palette: disabled button text/fill states, aligned inspector label/value rows, palette scrim/shadow, and row-backed palette entries
+- Width-constrained text primitives so clipped UI text is constrained during layout/rasterization and cannot bleed out of component rows
 
 ### Changed
 

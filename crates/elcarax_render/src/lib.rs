@@ -8,6 +8,7 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use elcarax_gpu::{ClearColor, GpuContext, GpuSurface, RenderError, SurfaceSize};
+pub use elcarax_text::{FontFamily, FontWeight};
 use elcarax_text::{FontSize, TextColor, TextError, TextRasterizer, TextRun};
 use wgpu::util::DeviceExt;
 
@@ -128,21 +129,47 @@ impl ClipRect {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TextPrimitive {
-    pub content: String,
-    pub position: [f32; 2],
+pub struct TextStyle {
+    pub family: FontFamily,
+    pub weight: FontWeight,
     pub size: f32,
     pub color: Color,
 }
-impl TextPrimitive {
+
+impl TextStyle {
     #[must_use]
-    pub fn new(content: impl Into<String>, x: f32, y: f32, size: f32, color: Color) -> Self {
+    pub fn new(family: FontFamily, weight: FontWeight, size: f32, color: Color) -> Self {
         Self {
-            content: content.into(),
-            position: [x, y],
+            family,
+            weight,
             size,
             color: color.normalized(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextPrimitive {
+    pub content: String,
+    pub position: [f32; 2],
+    pub style: TextStyle,
+    pub max_width: Option<f32>,
+}
+impl TextPrimitive {
+    #[must_use]
+    pub fn new(content: impl Into<String>, x: f32, y: f32, style: TextStyle) -> Self {
+        Self {
+            content: content.into(),
+            position: [x, y],
+            style,
+            max_width: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_max_width(mut self, max_width: f32) -> Self {
+        self.max_width = Some(max_width.max(0.0));
+        self
     }
 }
 
@@ -187,6 +214,59 @@ impl ImagePrimitive {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShadowPrimitive {
+    pub rect: Rect,
+    pub radius: CornerRadius,
+    pub offset: [f32; 2],
+    pub blur_radius: f32,
+    pub spread: f32,
+    pub color: Color,
+}
+
+impl ShadowPrimitive {
+    #[must_use]
+    pub fn new(rect: Rect, color: Color) -> Self {
+        Self {
+            rect: rect.normalized(),
+            radius: CornerRadius::ZERO,
+            offset: [0.0, 1.0],
+            blur_radius: 0.0,
+            spread: 0.0,
+            color: color.normalized(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_radius(mut self, radius: CornerRadius) -> Self {
+        self.radius = radius.normalized();
+        self
+    }
+
+    #[must_use]
+    pub fn with_offset(mut self, offset: [f32; 2]) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    #[must_use]
+    pub fn with_blur_radius(mut self, blur_radius: f32) -> Self {
+        self.blur_radius = blur_radius.max(0.0);
+        self
+    }
+
+    #[must_use]
+    pub fn with_spread(mut self, spread: f32) -> Self {
+        self.spread = spread.max(0.0);
+        self
+    }
+
+    #[must_use]
+    pub fn is_visible(self) -> bool {
+        self.rect.is_visible() && self.color.a > 0.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderPrimitiveKind {
     SolidRect {
@@ -210,6 +290,7 @@ pub enum RenderPrimitiveKind {
         color: Color,
     },
     Image(ImagePrimitive),
+    Shadow(ShadowPrimitive),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -238,9 +319,9 @@ impl RenderPrimitive {
             border,
         })
     }
-    pub fn text(content: impl Into<String>, x: f32, y: f32, size: f32, color: Color) -> Self {
+    pub fn text(content: impl Into<String>, x: f32, y: f32, style: TextStyle) -> Self {
         Self::new(RenderPrimitiveKind::Text(TextPrimitive::new(
-            content, x, y, size, color,
+            content, x, y, style,
         )))
     }
     pub fn line(from: [f32; 2], to: [f32; 2], width: f32, color: Color) -> Self {
@@ -254,7 +335,14 @@ impl RenderPrimitive {
     pub fn image(image: ImagePrimitive) -> Self {
         Self::new(RenderPrimitiveKind::Image(image))
     }
+    pub fn shadow(shadow: ShadowPrimitive) -> Self {
+        Self::new(RenderPrimitiveKind::Shadow(shadow))
+    }
     pub fn with_clip(mut self, clip: ClipRect) -> Self {
+        if let RenderPrimitiveKind::Text(text) = &mut self.kind {
+            let clip_right = clip.rect.x + clip.rect.width;
+            text.max_width = Some((clip_right - text.position[0]).max(0.0));
+        }
         self.clip = Some(clip);
         self
     }
@@ -667,6 +755,7 @@ fn primitive_instances(
 ) -> Result<Vec<RectInstance>, RendererError> {
     let instances = match &primitive.kind {
         RenderPrimitiveKind::Image(_) => Vec::new(),
+        RenderPrimitiveKind::Shadow(shadow) => shadow_instances(*shadow, size),
         RenderPrimitiveKind::SolidRect { rect, color } => {
             rect_instance(*rect, *color, CornerRadius::ZERO, size)
                 .into_iter()
@@ -680,7 +769,9 @@ fn primitive_instances(
             .into_iter()
             .collect(),
         RenderPrimitiveKind::BorderRect { rect, border } => border_instances(*rect, *border, size),
-        RenderPrimitiveKind::Text(text_primitive) => text_instances(text_primitive, size, text)?,
+        RenderPrimitiveKind::Text(text_primitive) => {
+            text_instances(text_primitive, primitive.clip, size, text)?
+        }
         RenderPrimitiveKind::Line {
             from,
             to,
@@ -878,6 +969,36 @@ fn border_instances(rect: Rect, border: Border, size: SurfaceSize) -> Vec<RectIn
     .filter_map(|part| rect_instance(part, border.color, CornerRadius::ZERO, size))
     .collect()
 }
+
+fn shadow_instances(shadow: ShadowPrimitive, size: SurfaceSize) -> Vec<RectInstance> {
+    if !shadow.is_visible() {
+        return Vec::new();
+    }
+    let rect = shadow.rect.normalized();
+    let spread = shadow.spread;
+    let x = rect.x - spread + shadow.offset[0];
+    let y = rect.y - spread + shadow.offset[1];
+    let width = rect.width + spread * 2.0;
+    let height = rect.height + spread * 2.0;
+    let thickness = shadow.blur_radius.clamp(1.0, 2.0);
+    let mut strips = Vec::new();
+
+    if shadow.offset[1] >= 0.0 {
+        strips.push(Rect::new(x, y + height, width, thickness));
+    } else {
+        strips.push(Rect::new(x, y - thickness, width, thickness));
+    }
+    if shadow.offset[0] > 0.0 {
+        strips.push(Rect::new(x + width, y, thickness, height + thickness));
+    } else if shadow.offset[0] < 0.0 {
+        strips.push(Rect::new(x - thickness, y, thickness, height + thickness));
+    }
+
+    strips
+        .into_iter()
+        .filter_map(|part| rect_instance(part, shadow.color, CornerRadius::ZERO, size))
+        .collect()
+}
 fn line_instance(
     from: [f32; 2],
     to: [f32; 2],
@@ -914,6 +1035,7 @@ fn line_instance(
 
 fn text_instances(
     primitive: &TextPrimitive,
+    clip: Option<ClipRect>,
     size: SurfaceSize,
     rasterizer: &mut TextRasterizer,
 ) -> Result<Vec<RectInstance>, RendererError> {
@@ -922,33 +1044,55 @@ fn text_instances(
     }
     let run = TextRun::new(
         primitive.content.clone(),
-        FontSize::new(primitive.size),
+        primitive.style.family.clone(),
+        primitive.style.weight,
+        FontSize::new(primitive.style.size),
         TextColor::srgb(
-            primitive.color.r,
-            primitive.color.g,
-            primitive.color.b,
-            primitive.color.a,
+            primitive.style.color.r,
+            primitive.style.color.g,
+            primitive.style.color.b,
+            primitive.style.color.a,
         ),
     );
-    let rasterized = rasterizer.rasterize(&run, None)?;
-    let top = primitive.position[1] - primitive.size;
+    let rasterized = rasterizer.rasterize(&run, primitive.max_width)?;
+    let top = primitive.position[1] - primitive.style.size;
     Ok(rasterized
         .pixels
         .iter()
         .filter_map(|pixel| {
+            let rect = Rect::new(
+                primitive.position[0] + pixel.x as f32,
+                top + pixel.y as f32,
+                pixel.width as f32,
+                pixel.height as f32,
+            );
+            let rect = clipped_rect(rect, clip)?;
             rect_instance(
-                Rect::new(
-                    primitive.position[0] + pixel.x as f32,
-                    top + pixel.y as f32,
-                    pixel.width as f32,
-                    pixel.height as f32,
-                ),
+                rect,
                 Color::srgb(pixel.color.r, pixel.color.g, pixel.color.b, pixel.color.a),
                 CornerRadius::ZERO,
                 size,
             )
         })
         .collect())
+}
+
+fn clipped_rect(rect: Rect, clip: Option<ClipRect>) -> Option<Rect> {
+    let Some(clip) = clip else {
+        return Some(rect);
+    };
+    let rect = rect.normalized();
+    let clip = clip.rect.normalized();
+    let x0 = rect.x.max(clip.x);
+    let y0 = rect.y.max(clip.y);
+    let x1 = (rect.x + rect.width).min(clip.x + clip.width);
+    let y1 = (rect.y + rect.height).min(clip.y + clip.height);
+    let width = x1 - x0;
+    let height = y1 - y0;
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+    Some(Rect::new(x0, y0, width, height))
 }
 fn to_ndc_x(x: f32, size: SurfaceSize) -> f32 {
     (x / size.width.max(1) as f32) * 2.0 - 1.0
@@ -1060,6 +1204,16 @@ pub fn text_stats(scene: &RenderScene) -> RenderStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn text_style(size: f32) -> TextStyle {
+        TextStyle::new(
+            FontFamily::SansSerif,
+            FontWeight::Regular,
+            size,
+            Color::srgb(1.0, 1.0, 1.0, 1.0),
+        )
+    }
+
     #[test]
     fn image_primitive_contributes_to_stats() {
         let mut scene = RenderScene::new();
@@ -1114,6 +1268,64 @@ mod tests {
         } else {
             panic!("expected image primitive");
         }
+    }
+
+    #[test]
+    fn text_primitive_preserves_type_style() {
+        let style = TextStyle::new(
+            FontFamily::Monospace,
+            FontWeight::Bold,
+            16.0,
+            Color::srgb(0.8, 0.9, 1.0, 1.0),
+        );
+        let primitive = RenderPrimitive::text("Project", 4.0, 20.0, style.clone());
+
+        if let RenderPrimitiveKind::Text(text) = primitive.kind {
+            assert_eq!(text.content, "Project");
+            assert_eq!(text.position, [4.0, 20.0]);
+            assert_eq!(text.style, style);
+        } else {
+            panic!("expected text primitive");
+        }
+    }
+
+    #[test]
+    fn shadow_primitive_preserves_elevation_metadata() {
+        let shadow = ShadowPrimitive::new(
+            Rect::new(10.0, 20.0, 30.0, 40.0),
+            Color::srgb(0.0, 0.0, 0.0, 0.35),
+        )
+        .with_radius(CornerRadius::uniform(6.0))
+        .with_offset([2.0, 4.0])
+        .with_blur_radius(12.0)
+        .with_spread(1.0);
+        let primitive = RenderPrimitive::shadow(shadow);
+
+        if let RenderPrimitiveKind::Shadow(actual) = primitive.kind {
+            assert_eq!(actual.rect, Rect::new(10.0, 20.0, 30.0, 40.0));
+            assert_eq!(actual.radius, CornerRadius::uniform(6.0));
+            assert_eq!(actual.offset, [2.0, 4.0]);
+            assert_eq!(actual.blur_radius, 12.0);
+            assert_eq!(actual.spread, 1.0);
+        } else {
+            panic!("expected shadow primitive");
+        }
+    }
+
+    #[test]
+    fn shadow_generates_hard_edge_fallback_instances() {
+        let shadow = ShadowPrimitive::new(
+            Rect::new(10.0, 20.0, 30.0, 40.0),
+            Color::srgb(0.0, 0.0, 0.0, 0.35),
+        )
+        .with_offset([1.0, 1.0]);
+        let mut rasterizer = TextRasterizer::new();
+        let primitive = RenderPrimitive::shadow(shadow);
+        let instances =
+            primitive_instances(&primitive, SurfaceSize::new(100, 100), &mut rasterizer)
+                .unwrap_or_else(|error| panic!("shadow instances failed: {error}"));
+
+        assert_eq!(instances.len(), 2);
     }
 
     #[test]
@@ -1196,7 +1408,7 @@ mod tests {
         let mut s = RenderScene::new();
         s.push(
             RenderLayer::Chrome,
-            RenderPrimitive::text("A", 0.0, 0.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0)),
+            RenderPrimitive::text("A", 0.0, 0.0, text_style(14.0)),
         );
         s.push(
             RenderLayer::Chrome,
@@ -1215,7 +1427,7 @@ mod tests {
         let mut s = RenderScene::new();
         s.push(
             RenderLayer::Chrome,
-            RenderPrimitive::text("abc", 0.0, 0.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0)),
+            RenderPrimitive::text("abc", 0.0, 0.0, text_style(14.0)),
         );
         let stats = text_stats(&s);
         assert_eq!(stats.text_primitive_count, 1);
@@ -1224,9 +1436,9 @@ mod tests {
 
     #[test]
     fn text_generates_rasterized_rect_instances() {
-        let text = TextPrimitive::new("A", 0.0, 14.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0));
+        let text = TextPrimitive::new("A", 0.0, 14.0, text_style(14.0));
         let mut rasterizer = TextRasterizer::new();
-        let instances = text_instances(&text, SurfaceSize::new(100, 100), &mut rasterizer)
+        let instances = text_instances(&text, None, SurfaceSize::new(100, 100), &mut rasterizer)
             .unwrap_or_else(|error| panic!("text instances failed: {error}"));
         assert!(!instances.is_empty());
     }
@@ -1236,7 +1448,7 @@ mod tests {
         let mut s = RenderScene::new();
         s.push(
             RenderLayer::Chrome,
-            RenderPrimitive::text("", 0.0, 0.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0)),
+            RenderPrimitive::text("", 0.0, 0.0, text_style(14.0)),
         );
         assert!(build_text_batches(&s).is_empty());
     }
@@ -1247,10 +1459,38 @@ mod tests {
         let mut s = RenderScene::new();
         s.push(
             RenderLayer::Chrome,
-            RenderPrimitive::text("clip", 0.0, 0.0, 14.0, Color::srgb(1.0, 1.0, 1.0, 1.0))
-                .with_clip(clip),
+            RenderPrimitive::text("clip", 0.0, 0.0, text_style(14.0)).with_clip(clip),
         );
         let batches = build_text_batches(&s);
         assert_eq!(batches.first().and_then(|b| b.clip), Some(clip));
+    }
+
+    #[test]
+    fn clipped_text_constrains_layout_width() {
+        let clip = ClipRect::new(Rect::new(8.0, 0.0, 24.0, 20.0));
+        let primitive =
+            RenderPrimitive::text("long label", 8.0, 14.0, text_style(14.0)).with_clip(clip);
+
+        if let RenderPrimitiveKind::Text(text) = primitive.kind {
+            assert_eq!(text.max_width, Some(24.0));
+        } else {
+            panic!("expected text primitive");
+        }
+    }
+
+    #[test]
+    fn clipped_text_pixels_stay_inside_clip_rect() {
+        let clip = ClipRect::new(Rect::new(0.0, 0.0, 12.0, 20.0));
+        let text = TextPrimitive::new("Elcarax", 0.0, 14.0, text_style(14.0)).with_max_width(12.0);
+        let mut rasterizer = TextRasterizer::new();
+        let instances = text_instances(
+            &text,
+            Some(clip),
+            SurfaceSize::new(100, 100),
+            &mut rasterizer,
+        )
+        .unwrap_or_else(|error| panic!("text instances failed: {error}"));
+
+        assert!(instances.iter().all(|instance| instance.size_px[0] <= 12.0));
     }
 }

@@ -1,6 +1,6 @@
 use elcarax_render::{Border, Color, CornerRadius, RenderLayer, RenderPrimitive, RenderScene};
 
-use crate::{KeyboardKey, PaintContext, UiNode};
+use crate::{KeyboardKey, PaintContext, UiNode, text_baseline};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextFieldState {
@@ -85,19 +85,16 @@ pub fn paint_text_field(
                 .with_debug_label("text field focus"),
         );
     }
-    let font_size = context.theme.fonts.small;
-    let text_y = node.rect.y + font_size + 4.0;
-    let text_x = node.rect.x + 8.0;
+    let style = context
+        .theme
+        .text_style_for(node.style.text_role, node.style.type_role);
+    let font_size = style.size;
+    let text_y = text_baseline(node.rect, font_size);
+    let text_x = node.rect.x + context.theme.spacing.sm;
     scene.push(
         RenderLayer::Overlay,
-        RenderPrimitive::text(
-            state.text.clone(),
-            text_x,
-            text_y,
-            font_size,
-            context.theme.text_color_for(node.style.text_role),
-        )
-        .with_debug_label("text field value"),
+        RenderPrimitive::text(state.text.clone(), text_x, text_y, style)
+            .with_debug_label("text field value"),
     );
     if node.interaction.focused {
         paint_caret(

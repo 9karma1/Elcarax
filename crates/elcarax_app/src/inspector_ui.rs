@@ -1,9 +1,10 @@
 use elcarax_render::Rect;
-use elcarax_ui::{EditorShellIds, TextRole, UiError, UiTree};
+use elcarax_ui::{
+    EditorShellIds, INSPECTOR_EDITABLE_ROW_HEIGHT, INSPECTOR_READONLY_ROW_HEIGHT, TextRole,
+    UiError, UiTree,
+};
 
 use crate::inspector_display::InspectorUiSnapshot;
-
-const INSPECTOR_ROW_HEIGHT: f32 = 20.0;
 
 pub(crate) fn apply_inspector_snapshot(
     tree: &mut UiTree,
@@ -19,25 +20,26 @@ pub(crate) fn apply_inspector_snapshot(
         tree.set_sized_label_text(
             ids.inspector_object_name,
             String::new(),
-            INSPECTOR_ROW_HEIGHT,
+            INSPECTOR_READONLY_ROW_HEIGHT,
         )?;
         tree.set_sized_label_text(
             ids.inspector_object_kind,
             String::new(),
-            INSPECTOR_ROW_HEIGHT,
+            INSPECTOR_READONLY_ROW_HEIGHT,
         )?;
         tree.set_sized_label_text(
             ids.inspector_empty_message,
             snapshot.empty_message.clone(),
-            INSPECTOR_ROW_HEIGHT,
+            INSPECTOR_READONLY_ROW_HEIGHT,
         )?;
     }
     for (index, row_id) in ids.inspector_row_labels.iter().enumerate() {
-        tree.set_sized_label_text(
-            *row_id,
-            snapshot.row_labels[index].clone(),
-            INSPECTOR_ROW_HEIGHT,
-        )?;
+        let row_height = if snapshot.row_editable[index] {
+            INSPECTOR_EDITABLE_ROW_HEIGHT
+        } else {
+            INSPECTOR_READONLY_ROW_HEIGHT
+        };
+        tree.set_sized_label_text(*row_id, snapshot.row_labels[index].clone(), row_height)?;
     }
     for (index, value_id) in ids.inspector_row_values.iter().enumerate() {
         if snapshot.row_editable[index] {
@@ -47,7 +49,7 @@ pub(crate) fn apply_inspector_snapshot(
             tree.set_sized_label_text(
                 *value_id,
                 snapshot.row_values[index].clone(),
-                INSPECTOR_ROW_HEIGHT,
+                INSPECTOR_READONLY_ROW_HEIGHT,
             )?;
             tree.set_text_role(*value_id, TextRole::Muted)?;
         }
@@ -55,7 +57,7 @@ pub(crate) fn apply_inspector_snapshot(
     tree.set_sized_label_text(
         ids.inspector_summary,
         snapshot.summary.clone(),
-        INSPECTOR_ROW_HEIGHT,
+        INSPECTOR_READONLY_ROW_HEIGHT,
     )?;
     tree.layout(elcarax_ui::LayoutConstraints { bounds })?;
     Ok(())

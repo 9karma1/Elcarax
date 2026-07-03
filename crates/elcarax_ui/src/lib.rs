@@ -12,7 +12,8 @@ use text_field::{
 
 use elcarax_core::{Id, IdGenerator};
 use elcarax_render::{
-    Border, Color, CornerRadius, ImagePrimitive, Rect, RenderLayer, RenderPrimitive, RenderScene,
+    Border, ClipRect, Color, CornerRadius, FontFamily, FontWeight, ImagePrimitive, Rect,
+    RenderLayer, RenderPrimitive, RenderScene, ShadowPrimitive, TextStyle,
 };
 
 pub enum WidgetMarker {}
@@ -58,8 +59,11 @@ pub enum WidgetKind {
     Root,
     Panel,
     Label(String),
+    InfoRow(String),
+    PropertyRow(String),
     Button(String),
     IconButton(String),
+    ListItem(String),
     TextField(TextFieldState),
     Separator(Axis),
     ResizeSplitter(Axis),
@@ -141,6 +145,7 @@ pub struct LayoutNode {
     pub height: SizePolicy,
     pub mode: LayoutMode,
     pub padding: Insets,
+    pub gap: f32,
     pub alignment: Alignment,
 }
 
@@ -151,6 +156,7 @@ impl LayoutNode {
             height: SizePolicy::Content,
             mode: LayoutMode::Leaf,
             padding: Insets::ZERO,
+            gap: 0.0,
             alignment: Alignment::Start,
         }
     }
@@ -161,6 +167,7 @@ impl LayoutNode {
             height: SizePolicy::Fill,
             mode,
             padding: Insets::ZERO,
+            gap: 0.0,
             alignment: Alignment::Stretch,
         }
     }
@@ -171,12 +178,18 @@ impl LayoutNode {
             height: SizePolicy::Fixed(height),
             mode: LayoutMode::Leaf,
             padding: Insets::ZERO,
+            gap: 0.0,
             alignment: Alignment::Stretch,
         }
     }
 
     pub const fn with_padding(mut self, padding: Insets) -> Self {
         self.padding = padding;
+        self
+    }
+
+    pub const fn with_gap(mut self, gap: f32) -> Self {
+        self.gap = gap;
         self
     }
 
@@ -206,6 +219,7 @@ pub struct LayoutResult {
 pub struct UiStyle {
     pub role: StyleRole,
     pub text_role: TextRole,
+    pub type_role: TypeRole,
     pub corner_radius: f32,
 }
 
@@ -216,13 +230,19 @@ impl UiStyle {
     pub const STATUS_BAR: Self = Self::new(StyleRole::RaisedSurface);
     pub const VIEWPORT: Self = Self::new(StyleRole::Viewport);
     pub const LABEL: Self = Self::new(StyleRole::Transparent);
-    pub const BUTTON: Self = Self::new(StyleRole::Control).rounded(RADIUS_SM);
+    pub const BUTTON: Self = Self::new(StyleRole::Control)
+        .typed(TypeRole::Label)
+        .rounded(RADIUS_SM);
+    pub const LIST_ITEM: Self = Self::new(StyleRole::Transparent)
+        .typed(TypeRole::Body)
+        .rounded(RADIUS_SM);
     pub const SEPARATOR: Self = Self::new(StyleRole::Border);
 
     pub const fn new(role: StyleRole) -> Self {
         Self {
             role,
             text_role: TextRole::Default,
+            type_role: TypeRole::Body,
             corner_radius: 0.0,
         }
     }
@@ -234,6 +254,11 @@ impl UiStyle {
 
     pub const fn rounded(mut self, radius: f32) -> Self {
         self.corner_radius = radius;
+        self
+    }
+
+    pub const fn typed(mut self, role: TypeRole) -> Self {
+        self.type_role = role;
         self
     }
 }
@@ -259,10 +284,29 @@ pub enum TextRole {
     Danger,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeRole {
+    Micro,
+    Caption,
+    Body,
+    Label,
+    Heading,
+    Title,
+}
+
 /// Shared with [`UiStyle::BUTTON`] so the constant-evaluated widget style and
 /// the runtime [`Theme`] agree on the same radius without duplicating the value.
 const RADIUS_SM: f32 = 4.0;
 const RADIUS_MD: f32 = 6.0;
+const TOOLBAR_HEIGHT: f32 = 56.0;
+const STATUS_BAR_HEIGHT: f32 = 28.0;
+const BUTTON_HEIGHT: f32 = 32.0;
+const ROW_HEIGHT: f32 = 28.0;
+const COMPACT_ROW_HEIGHT: f32 = 24.0;
+const TEXT_FIELD_HEIGHT: f32 = 28.0;
+const PROPERTY_LABEL_WIDTH: f32 = 96.0;
+pub const INSPECTOR_READONLY_ROW_HEIGHT: f32 = COMPACT_ROW_HEIGHT;
+pub const INSPECTOR_EDITABLE_ROW_HEIGHT: f32 = TEXT_FIELD_HEIGHT;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
@@ -271,8 +315,10 @@ pub struct Theme {
     pub surface_raised: Color,
     pub viewport: Color,
     pub control: ControlColors,
+    pub row: RowColors,
     pub focus_ring: Color,
     pub border: Color,
+    pub elevation: ElevationColors,
     pub overlay_scrim: Color,
     pub text: Color,
     pub text_muted: Color,
@@ -298,8 +344,17 @@ impl Theme {
                 active: Color::srgb(0.23, 0.29, 0.44, 1.0),
                 disabled: Color::srgb(0.095, 0.105, 0.14, 1.0),
             },
+            row: RowColors {
+                quiet: Color::srgb(0.115, 0.125, 0.165, 1.0),
+                hovered: Color::srgb(0.155, 0.175, 0.24, 1.0),
+                selected: Color::srgb(0.23, 0.29, 0.44, 1.0),
+            },
             focus_ring: Color::srgb(0.58, 0.68, 0.95, 1.0),
             border: Color::srgb(0.18, 0.20, 0.26, 1.0),
+            elevation: ElevationColors {
+                shadow: Color::srgb(0.0, 0.0, 0.0, 0.28),
+                highlight: Color::srgb(1.0, 1.0, 1.0, 0.06),
+            },
             overlay_scrim: Color::srgb(0.0, 0.0, 0.0, 0.42),
             text: Color::srgb(0.91, 0.93, 0.97, 1.0),
             text_muted: Color::srgb(0.62, 0.66, 0.74, 1.0),
@@ -308,19 +363,25 @@ impl Theme {
             warning: Color::srgb(0.95, 0.74, 0.35, 1.0),
             danger: Color::srgb(0.93, 0.42, 0.42, 1.0),
             spacing: SpacingScale {
+                xxs: 2.0,
                 xs: 4.0,
                 sm: 8.0,
-                md: 16.0,
-                lg: 24.0,
+                md: 12.0,
+                lg: 16.0,
+                xl: 24.0,
+                xxl: 32.0,
             },
             radius: RadiusScale {
                 sm: RADIUS_SM,
                 md: RADIUS_MD,
             },
             fonts: FontScale {
-                small: 13.0,
-                body: 14.0,
-                title: 18.0,
+                micro: TypeStyle::new(11.0, FontWeight::Regular),
+                caption: TypeStyle::new(12.0, FontWeight::Regular),
+                body: TypeStyle::new(14.0, FontWeight::Regular),
+                label: TypeStyle::new(14.0, FontWeight::Medium),
+                heading: TypeStyle::new(16.0, FontWeight::Semibold),
+                title: TypeStyle::new(20.0, FontWeight::Semibold),
             },
         }
     }
@@ -347,6 +408,16 @@ impl Theme {
             TextRole::Danger => self.danger,
         }
     }
+
+    pub fn text_style_for(self, text_role: TextRole, type_role: TypeRole) -> TextStyle {
+        let type_style = self.fonts.style_for(type_role);
+        TextStyle::new(
+            FontFamily::SansSerif,
+            type_style.weight,
+            type_style.size,
+            self.text_color_for(text_role),
+        )
+    }
 }
 
 impl Default for Theme {
@@ -367,11 +438,27 @@ pub struct ControlColors {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RowColors {
+    pub quiet: Color,
+    pub hovered: Color,
+    pub selected: Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ElevationColors {
+    pub shadow: Color,
+    pub highlight: Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpacingScale {
+    pub xxs: f32,
     pub xs: f32,
     pub sm: f32,
     pub md: f32,
     pub lg: f32,
+    pub xl: f32,
+    pub xxl: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -382,9 +469,37 @@ pub struct RadiusScale {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FontScale {
-    pub small: f32,
-    pub body: f32,
-    pub title: f32,
+    pub micro: TypeStyle,
+    pub caption: TypeStyle,
+    pub body: TypeStyle,
+    pub label: TypeStyle,
+    pub heading: TypeStyle,
+    pub title: TypeStyle,
+}
+
+impl FontScale {
+    pub const fn style_for(self, role: TypeRole) -> TypeStyle {
+        match role {
+            TypeRole::Micro => self.micro,
+            TypeRole::Caption => self.caption,
+            TypeRole::Body => self.body,
+            TypeRole::Label => self.label,
+            TypeRole::Heading => self.heading,
+            TypeRole::Title => self.title,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TypeStyle {
+    pub size: f32,
+    pub weight: FontWeight,
+}
+
+impl TypeStyle {
+    pub const fn new(size: f32, weight: FontWeight) -> Self {
+        Self { size, weight }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1060,7 +1175,12 @@ impl UiTree {
         let Some(node) = self.nodes.get_mut(&id) else {
             return Err(UiError::MissingNode(id));
         };
-        node.kind = WidgetKind::Label(text.into());
+        let text = text.into();
+        node.kind = match &node.kind {
+            WidgetKind::InfoRow(_) => WidgetKind::InfoRow(text),
+            WidgetKind::PropertyRow(_) => WidgetKind::PropertyRow(text),
+            _ => WidgetKind::Label(text),
+        };
         node.dirty.insert(DirtyFlags::TEXT);
         node.dirty.insert(DirtyFlags::LAYOUT);
         node.dirty.insert(DirtyFlags::PAINT);
@@ -1079,7 +1199,11 @@ impl UiTree {
         };
         let text = text.into();
         let visible = !text.is_empty();
-        node.kind = WidgetKind::Label(text);
+        node.kind = match &node.kind {
+            WidgetKind::InfoRow(_) => WidgetKind::InfoRow(text),
+            WidgetKind::PropertyRow(_) => WidgetKind::PropertyRow(text),
+            _ => WidgetKind::Label(text),
+        };
         node.layout.height = if visible {
             SizePolicy::Fixed(row_height)
         } else {
@@ -1108,7 +1232,7 @@ impl UiTree {
             WidgetKind::Label(String::new())
         };
         node.layout.height = if has_text {
-            SizePolicy::Fixed(28.0)
+            SizePolicy::Fixed(TEXT_FIELD_HEIGHT)
         } else {
             SizePolicy::Fixed(0.0)
         };
@@ -1133,13 +1257,24 @@ impl UiTree {
         };
         let text = text.into();
         let has_label = !text.is_empty();
+        let was_list_item = matches!(node.kind, WidgetKind::ListItem(_));
         node.kind = if has_label {
-            WidgetKind::Button(text)
+            if was_list_item {
+                WidgetKind::ListItem(text)
+            } else {
+                WidgetKind::Button(text)
+            }
+        } else if was_list_item {
+            WidgetKind::ListItem(String::new())
         } else {
             WidgetKind::Label(String::new())
         };
         node.layout.height = if has_label {
-            SizePolicy::Fixed(28.0)
+            SizePolicy::Fixed(if was_list_item {
+                ROW_HEIGHT
+            } else {
+                BUTTON_HEIGHT
+            })
         } else {
             SizePolicy::Fixed(0.0)
         };
@@ -1170,12 +1305,12 @@ impl UiTree {
             WidgetKind::Label(String::new())
         };
         node.layout.height = if has_label {
-            SizePolicy::Fixed(24.0)
+            SizePolicy::Fixed(COMPACT_ROW_HEIGHT)
         } else {
             SizePolicy::Fixed(0.0)
         };
         node.layout.width = if has_label {
-            SizePolicy::Fixed(24.0)
+            SizePolicy::Fixed(COMPACT_ROW_HEIGHT)
         } else {
             SizePolicy::Fixed(0.0)
         };
@@ -1905,8 +2040,12 @@ pub fn build_editor_shell_with_layout(
             WidgetKind::Toolbar,
             UiStyle::TOOLBAR,
             LayoutNode::fill(LayoutMode::Stack(Axis::Horizontal))
-                .with_height(SizePolicy::Fixed(56.0))
-                .with_padding(Insets::symmetric(context.theme.spacing.lg, 0.0)),
+                .with_height(SizePolicy::Fixed(TOOLBAR_HEIGHT))
+                .with_padding(Insets::symmetric(
+                    context.theme.spacing.xl,
+                    context.theme.spacing.sm,
+                ))
+                .with_gap(context.theme.spacing.sm),
         ),
     )?;
     tree.insert_child(
@@ -1943,17 +2082,20 @@ pub fn build_editor_shell_with_layout(
             WidgetKind::StatusBar,
             UiStyle::STATUS_BAR,
             LayoutNode::fill(LayoutMode::Stack(Axis::Horizontal))
-                .with_height(SizePolicy::Fixed(28.0))
-                .with_padding(Insets::symmetric(context.theme.spacing.lg, 0.0)),
+                .with_height(SizePolicy::Fixed(STATUS_BAR_HEIGHT))
+                .with_padding(Insets::symmetric(context.theme.spacing.xl, 0.0))
+                .with_gap(context.theme.spacing.sm),
         ),
     )?;
     tree.insert_child(
         toolbar,
         UiNode::new(
             title,
-            WidgetKind::Label(content.toolbar_title.clone()),
-            UiStyle::LABEL,
-            LayoutNode::leaf().with_width(SizePolicy::Content),
+            WidgetKind::InfoRow(content.toolbar_title.clone()),
+            UiStyle::LIST_ITEM.typed(TypeRole::Heading),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(BUTTON_HEIGHT)),
         ),
     )?;
     tree.insert_child(
@@ -1962,7 +2104,9 @@ pub fn build_editor_shell_with_layout(
             run_button,
             WidgetKind::Button("Open".to_string()),
             UiStyle::BUTTON,
-            LayoutNode::leaf().with_width(SizePolicy::Content),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Content)
+                .with_height(SizePolicy::Fixed(BUTTON_HEIGHT)),
         ),
     )?;
     tree.insert_child(
@@ -1973,7 +2117,8 @@ pub fn build_editor_shell_with_layout(
             UiStyle::PANEL,
             LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
                 .with_width(SizePolicy::Fixed(layout.left_panel_width))
-                .with_padding(Insets::uniform(context.theme.spacing.md)),
+                .with_padding(Insets::uniform(context.theme.spacing.lg))
+                .with_gap(context.theme.spacing.xs),
         ),
     )?;
     tree.insert_child(
@@ -1994,7 +2139,8 @@ pub fn build_editor_shell_with_layout(
             UiStyle::VIEWPORT,
             LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
                 .with_width(SizePolicy::Fill)
-                .with_padding(Insets::uniform(context.theme.spacing.lg)),
+                .with_padding(Insets::uniform(context.theme.spacing.xl))
+                .with_gap(context.theme.spacing.sm),
         ),
     )?;
     tree.insert_child(
@@ -2015,7 +2161,8 @@ pub fn build_editor_shell_with_layout(
             UiStyle::PANEL,
             LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
                 .with_width(SizePolicy::Fixed(layout.right_panel_width))
-                .with_padding(Insets::uniform(context.theme.spacing.md)),
+                .with_padding(Insets::uniform(context.theme.spacing.lg))
+                .with_gap(context.theme.spacing.xs),
         ),
     )?;
     tree.insert_child(
@@ -2023,7 +2170,7 @@ pub fn build_editor_shell_with_layout(
         UiNode::new(
             project_title,
             WidgetKind::Label(content.project_title.clone()),
-            UiStyle::LABEL,
+            UiStyle::LABEL.typed(TypeRole::Heading),
             LayoutNode::leaf(),
         ),
     )?;
@@ -2031,81 +2178,99 @@ pub fn build_editor_shell_with_layout(
         project,
         UiNode::new(
             project_name,
-            WidgetKind::Label(content.project_name.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.project_name.clone()),
+            UiStyle::LIST_ITEM.muted_text(),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         project,
         UiNode::new(
             project_path,
-            WidgetKind::Label(content.project_path.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.project_path.clone()),
+            UiStyle::LIST_ITEM.muted_text(),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         project,
         UiNode::new(
             project_status,
-            WidgetKind::Label(content.project_status.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.project_status.clone()),
+            UiStyle::LIST_ITEM.muted_text(),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         project,
         UiNode::new(
             project_recent,
-            WidgetKind::Label(content.project_recent.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.project_recent.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         project,
         UiNode::new(
             project_diagnostics,
-            WidgetKind::Label(content.project_diagnostics.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.project_diagnostics.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         project,
         UiNode::new(
             project_command,
-            WidgetKind::Label(content.project_command.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.project_command.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         project,
         UiNode::new(
             adapter_status,
-            WidgetKind::Label(content.adapter_status.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.adapter_status.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         project,
         UiNode::new(
             adapter_diagnostics,
-            WidgetKind::Label(content.adapter_diagnostics.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.adapter_diagnostics.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         project,
         UiNode::new(
             adapter_command,
-            WidgetKind::Label(content.adapter_command.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.adapter_command.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
@@ -2113,7 +2278,7 @@ pub fn build_editor_shell_with_layout(
         UiNode::new(
             asset_section_title,
             WidgetKind::Label(content.asset_section_title.clone()),
-            UiStyle::LABEL,
+            UiStyle::LABEL.typed(TypeRole::Heading),
             LayoutNode::leaf(),
         ),
     )?;
@@ -2121,9 +2286,11 @@ pub fn build_editor_shell_with_layout(
         project,
         UiNode::new(
             asset_count,
-            WidgetKind::Label(content.asset_count.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.asset_count.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     for (index, row_id) in asset_rows.iter().enumerate() {
@@ -2134,16 +2301,18 @@ pub fn build_editor_shell_with_layout(
             UiNode::new(
                 *row_id,
                 if has_label {
-                    WidgetKind::Button(label)
+                    WidgetKind::ListItem(label)
                 } else {
-                    WidgetKind::Label(String::new())
+                    WidgetKind::ListItem(String::new())
                 },
-                UiStyle::BUTTON,
-                LayoutNode::leaf().with_height(if has_label {
-                    SizePolicy::Fixed(28.0)
-                } else {
-                    SizePolicy::Fixed(0.0)
-                }),
+                UiStyle::LIST_ITEM,
+                LayoutNode::leaf()
+                    .with_width(SizePolicy::Fill)
+                    .with_height(if has_label {
+                        SizePolicy::Fixed(ROW_HEIGHT)
+                    } else {
+                        SizePolicy::Fixed(0.0)
+                    }),
             ),
         )?;
         if !has_label {
@@ -2154,9 +2323,11 @@ pub fn build_editor_shell_with_layout(
         project,
         UiNode::new(
             asset_selected_summary,
-            WidgetKind::Label(content.asset_selected_summary.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.asset_selected_summary.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
@@ -2164,7 +2335,7 @@ pub fn build_editor_shell_with_layout(
         UiNode::new(
             scene_section_title,
             WidgetKind::Label(content.scene_section_title.clone()),
-            UiStyle::LABEL,
+            UiStyle::LABEL.typed(TypeRole::Heading),
             LayoutNode::leaf(),
         ),
     )?;
@@ -2172,9 +2343,11 @@ pub fn build_editor_shell_with_layout(
         project,
         UiNode::new(
             scene_name,
-            WidgetKind::Label(content.scene_name.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.scene_name.clone()),
+            UiStyle::LIST_ITEM.muted_text(),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(ROW_HEIGHT)),
         ),
     )?;
     for index in 0..MAX_VISIBLE_SCENE_ROWS {
@@ -2193,7 +2366,7 @@ pub fn build_editor_shell_with_layout(
                 },
                 UiStyle::BUTTON,
                 LayoutNode::leaf().with_height(if has_expand {
-                    SizePolicy::Fixed(24.0)
+                    SizePolicy::Fixed(COMPACT_ROW_HEIGHT)
                 } else {
                     SizePolicy::Fixed(0.0)
                 }),
@@ -2207,16 +2380,18 @@ pub fn build_editor_shell_with_layout(
             UiNode::new(
                 scene_rows[index],
                 if has_row {
-                    WidgetKind::Button(row_label)
+                    WidgetKind::ListItem(row_label)
                 } else {
-                    WidgetKind::Label(String::new())
+                    WidgetKind::ListItem(String::new())
                 },
-                UiStyle::BUTTON,
-                LayoutNode::leaf().with_height(if has_row {
-                    SizePolicy::Fixed(24.0)
-                } else {
-                    SizePolicy::Fixed(0.0)
-                }),
+                UiStyle::LIST_ITEM,
+                LayoutNode::leaf()
+                    .with_width(SizePolicy::Fill)
+                    .with_height(if has_row {
+                        SizePolicy::Fixed(ROW_HEIGHT)
+                    } else {
+                        SizePolicy::Fixed(0.0)
+                    }),
             ),
         )?;
         if !has_row {
@@ -2227,9 +2402,11 @@ pub fn build_editor_shell_with_layout(
         project,
         UiNode::new(
             scene_selected_summary,
-            WidgetKind::Label(content.scene_selected_summary.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.scene_selected_summary.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
@@ -2255,7 +2432,7 @@ pub fn build_editor_shell_with_layout(
         UiNode::new(
             inspector_label,
             WidgetKind::Label("Inspector".to_string()),
-            UiStyle::LABEL,
+            UiStyle::LABEL.typed(TypeRole::Heading),
             LayoutNode::leaf(),
         ),
     )?;
@@ -2264,7 +2441,7 @@ pub fn build_editor_shell_with_layout(
         UiNode::new(
             inspector_object_name,
             WidgetKind::Label(content.inspector_object_name.clone()),
-            UiStyle::LABEL,
+            UiStyle::LABEL.typed(TypeRole::Heading),
             LayoutNode::leaf(),
         ),
     )?;
@@ -2272,44 +2449,63 @@ pub fn build_editor_shell_with_layout(
         inspector,
         UiNode::new(
             inspector_object_kind,
-            WidgetKind::Label(content.inspector_object_kind.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.inspector_object_kind.clone()),
+            UiStyle::LIST_ITEM.muted_text(),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         inspector,
         UiNode::new(
             inspector_empty_message,
-            WidgetKind::Label(content.inspector_empty_message.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.inspector_empty_message.clone()),
+            UiStyle::LIST_ITEM.muted_text(),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(ROW_HEIGHT)),
         ),
     )?;
     for index in 0..MAX_VISIBLE_INSPECTOR_ROWS {
         let has_row = !content.inspector_row_labels[index].is_empty();
+        let row_height = if content.inspector_row_editable[index] {
+            TEXT_FIELD_HEIGHT
+        } else {
+            COMPACT_ROW_HEIGHT
+        };
         tree.insert_child(
             inspector,
             UiNode::new(
                 inspector_row_labels[index],
                 if has_row {
-                    WidgetKind::Label(content.inspector_row_labels[index].clone())
+                    WidgetKind::PropertyRow(content.inspector_row_labels[index].clone())
                 } else {
-                    WidgetKind::Label(String::new())
+                    WidgetKind::PropertyRow(String::new())
                 },
-                UiStyle::LABEL,
-                LayoutNode::leaf().with_height(if has_row {
-                    SizePolicy::Fixed(20.0)
-                } else {
-                    SizePolicy::Fixed(0.0)
-                }),
+                UiStyle::LIST_ITEM.typed(TypeRole::Caption),
+                LayoutNode::fill(LayoutMode::Stack(Axis::Horizontal))
+                    .with_width(SizePolicy::Fill)
+                    .with_height(if has_row {
+                        SizePolicy::Fixed(row_height)
+                    } else {
+                        SizePolicy::Fixed(0.0)
+                    })
+                    .with_padding(Insets {
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: PROPERTY_LABEL_WIDTH + context.theme.spacing.md,
+                    }),
             ),
         )?;
         if !has_row {
             tree.set_disabled(inspector_row_labels[index], true)?;
         }
+        let has_value = !content.inspector_row_values[index].is_empty();
+        let value_visible = has_row && (content.inspector_row_editable[index] || has_value);
         tree.insert_child(
-            inspector,
+            inspector_row_labels[index],
             UiNode::new(
                 inspector_row_values[index],
                 if has_row && content.inspector_row_editable[index] {
@@ -2324,20 +2520,18 @@ pub fn build_editor_shell_with_layout(
                 if content.inspector_row_editable[index] {
                     UiStyle::BUTTON
                 } else {
-                    UiStyle::LABEL.muted_text()
+                    UiStyle::LABEL.muted_text().typed(TypeRole::Caption)
                 },
-                LayoutNode::leaf().with_height(if has_row {
-                    SizePolicy::Fixed(if content.inspector_row_editable[index] {
-                        28.0
+                LayoutNode::leaf()
+                    .with_width(SizePolicy::Fill)
+                    .with_height(if value_visible {
+                        SizePolicy::Fill
                     } else {
-                        20.0
-                    })
-                } else {
-                    SizePolicy::Fixed(0.0)
-                }),
+                        SizePolicy::Fixed(0.0)
+                    }),
             ),
         )?;
-        if !has_row {
+        if !value_visible {
             tree.set_disabled(inspector_row_values[index], true)?;
         }
     }
@@ -2345,18 +2539,22 @@ pub fn build_editor_shell_with_layout(
         inspector,
         UiNode::new(
             inspector_summary,
-            WidgetKind::Label(content.inspector_summary.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.inspector_summary.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.insert_child(
         status,
         UiNode::new(
             status_label,
-            WidgetKind::Label(content.status.clone()),
-            UiStyle::LABEL.muted_text(),
-            LayoutNode::leaf(),
+            WidgetKind::InfoRow(content.status.clone()),
+            UiStyle::LIST_ITEM.muted_text().typed(TypeRole::Caption),
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
     tree.layout(LayoutConstraints {
@@ -2420,7 +2618,7 @@ fn layout_children(
             .map(|id| (*id, child_rect(*id, content, nodes)))
             .collect()),
         LayoutMode::Stack(axis) | LayoutMode::Split(axis) => {
-            stack_children(axis, content, children, nodes)
+            stack_children(axis, content, layout.gap, children, nodes)
         }
     }
 }
@@ -2428,10 +2626,11 @@ fn layout_children(
 fn stack_children(
     axis: Axis,
     rect: Rect,
+    gap: f32,
     children: &[WidgetId],
     nodes: &BTreeMap<WidgetId, UiNode>,
 ) -> Result<Vec<(WidgetId, Rect)>, UiError> {
-    let fixed = fixed_span(axis, children, nodes)?;
+    let fixed = fixed_span(axis, gap, children, nodes)?;
     let fill_count = children
         .iter()
         .filter(|id| {
@@ -2444,31 +2643,46 @@ fn stack_children(
     } else {
         (available - fixed).max(0.0) / fill_count as f32
     };
-    Ok(place_children(axis, rect, children, nodes, fill_span))
+    Ok(place_children(axis, rect, gap, children, nodes, fill_span))
 }
 
 fn fixed_span(
     axis: Axis,
+    gap: f32,
     children: &[WidgetId],
     nodes: &BTreeMap<WidgetId, UiNode>,
 ) -> Result<f32, UiError> {
     let mut span = 0.0;
+    let mut visible_count = 0usize;
     for id in children {
         let Some(node) = nodes.get(id) else {
             return Err(UiError::MissingNode(*id));
         };
         match main_policy(axis, node.layout) {
-            SizePolicy::Fixed(value) => span += value,
-            SizePolicy::Content => span += content_span(axis, &node.kind),
-            SizePolicy::Fill => {}
+            SizePolicy::Fixed(value) => {
+                span += value;
+                if value > 0.0 {
+                    visible_count += 1;
+                }
+            }
+            SizePolicy::Content => {
+                let value = content_span(axis, node);
+                span += value;
+                if value > 0.0 {
+                    visible_count += 1;
+                }
+            }
+            SizePolicy::Fill => visible_count += 1,
         }
     }
+    span += gap.max(0.0) * visible_count.saturating_sub(1) as f32;
     Ok(span)
 }
 
 fn place_children(
     axis: Axis,
     rect: Rect,
+    gap: f32,
     children: &[WidgetId],
     nodes: &BTreeMap<WidgetId, UiNode>,
     fill_span: f32,
@@ -2482,11 +2696,15 @@ fn place_children(
         .filter_map(|id| {
             let node = nodes.get(id)?;
             let span = resolved_span(axis, node, fill_span);
+            let cross_span = resolved_cross_span(axis, node, rect);
+            let cross_origin = resolved_cross_origin(axis, rect, cross_span, node.layout.alignment);
             let child = match axis {
-                Axis::Horizontal => Rect::new(cursor, rect.y, span, cross_size(axis, rect)),
-                Axis::Vertical => Rect::new(rect.x, cursor, cross_size(axis, rect), span),
+                Axis::Horizontal => Rect::new(cursor, cross_origin, span, cross_span),
+                Axis::Vertical => Rect::new(cross_origin, cursor, cross_span, span),
             };
-            cursor += span;
+            if span > 0.0 {
+                cursor += span + gap.max(0.0);
+            }
             Some((*id, child))
         })
         .collect()
@@ -2498,12 +2716,12 @@ fn child_rect(id: WidgetId, rect: Rect, nodes: &BTreeMap<WidgetId, UiNode>) -> R
     };
     let width = match node.layout.width {
         SizePolicy::Fixed(value) => value,
-        SizePolicy::Content => content_span(Axis::Horizontal, &node.kind),
+        SizePolicy::Content => content_span(Axis::Horizontal, node),
         SizePolicy::Fill => rect.width,
     };
     let height = match node.layout.height {
         SizePolicy::Fixed(value) => value,
-        SizePolicy::Content => content_span(Axis::Vertical, &node.kind),
+        SizePolicy::Content => content_span(Axis::Vertical, node),
         SizePolicy::Fill => rect.height,
     };
     Rect::new(
@@ -2518,7 +2736,29 @@ fn resolved_span(axis: Axis, node: &UiNode, fill_span: f32) -> f32 {
     match main_policy(axis, node.layout) {
         SizePolicy::Fixed(value) => value,
         SizePolicy::Fill => fill_span,
-        SizePolicy::Content => content_span(axis, &node.kind),
+        SizePolicy::Content => content_span(axis, node),
+    }
+}
+
+fn resolved_cross_span(axis: Axis, node: &UiNode, rect: Rect) -> f32 {
+    let available = cross_size(axis, rect);
+    match cross_policy(axis, node.layout) {
+        SizePolicy::Fixed(value) => value.min(available),
+        SizePolicy::Fill => available,
+        SizePolicy::Content => content_span(cross_axis(axis), node).min(available),
+    }
+}
+
+fn resolved_cross_origin(axis: Axis, rect: Rect, span: f32, alignment: Alignment) -> f32 {
+    let origin = match axis {
+        Axis::Horizontal => rect.y,
+        Axis::Vertical => rect.x,
+    };
+    let available = cross_size(axis, rect);
+    match alignment {
+        Alignment::Center => origin + ((available - span) * 0.5).max(0.0),
+        Alignment::End => origin + (available - span).max(0.0),
+        Alignment::Start | Alignment::Stretch => origin,
     }
 }
 
@@ -2530,6 +2770,17 @@ fn main_policy(axis: Axis, layout: LayoutNode) -> SizePolicy {
     match axis {
         Axis::Horizontal => layout.width,
         Axis::Vertical => layout.height,
+    }
+}
+
+fn cross_policy(axis: Axis, layout: LayoutNode) -> SizePolicy {
+    main_policy(cross_axis(axis), layout)
+}
+
+fn cross_axis(axis: Axis) -> Axis {
+    match axis {
+        Axis::Horizontal => Axis::Vertical,
+        Axis::Vertical => Axis::Horizontal,
     }
 }
 
@@ -2547,19 +2798,26 @@ fn cross_size(axis: Axis, rect: Rect) -> f32 {
     }
 }
 
-fn content_span(axis: Axis, kind: &WidgetKind) -> f32 {
+fn content_span(axis: Axis, node: &UiNode) -> f32 {
     match axis {
         Axis::Horizontal => {
             let text_width =
-                text_content(kind).map_or(1.0, |text| text.chars().count() as f32 * 8.0);
-            match kind {
-                WidgetKind::Button(_) => text_width + 28.0,
+                text_content(&node.kind).map_or(1.0, |text| text.chars().count() as f32 * 8.0);
+            match node.kind {
+                WidgetKind::InfoRow(_) => text_width + 16.0,
+                WidgetKind::PropertyRow(_) => PROPERTY_LABEL_WIDTH + 80.0,
+                WidgetKind::Button(_) => text_width + 32.0,
                 WidgetKind::IconButton(_) => 32.0,
+                WidgetKind::ListItem(_) => text_width + 16.0,
                 _ => text_width,
             }
         }
-        Axis::Vertical => match kind {
-            WidgetKind::Button(_) | WidgetKind::IconButton(_) => 32.0,
+        Axis::Vertical => match node.kind {
+            WidgetKind::InfoRow(_) => 28.0,
+            WidgetKind::PropertyRow(_) => 28.0,
+            WidgetKind::Button(_) => 32.0,
+            WidgetKind::IconButton(_) => 28.0,
+            WidgetKind::ListItem(_) => 28.0,
             _ => 22.0,
         },
     }
@@ -2568,17 +2826,25 @@ fn content_span(axis: Axis, kind: &WidgetKind) -> f32 {
 fn text_content(kind: &WidgetKind) -> Option<&str> {
     match kind {
         WidgetKind::Label(text) => Some(text.as_str()),
+        WidgetKind::InfoRow(text) => Some(text.as_str()),
+        WidgetKind::PropertyRow(text) => Some(text.as_str()),
         WidgetKind::Button(text) => Some(text.as_str()),
         WidgetKind::IconButton(text) => Some(text.as_str()),
+        WidgetKind::ListItem(text) => Some(text.as_str()),
         _ => None,
     }
 }
 
 fn default_interaction_for(kind: &WidgetKind) -> InteractionState {
     match kind {
-        WidgetKind::Button(_) | WidgetKind::IconButton(_) => InteractionState::control(),
+        WidgetKind::Button(_) | WidgetKind::IconButton(_) | WidgetKind::ListItem(_) => {
+            InteractionState::control()
+        }
         WidgetKind::TextField(_) => InteractionState::control(),
-        WidgetKind::Label(_) | WidgetKind::Separator(_) => InteractionState::passive(),
+        WidgetKind::Label(_) | WidgetKind::InfoRow(_) | WidgetKind::Separator(_) => {
+            InteractionState::passive()
+        }
+        WidgetKind::PropertyRow(_) => InteractionState::container(),
         WidgetKind::ResizeSplitter(_) => InteractionState::hit_target(),
         WidgetKind::Root
         | WidgetKind::Panel
@@ -2594,8 +2860,10 @@ fn node_can_receive_hit(node: &UiNode, position: PointerPosition) -> bool {
 
 fn is_clickable(node: Option<&UiNode>) -> bool {
     node.is_some_and(|node| {
-        matches!(node.kind, WidgetKind::Button(_) | WidgetKind::IconButton(_))
-            && node.interaction.can_hit_test()
+        matches!(
+            node.kind,
+            WidgetKind::Button(_) | WidgetKind::IconButton(_) | WidgetKind::ListItem(_)
+        ) && node.interaction.can_hit_test()
     })
 }
 
@@ -2628,6 +2896,9 @@ fn paint_node(
             paint_separator(*axis, node, context, scene)
         }
         WidgetKind::Label(text) => paint_label(text, node, context, scene),
+        WidgetKind::InfoRow(text) => paint_info_row(text, node, context, scene),
+        WidgetKind::PropertyRow(text) => paint_property_row(text, node, context, scene),
+        WidgetKind::ListItem(text) => paint_list_item(text, node, context, scene),
         WidgetKind::Button(text) | WidgetKind::IconButton(text) => {
             paint_button(text, node, context, scene);
         }
@@ -2690,10 +2961,11 @@ fn paint_viewport(
             RenderLayer::Overlay,
             RenderPrimitive::text(
                 "Adapter Preview",
-                content.x + 8.0,
-                content.y + 18.0,
-                12.0,
-                context.theme.text_muted,
+                content.x + context.theme.spacing.sm,
+                content.y + context.theme.spacing.lg,
+                context
+                    .theme
+                    .text_style_for(TextRole::Muted, TypeRole::Caption),
             )
             .with_debug_label("viewport preview label"),
         );
@@ -2703,7 +2975,7 @@ fn paint_viewport(
 fn paint_viewport_message(
     message: &str,
     rect: Rect,
-    _context: &PaintContext,
+    context: &PaintContext,
     scene: &mut RenderScene,
     color: Color,
 ) {
@@ -2714,10 +2986,9 @@ fn paint_viewport_message(
         RenderLayer::Overlay,
         RenderPrimitive::text(
             message.to_string(),
-            rect.x + 8.0,
+            rect.x + context.theme.spacing.sm,
             rect.y + rect.height / 2.0,
-            14.0,
-            color,
+            TextStyle::new(FontFamily::SansSerif, FontWeight::Regular, 14.0, color),
         )
         .with_debug_label("viewport message"),
     );
@@ -2727,6 +2998,9 @@ fn paint_background(node: &UiNode, context: &PaintContext, scene: &mut RenderSce
     let Some(color) = context.theme.color_for(node.style) else {
         return;
     };
+    if style_has_elevation(node.style) {
+        paint_shadow(node, context, scene);
+    }
     let primitive = if node.style.corner_radius > 0.0 {
         RenderPrimitive::rounded_rect(
             node.rect,
@@ -2739,6 +3013,39 @@ fn paint_background(node: &UiNode, context: &PaintContext, scene: &mut RenderSce
     scene.push(
         RenderLayer::Chrome,
         primitive.with_debug_label(format!("{:?}", node.kind)),
+    );
+    if style_has_elevation(node.style) {
+        paint_inner_highlight(node, context, scene);
+    }
+}
+
+fn style_has_elevation(style: UiStyle) -> bool {
+    matches!(style.role, StyleRole::Surface | StyleRole::RaisedSurface)
+}
+
+fn paint_shadow(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::shadow(
+            ShadowPrimitive::new(node.rect, context.theme.elevation.shadow)
+                .with_radius(CornerRadius::uniform(node.style.corner_radius))
+                .with_offset([1.0, 1.0])
+                .with_blur_radius(8.0),
+        )
+        .with_debug_label("elevation shadow"),
+    );
+}
+
+fn paint_inner_highlight(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::line(
+            [node.rect.x, node.rect.y],
+            [node.rect.x + node.rect.width, node.rect.y],
+            1.0,
+            context.theme.elevation.highlight,
+        )
+        .with_debug_label("elevation highlight"),
     );
 }
 
@@ -2760,21 +3067,92 @@ fn paint_separator(axis: Axis, node: &UiNode, context: &PaintContext, scene: &mu
 }
 
 fn paint_label(text: &str, node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
-    let font_size = if node.rect.height > context.theme.fonts.body + 6.0 {
-        context.theme.fonts.body
-    } else {
-        context.theme.fonts.small
-    };
+    let style = context
+        .theme
+        .text_style_for(node.style.text_role, node.style.type_role);
+    let baseline = text_baseline(node.rect, style.size);
     scene.push(
         RenderLayer::Overlay,
-        RenderPrimitive::text(
-            text,
-            node.rect.x,
-            node.rect.y + font_size,
-            font_size,
-            context.theme.text_color_for(node.style.text_role),
+        RenderPrimitive::text(text, node.rect.x, baseline, style)
+            .with_clip(ClipRect::new(node.rect))
+            .with_debug_label("label"),
+    );
+}
+
+fn paint_info_row(text: &str, node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
+    if node.rect.width <= 0.0 || node.rect.height <= 0.0 {
+        return;
+    }
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::rounded_rect(
+            node.rect,
+            CornerRadius::uniform(node.style.corner_radius),
+            context.theme.row.quiet,
         )
-        .with_debug_label("label"),
+        .with_debug_label("info row"),
+    );
+    let style = context
+        .theme
+        .text_style_for(node.style.text_role, node.style.type_role);
+    let baseline = text_baseline(node.rect, style.size);
+    let text_x = node.rect.x + context.theme.spacing.sm;
+    let clip = ClipRect::new(Rect::new(
+        text_x,
+        node.rect.y,
+        (node.rect.width - context.theme.spacing.md).max(0.0),
+        node.rect.height,
+    ));
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(text, text_x, baseline, style)
+            .with_clip(clip)
+            .with_debug_label("info row label"),
+    );
+}
+
+fn paint_property_row(text: &str, node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
+    if node.rect.width <= 0.0 || node.rect.height <= 0.0 {
+        return;
+    }
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::rounded_rect(
+            node.rect,
+            CornerRadius::uniform(node.style.corner_radius),
+            context.theme.row.quiet,
+        )
+        .with_debug_label("property row"),
+    );
+    let divider_x = node.rect.x + PROPERTY_LABEL_WIDTH;
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::line(
+            [divider_x, node.rect.y + context.theme.spacing.xs],
+            [
+                divider_x,
+                node.rect.y + node.rect.height - context.theme.spacing.xs,
+            ],
+            1.0,
+            context.theme.border,
+        )
+        .with_debug_label("property row divider"),
+    );
+    let style = context
+        .theme
+        .text_style_for(TextRole::Muted, TypeRole::Caption);
+    let label_rect = Rect::new(
+        node.rect.x + context.theme.spacing.sm,
+        node.rect.y,
+        (PROPERTY_LABEL_WIDTH - context.theme.spacing.md).max(0.0),
+        node.rect.height,
+    );
+    let baseline = text_baseline(label_rect, style.size);
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(text, label_rect.x, baseline, style)
+            .with_clip(ClipRect::new(label_rect))
+            .with_debug_label("property row label"),
     );
 }
 
@@ -2803,19 +3181,78 @@ fn paint_button(text: &str, node: &UiNode, context: &PaintContext, scene: &mut R
             RenderPrimitive::border_rect(node.rect, Border::new(1.0, context.theme.focus_ring))
                 .with_debug_label("button focus"),
         );
+    } else {
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::border_rect(node.rect, Border::new(1.0, context.theme.border))
+                .with_debug_label("button border"),
+        );
     }
-    let font_size = context.theme.fonts.body;
+    let mut style = context
+        .theme
+        .text_style_for(node.style.text_role, node.style.type_role);
+    if node.interaction.disabled {
+        style.color = context.theme.text_muted;
+    }
+    let baseline = text_baseline(node.rect, style.size);
     scene.push(
         RenderLayer::Overlay,
         RenderPrimitive::text(
             text,
-            node.rect.x + 14.0,
-            node.rect.y + 20.0,
-            font_size,
-            context.theme.text,
+            node.rect.x + context.theme.spacing.md,
+            baseline,
+            style,
         )
+        .with_clip(ClipRect::new(node.rect))
         .with_debug_label("button label"),
     );
+}
+
+fn paint_list_item(text: &str, node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
+    if node.rect.width <= 0.0 || node.rect.height <= 0.0 {
+        return;
+    }
+    let color = if node.interaction.focused || node.interaction.active {
+        context.theme.row.selected
+    } else if node.interaction.hovered {
+        context.theme.row.hovered
+    } else {
+        context.theme.row.quiet
+    };
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::rounded_rect(
+            node.rect,
+            CornerRadius::uniform(node.style.corner_radius),
+            color,
+        )
+        .with_debug_label("list item"),
+    );
+    let style = context
+        .theme
+        .text_style_for(node.style.text_role, node.style.type_role);
+    let baseline = text_baseline(node.rect, style.size);
+    let text_x = node.rect.x + context.theme.spacing.sm;
+    let clip = ClipRect::new(Rect::new(
+        text_x,
+        node.rect.y,
+        (node.rect.width - context.theme.spacing.md).max(0.0),
+        node.rect.height,
+    ));
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(text, text_x, baseline, style)
+            .with_clip(clip)
+            .with_debug_label("list item label"),
+    );
+}
+
+pub(crate) fn text_baseline(rect: Rect, font_size: f32) -> f32 {
+    rect.y + ((rect.height - text_line_height(font_size)) * 0.5).max(0.0) + font_size
+}
+
+pub(crate) fn text_line_height(font_size: f32) -> f32 {
+    (font_size * 1.25).ceil()
 }
 
 pub fn paint_command_palette_overlay(
@@ -2841,6 +3278,23 @@ pub fn paint_command_palette_overlay(
         RenderPrimitive::solid_rect(bounds, context.theme.overlay_scrim)
             .with_debug_label("command palette dim"),
     );
+    paint_palette_panel(scene, panel, context);
+    paint_palette_query(scene, palette, panel, context);
+    paint_palette_rows(scene, palette, panel, context);
+}
+
+fn paint_palette_panel(scene: &mut RenderScene, panel: Rect, context: &PaintContext) {
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::shadow(
+            ShadowPrimitive::new(panel, context.theme.elevation.shadow)
+                .with_radius(CornerRadius::uniform(context.theme.radius.md))
+                .with_offset([0.0, 2.0])
+                .with_blur_radius(14.0)
+                .with_spread(1.0),
+        )
+        .with_debug_label("command palette shadow"),
+    );
     scene.push(
         RenderLayer::Overlay,
         RenderPrimitive::rounded_rect(
@@ -2855,8 +3309,6 @@ pub fn paint_command_palette_overlay(
         RenderPrimitive::border_rect(panel, Border::new(1.0, context.theme.border))
             .with_debug_label("command palette border"),
     );
-    paint_palette_query(scene, palette, panel, context);
-    paint_palette_rows(scene, palette, panel, context);
 }
 
 fn paint_palette_query(
@@ -2865,7 +3317,12 @@ fn paint_palette_query(
     panel: Rect,
     context: &PaintContext,
 ) {
-    let query_rect = Rect::new(panel.x + 18.0, panel.y + 18.0, panel.width - 36.0, 36.0);
+    let query_rect = Rect::new(
+        panel.x + context.theme.spacing.lg,
+        panel.y + context.theme.spacing.lg,
+        panel.width - context.theme.spacing.xl,
+        36.0,
+    );
     scene.push(
         RenderLayer::Overlay,
         RenderPrimitive::rounded_rect(
@@ -2887,8 +3344,14 @@ fn paint_palette_query(
     };
     scene.push(
         RenderLayer::Overlay,
-        RenderPrimitive::text(query, query_rect.x + 12.0, query_rect.y + 23.0, 14.0, color)
-            .with_debug_label("command palette query text"),
+        RenderPrimitive::text(
+            query,
+            query_rect.x + context.theme.spacing.md,
+            text_baseline(query_rect, 14.0),
+            TextStyle::new(FontFamily::SansSerif, FontWeight::Regular, 14.0, color),
+        )
+        .with_clip(ClipRect::new(query_rect))
+        .with_debug_label("command palette query text"),
     );
 }
 
@@ -2899,16 +3362,30 @@ fn paint_palette_rows(
     context: &PaintContext,
 ) {
     if palette.filtered_entries().is_empty() {
+        let empty_rect = Rect::new(
+            panel.x + context.theme.spacing.xl,
+            panel.y + 72.0,
+            panel.width - context.theme.spacing.xxl,
+            ROW_HEIGHT,
+        );
+        let style = context
+            .theme
+            .text_style_for(TextRole::Muted, TypeRole::Body);
+        let baseline = text_baseline(empty_rect, style.size);
         scene.push(
             RenderLayer::Overlay,
-            RenderPrimitive::text(
-                "No commands found",
-                panel.x + 24.0,
-                panel.y + 84.0,
-                14.0,
-                context.theme.text_muted,
+            RenderPrimitive::rounded_rect(
+                empty_rect,
+                CornerRadius::uniform(context.theme.radius.sm),
+                context.theme.row.quiet,
             )
-            .with_debug_label("command palette empty"),
+            .with_debug_label("command palette empty row"),
+        );
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::text("No commands found", empty_rect.x, baseline, style)
+                .with_clip(ClipRect::new(empty_rect))
+                .with_debug_label("command palette empty"),
         );
         return;
     }
@@ -2938,37 +3415,50 @@ fn paint_palette_row(
         panel.width - 36.0,
         38.0,
     );
-    if index == selected_index {
-        scene.push(
-            RenderLayer::Overlay,
-            RenderPrimitive::rounded_rect(
-                row,
-                CornerRadius::uniform(context.theme.radius.sm),
-                context.theme.control.hovered,
-            )
-            .with_debug_label("command palette selected row"),
-        );
-    }
+    let row_color = if index == selected_index {
+        context.theme.row.selected
+    } else {
+        context.theme.row.quiet
+    };
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::rounded_rect(
+            row,
+            CornerRadius::uniform(context.theme.radius.sm),
+            row_color,
+        )
+        .with_debug_label("command palette row"),
+    );
     let name_color = if entry.enabled {
         context.theme.text
     } else {
         context.theme.text_muted
     };
+    let name_style = TextStyle::new(
+        FontFamily::SansSerif,
+        FontWeight::Medium,
+        context.theme.fonts.caption.size,
+        name_color,
+    );
+    let category_style = context
+        .theme
+        .text_style_for(TextRole::Muted, TypeRole::Micro);
+    let text_x = row.x + context.theme.spacing.sm;
+    let name_rect = Rect::new(text_x, row.y + context.theme.spacing.xxs, row.width, 18.0);
+    let category_rect = Rect::new(text_x, row.y + 18.0, row.width, 16.0);
+    let name_baseline = text_baseline(name_rect, name_style.size);
+    let category_baseline = text_baseline(category_rect, category_style.size);
     scene.push(
         RenderLayer::Overlay,
-        RenderPrimitive::text(&entry.name, row.x + 10.0, row.y + 17.0, 13.0, name_color)
+        RenderPrimitive::text(&entry.name, text_x, name_baseline, name_style)
+            .with_clip(ClipRect::new(row))
             .with_debug_label("command palette row name"),
     );
     scene.push(
         RenderLayer::Overlay,
-        RenderPrimitive::text(
-            &entry.category,
-            row.x + 10.0,
-            row.y + 33.0,
-            11.0,
-            context.theme.text_muted,
-        )
-        .with_debug_label("command palette row category"),
+        RenderPrimitive::text(&entry.category, text_x, category_baseline, category_style)
+            .with_clip(ClipRect::new(row))
+            .with_debug_label("command palette row category"),
     );
 }
 
@@ -3130,6 +3620,69 @@ mod tests {
     }
 
     #[test]
+    fn stack_layout_applies_gap_between_visible_children() {
+        let mut tree = root_tree(LayoutNode::fill(LayoutMode::Stack(Axis::Vertical)).with_gap(4.0));
+        assert_eq!(
+            tree.insert_child(
+                id(1),
+                UiNode::new(
+                    id(2),
+                    WidgetKind::Panel,
+                    UiStyle::PANEL,
+                    LayoutNode::fixed(20.0, 10.0)
+                )
+            ),
+            Ok(id(2))
+        );
+        assert_eq!(
+            tree.insert_child(
+                id(1),
+                UiNode::new(
+                    id(3),
+                    WidgetKind::Panel,
+                    UiStyle::PANEL,
+                    LayoutNode::fixed(20.0, 10.0)
+                )
+            ),
+            Ok(id(3))
+        );
+        assert!(
+            tree.layout(LayoutConstraints {
+                bounds: Rect::new(0.0, 0.0, 80.0, 40.0),
+            })
+            .is_ok()
+        );
+        assert_eq!(tree.get(id(2)).map(|node| node.rect.y), Some(0.0));
+        assert_eq!(tree.get(id(3)).map(|node| node.rect.y), Some(14.0));
+    }
+
+    #[test]
+    fn horizontal_stack_respects_child_cross_axis_height() {
+        let mut tree = root_tree(LayoutNode::fill(LayoutMode::Stack(Axis::Horizontal)));
+        assert_eq!(
+            tree.insert_child(
+                id(1),
+                UiNode::new(
+                    id(2),
+                    WidgetKind::Button("Open".to_string()),
+                    UiStyle::BUTTON,
+                    LayoutNode::leaf()
+                        .with_width(SizePolicy::Content)
+                        .with_height(SizePolicy::Fixed(BUTTON_HEIGHT))
+                )
+            ),
+            Ok(id(2))
+        );
+        assert!(
+            tree.layout(LayoutConstraints {
+                bounds: Rect::new(0.0, 0.0, 120.0, 56.0),
+            })
+            .is_ok()
+        );
+        assert_eq!(tree.get(id(2)).map(|node| node.rect.height), Some(32.0));
+    }
+
+    #[test]
     fn panel_paints_background_primitive() {
         let mut tree = root_tree(LayoutNode::fill(LayoutMode::Leaf));
         assert!(
@@ -3248,6 +3801,14 @@ mod tests {
         let theme = Theme::editor_dark();
         assert_eq!(theme.color_for(UiStyle::PANEL), Some(theme.surface));
         assert_eq!(theme.text_color_for(TextRole::Muted), theme.text_muted);
+        assert_eq!(theme.row.selected, theme.control.active);
+        assert_eq!(theme.elevation.shadow.a, 0.28);
+        assert_eq!(theme.fonts.micro.size, 11.0);
+        assert_eq!(theme.fonts.caption.size, 12.0);
+        assert_eq!(theme.fonts.body.size, 14.0);
+        assert_eq!(theme.fonts.heading.size, 16.0);
+        assert_eq!(theme.fonts.title.size, 20.0);
+        assert_eq!(theme.fonts.title.weight, FontWeight::Semibold);
     }
 
     #[test]
@@ -3510,6 +4071,28 @@ mod tests {
     }
 
     #[test]
+    fn disabled_button_paints_disabled_fill_and_muted_text() {
+        let theme = Theme::editor_dark();
+        let mut tree = button_tree();
+        assert!(tree.set_disabled(id(2), true).is_ok());
+        let scene = must(tree.paint(&PaintContext::new(theme)));
+        assert!(scene.primitives().iter().any(|(_, primitive)| {
+            primitive.debug_label.as_deref() == Some("button")
+                && matches!(
+                    &primitive.kind,
+                    RenderPrimitiveKind::RoundedRect { color, .. } if *color == theme.control.disabled
+                )
+        }));
+        assert!(scene.primitives().iter().any(|(_, primitive)| {
+            primitive.debug_label.as_deref() == Some("button label")
+                && matches!(
+                    &primitive.kind,
+                    RenderPrimitiveKind::Text(text) if text.style.color == theme.text_muted
+                )
+        }));
+    }
+
+    #[test]
     fn status_label_can_update_after_button_event() {
         let theme = Theme::editor_dark();
         let shell = must(build_editor_shell_with_ids(&UiContext::new(
@@ -3537,7 +4120,7 @@ mod tests {
             }
         }
         assert!(tree.get(shell.ids.status_label).is_some_and(|node| {
-            matches!(&node.kind, WidgetKind::Label(text) if text == "Set ELCARAX_PROJECT_PATH or pass --project <path>")
+            matches!(&node.kind, WidgetKind::InfoRow(text) if text == "Set ELCARAX_PROJECT_PATH or pass --project <path>")
         }));
     }
 
@@ -3553,6 +4136,59 @@ mod tests {
         assert!(texts.contains(&"Elcarax — No Project"));
         assert!(texts.contains(&"No project open"));
         assert!(texts.contains(&"Ready - open a project or connect an adapter"));
+    }
+
+    #[test]
+    fn editor_shell_paints_elevation_primitives() {
+        let theme = Theme::editor_dark();
+        let shell = must(build_editor_shell_with_ids(&UiContext::new(
+            theme,
+            Rect::new(0.0, 0.0, 1440.0, 900.0),
+        )));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let shadow_count = scene
+            .primitives()
+            .iter()
+            .filter(|(_, primitive)| matches!(&primitive.kind, RenderPrimitiveKind::Shadow(_)))
+            .count();
+        let highlight_count = scene
+            .primitives()
+            .iter()
+            .filter(|(_, primitive)| {
+                primitive.debug_label.as_deref() == Some("elevation highlight")
+            })
+            .count();
+
+        assert!(shadow_count >= 4);
+        assert_eq!(shadow_count, highlight_count);
+    }
+
+    #[test]
+    fn narrow_toolbar_keeps_title_inside_title_component() {
+        let theme = Theme::editor_dark();
+        let shell = must(build_editor_shell_with_ids(&UiContext::new(
+            theme,
+            Rect::new(0.0, 0.0, 295.0, 568.0),
+        )));
+        let title = must_some(shell.tree.get(shell.ids.toolbar_title));
+        let button = must_some(shell.tree.get(shell.ids.run_button));
+
+        assert!(matches!(&title.kind, WidgetKind::InfoRow(_)));
+        assert!(title.rect.width > 0.0);
+        assert!(title.rect.x + title.rect.width <= button.rect.x);
+        assert_eq!(button.rect.height, BUTTON_HEIGHT);
+
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        assert!(scene.primitives().iter().any(|(_, primitive)| {
+            primitive.debug_label.as_deref() == Some("info row label")
+                && primitive
+                    .clip
+                    .is_some_and(|clip| clip.rect.width <= title.rect.width)
+                && matches!(
+                    &primitive.kind,
+                    RenderPrimitiveKind::Text(text) if text.max_width.is_some_and(|width| width <= title.rect.width)
+                )
+        }));
     }
 
     #[test]
@@ -3604,7 +4240,7 @@ mod tests {
                 .is_ok()
         );
         assert!(tree.get(shell.ids.project_diagnostics).is_some_and(|node| {
-            matches!(&node.kind, WidgetKind::Label(text) if text == "Diagnostics: 1 error(s), 0 warning(s)")
+            matches!(&node.kind, WidgetKind::InfoRow(text) if text == "Diagnostics: 1 error(s), 0 warning(s)")
                 && node.style.text_role == TextRole::Danger
         }));
     }
@@ -3632,6 +4268,11 @@ mod tests {
         assert!(texts.contains(&"Assets: 2 | Scene=1, Model=1 | Watch: stopped"));
         assert!(texts.contains(&"level.scene - assets/level.scene (Scene)"));
         assert!(texts.contains(&"hero.glb - assets/hero.glb (Model)"));
+        assert!(shell.tree.get(shell.ids.asset_rows[0]).is_some_and(|node| {
+            matches!(&node.kind, WidgetKind::ListItem(_))
+                && node.rect.height == ROW_HEIGHT
+                && node.rect.width > 200.0
+        }));
     }
 
     #[test]
@@ -3723,7 +4364,7 @@ mod tests {
         );
         assert!(tree.get(shell.ids.asset_rows[0]).is_some_and(|node| {
             node.interaction.focused
-                && matches!(&node.kind, WidgetKind::Button(text) if text == "level.scene - assets/level.scene (Scene)")
+                && matches!(&node.kind, WidgetKind::ListItem(text) if text == "level.scene - assets/level.scene (Scene)")
         }));
         let scene = must(tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
@@ -3774,13 +4415,13 @@ mod tests {
             &content,
         ));
         assert!(shell.tree.get(shell.ids.scene_rows[0]).is_some_and(|node| {
-            matches!(&node.kind, WidgetKind::Button(text) if text == "World (World)")
+            matches!(&node.kind, WidgetKind::ListItem(text) if text == "World (World)")
         }));
         assert!(shell.tree.get(shell.ids.scene_rows[1]).is_some_and(|node| {
-            matches!(&node.kind, WidgetKind::Button(text) if text == "  Player (Character)")
+            matches!(&node.kind, WidgetKind::ListItem(text) if text == "  Player (Character)")
         }));
         assert!(shell.tree.get(shell.ids.scene_rows[2]).is_some_and(|node| {
-            matches!(&node.kind, WidgetKind::Button(text) if text == "    Player Mesh (Mesh)")
+            matches!(&node.kind, WidgetKind::ListItem(text) if text == "    Player Mesh (Mesh)")
         }));
     }
 
@@ -3806,7 +4447,7 @@ mod tests {
         );
         assert!(tree.get(shell.ids.scene_rows[1]).is_some_and(|node| {
             node.interaction.focused
-                && matches!(&node.kind, WidgetKind::Button(text) if text == "  Player (Character)")
+                && matches!(&node.kind, WidgetKind::ListItem(text) if text == "  Player (Character)")
         }));
     }
 
@@ -3959,6 +4600,11 @@ mod tests {
                         )
                 })
         );
+        let row = must_some(shell.tree.get(shell.ids.inspector_row_labels[1]));
+        let value = must_some(shell.tree.get(shell.ids.inspector_row_values[1]));
+        assert!(matches!(&row.kind, WidgetKind::PropertyRow(text) if text == "Health"));
+        assert_eq!(row.rect.height, INSPECTOR_EDITABLE_ROW_HEIGHT);
+        assert!(value.rect.x >= row.rect.x + PROPERTY_LABEL_WIDTH);
     }
 
     #[test]
@@ -3981,6 +4627,15 @@ mod tests {
             &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
             &content,
         ));
+        assert!(
+            shell
+                .tree
+                .get(shell.ids.inspector_row_labels[1])
+                .is_some_and(|node| {
+                    matches!(&node.kind, WidgetKind::PropertyRow(text) if text == "Mesh")
+                        && node.rect.height == INSPECTOR_READONLY_ROW_HEIGHT
+                })
+        );
         assert!(shell.tree.get(shell.ids.inspector_row_values[1]).is_some_and(|node| {
             !node.interaction.focusable
                 && node.style.text_role == TextRole::Muted
@@ -4268,5 +4923,12 @@ mod tests {
             &PaintContext::new(Theme::default()),
         );
         assert!(!scene.primitives().is_empty());
+        assert!(scene.primitives().iter().any(|(_, primitive)| {
+            primitive.debug_label.as_deref() == Some("command palette shadow")
+                && matches!(&primitive.kind, RenderPrimitiveKind::Shadow(_))
+        }));
+        assert!(scene.primitives().iter().any(|(_, primitive)| {
+            primitive.debug_label.as_deref() == Some("command palette row")
+        }));
     }
 }
