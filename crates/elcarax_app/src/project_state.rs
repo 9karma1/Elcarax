@@ -102,15 +102,6 @@ impl ProjectState {
         self.current_project.as_mut()
     }
 
-    #[cfg(test)]
-    pub(crate) fn load_opened_project(&mut self, loaded: elcarax_project::ProjectLoadResult) {
-        self.validation = loaded.validation.validation.clone();
-        self.recent_store.add_project(&loaded.project);
-        self.recent_view.record(&loaded.project);
-        self.current_project = Some(loaded.project);
-        self.scanned_asset_count = None;
-    }
-
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn current_project(&self) -> Option<&Project> {
         self.current_project.as_ref()
