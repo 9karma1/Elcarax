@@ -1,10 +1,11 @@
 use std::num::NonZeroU64;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use elcarax_core::Id;
 
 use crate::error::AssetError;
 use crate::kind::{AssetKind, detect_kind_from_path};
+use crate::metadata::AssetMetadata;
 
 pub enum AssetMarker {}
 pub type AssetId = Id<AssetMarker>;
@@ -47,11 +48,12 @@ impl AssetPath {
         if path.as_os_str().is_empty() {
             return Err(AssetError::EmptyAssetPath);
         }
-        Ok(Self(path))
+        Ok(Self(normalize_asset_path(path.as_path())))
     }
 
     pub fn from_unvalidated(path: impl Into<PathBuf>) -> Self {
-        Self(path.into())
+        let path = path.into();
+        Self(normalize_asset_path(path.as_path()))
     }
 
     pub fn as_path(&self) -> &Path {
@@ -59,7 +61,7 @@ impl AssetPath {
     }
 
     pub fn display(&self) -> String {
-        self.0.display().to_string()
+        normalized_asset_path_string(self.0.as_path())
     }
 }
 
@@ -68,7 +70,12 @@ pub struct AssetRecord {
     pub id: AssetId,
     pub name: AssetName,
     pub path: AssetPath,
+    pub source_path: Option<PathBuf>,
     pub kind: AssetKind,
+    pub extension: Option<String>,
+    pub file_size: Option<u64>,
+    pub modified_time: Option<std::time::SystemTime>,
+    pub diagnostics: Vec<crate::diagnostic::AssetDiagnostic>,
 }
 
 impl AssetRecord {
@@ -79,7 +86,12 @@ impl AssetRecord {
             id,
             name,
             path,
+            source_path: None,
             kind,
+            extension: None,
+            file_size: None,
+            modified_time: None,
+            diagnostics: Vec::new(),
         })
     }
 
@@ -93,8 +105,22 @@ impl AssetRecord {
             id,
             name: AssetName::from_unvalidated(name),
             path: AssetPath::from_unvalidated(path),
+            source_path: None,
             kind,
+            extension: None,
+            file_size: None,
+            modified_time: None,
+            diagnostics: Vec::new(),
         }
+    }
+
+    pub fn with_metadata(mut self, metadata: AssetMetadata) -> Self {
+        self.source_path = metadata.source_path;
+        self.extension = metadata.extension;
+        self.file_size = metadata.file_size;
+        self.modified_time = metadata.modified_time;
+        self.diagnostics = metadata.diagnostics;
+        self
     }
 
     pub fn with_detected_kind(
@@ -113,4 +139,49 @@ pub fn stable_asset_id(value: u64) -> AssetId {
         Some(value) => AssetId::from_non_zero(value),
         None => AssetId::from_non_zero(NonZeroU64::MIN),
     }
+}
+
+pub fn stable_asset_id_from_path(path: &Path) -> AssetId {
+    let normalized = normalized_asset_path_string(path);
+    stable_asset_id(fnv1a64(normalized.as_bytes()))
+}
+
+pub fn normalized_asset_path_string(path: &Path) -> String {
+    normalize_asset_path(path)
+        .components()
+        .filter_map(component_to_string)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn normalize_asset_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(value) => normalized.push(value),
+            Component::ParentDir => normalized.push(".."),
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => {}
+        }
+    }
+    normalized
+}
+
+fn component_to_string(component: Component<'_>) -> Option<String> {
+    match component {
+        Component::Normal(value) => Some(value.to_string_lossy().to_string()),
+        Component::ParentDir => Some("..".to_string()),
+        Component::Prefix(prefix) => Some(prefix.as_os_str().to_string_lossy().to_string()),
+        Component::CurDir | Component::RootDir => None,
+    }
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash.max(1)
 }

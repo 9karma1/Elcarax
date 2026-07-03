@@ -83,6 +83,12 @@ impl ProjectState {
             .map(|project| project.asset_root())
     }
 
+    pub(crate) fn project_root(&self) -> Option<&std::path::Path> {
+        self.current_project
+            .as_ref()
+            .map(|project| project.root().as_path())
+    }
+
     pub(crate) fn set_scanned_asset_count(&mut self, count: Option<usize>) {
         self.scanned_asset_count = count;
     }

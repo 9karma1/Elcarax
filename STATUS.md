@@ -13,7 +13,7 @@ Generated: 2026-06-29
 - UI input routing, hit testing, hover/focus/pressed state, keyboard focus traversal foundation, and basic button clicks
 - Command palette shell with query filtering, keyboard selection, execution, cancel behavior, and status feedback
 - Project system UI with project status, recent project count, validation diagnostics, project panel metadata, and command-palette project commands
-- Asset browser foundation with file-based asset index, demo scan, asset panel rows, selection state, and command-palette asset commands
+- Real asset index with project-relative paths, stable path-derived IDs, cheap metadata, diagnostics, explicit scan/refresh, watcher dirty-state foundation, asset panel rows, selection state, and command-palette asset commands
 - Scene tree foundation with engine-neutral scene model, demo snapshot, scene panel hierarchy, selection/expand state, and command-palette scene commands
 - Read-only inspector foundation with property formatting, grouped inspector rows, selection-driven updates, and command-palette inspector commands
 - Editable inspector undo foundation with primitive property edit metadata, model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo
@@ -34,7 +34,7 @@ Generated: 2026-06-29
 
 - Icons, images, and full vector paths
 - Full editor UI system beyond the interactive empty shell and project-status foundation
-- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, native file dialogs, file watching, project migration beyond schema version checks, asset thumbnails, asset import pipeline, drag-and-drop asset behavior, scene object creation/deletion, continuous viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
+- Docking, drag resizing, real text input fields, IME, caret/selection editing, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, full keybinding system, fuzzy scoring, scroll views, native file dialogs, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, drag-and-drop asset behavior, asset rename/move/delete, asset dependency graph, asset build/import cache, scene object creation/deletion, continuous viewport frame streaming, scene save/writeback, real engine writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
 - Normal runtime fixture commands, automatic fake data loading, and mock adapter startup as user-facing editor behavior
 - Real `AccessKit` adapter integration
 - Real game engine binding
@@ -67,6 +67,17 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo run -p elcarax_app
 ```
+
+## Milestone 16: Real Asset Index and File Watching
+
+- Added path-derived deterministic `AssetId` generation from normalized project-relative asset paths.
+- Added asset metadata, scan requests/results, index snapshots, missing-root diagnostics, folder records, deterministic sort order, hidden/.elcarax exclusions, and extension-only kind detection for real filesystem scans.
+- Added `AssetWatchService`, `AssetWatchEvent`, `AssetWatchStatus`, and `AssetWatchError` inside `elcarax_assets` with `notify` contained behind Elcarax asset types.
+- Added asset commands: `asset.scan`, `asset.refresh`, `asset.start_watching`, `asset.stop_watching`, `asset.clear_selection`, `asset.show_selected`, and `asset.reveal_root`.
+- Kept project open explicit: opening a project prepares asset state but does not scan until `asset.scan`; project close and switch clear asset state and stop watching.
+- Updated the asset panel and status bar to show no-project, not-scanned, ready, dirty, and error states from the real asset index.
+- Updated the console proof to create real temporary project asset files, scan them, select an asset, refresh after filesystem changes, and prove close clears asset state.
+- Documented watcher limitations and explicit exclusions in `docs/MILESTONE_16_REAL_ASSET_INDEX_WATCH.md`.
 
 ## Milestone 15: Real Project Open and Persistence
 

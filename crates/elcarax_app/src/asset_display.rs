@@ -1,5 +1,9 @@
-use elcarax_assets::{AssetId, AssetIndex, AssetRecord, AssetScan, AssetSelection};
+use elcarax_assets::{
+    AssetDiagnostic, AssetId, AssetIndex, AssetRecord, AssetSelection, AssetWatchStatus,
+};
 use elcarax_ui::MAX_VISIBLE_ASSET_ROWS;
+
+use crate::asset_state::{AssetScanStatus, AssetUiState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AssetUiSnapshot {
@@ -14,9 +18,7 @@ pub(crate) struct AssetUiSnapshot {
 pub(crate) fn asset_ui_snapshot(
     index: &AssetIndex,
     selection: &AssetSelection,
-    scan: Option<&AssetScan>,
-    last_command_message: Option<&str>,
-    project_loaded: bool,
+    state: AssetUiState<'_>,
 ) -> AssetUiSnapshot {
     let mut asset_row_labels = empty_row_labels();
     let records: Vec<_> = index
@@ -31,10 +33,10 @@ pub(crate) fn asset_ui_snapshot(
         .selected()
         .and_then(|id| row_index_for_asset(index, id));
     let selected_summary = selected_asset_summary(index, selection);
-    let status_asset_suffix = status_asset_suffix(index, selection, scan, last_command_message);
+    let status_asset_suffix = status_asset_suffix(index, selection, &state);
     AssetUiSnapshot {
         asset_section_title: "Assets".to_string(),
-        asset_count: asset_count_label(index, project_loaded),
+        asset_count: asset_count_label(index, &state),
         asset_row_labels,
         asset_selected_summary: selected_summary,
         selected_row_index,
@@ -47,7 +49,12 @@ fn empty_row_labels() -> [String; MAX_VISIBLE_ASSET_ROWS] {
 }
 
 fn asset_row_label(record: &AssetRecord) -> String {
-    format!("{} ({})", record.name.as_str(), record.kind.label())
+    format!(
+        "{} - {} ({})",
+        record.name.as_str(),
+        record.path.display(),
+        record.kind.label()
+    )
 }
 
 fn row_index_for_asset(index: &AssetIndex, id: AssetId) -> Option<usize> {
@@ -76,36 +83,88 @@ fn selected_asset_summary(index: &AssetIndex, selection: &AssetSelection) -> Str
 fn status_asset_suffix(
     index: &AssetIndex,
     selection: &AssetSelection,
-    scan: Option<&AssetScan>,
-    last_command_message: Option<&str>,
+    state: &AssetUiState<'_>,
 ) -> String {
-    if let Some(message) = last_command_message {
+    if let Some(message) = state.last_command_message {
         return format!("Asset: {message}");
     }
-    if let Some(scan) = scan
-        && !scan.diagnostics().is_empty()
-    {
-        return format!("Asset: {}", scan.diagnostics()[0].summary());
+    if state.dirty {
+        return "Asset: Asset index dirty - refresh recommended".to_string();
+    }
+    if let Some(diagnostic) = first_diagnostic(state.diagnostics) {
+        return format!("Asset: {}", diagnostic.summary());
     }
     if let Some(id) = selection.selected()
         && let Some(record) = index.find(id)
     {
         return format!("Asset: {} ({})", record.name.as_str(), record.kind.label());
     }
-    if index.is_empty() {
-        "Asset: No asset root loaded".to_string()
-    } else {
-        format!("Assets: {}", index.len())
+    match state.scan_status {
+        AssetScanStatus::UnavailableNoProject => "Asset: No project open".to_string(),
+        AssetScanStatus::Scanning => "Asset: Scanning assets...".to_string(),
+        AssetScanStatus::Dirty => "Asset: Asset index dirty - refresh recommended".to_string(),
+        AssetScanStatus::Error => "Asset: Error".to_string(),
+        AssetScanStatus::Ready => {
+            if index.is_empty() && !state.scanned {
+                "Asset: Assets not scanned".to_string()
+            } else {
+                format!("Assets: {}", index.len())
+            }
+        }
     }
 }
 
-fn asset_count_label(index: &AssetIndex, project_loaded: bool) -> String {
-    if !project_loaded {
-        return "Assets: Unavailable".to_string();
+fn asset_count_label(index: &AssetIndex, state: &AssetUiState<'_>) -> String {
+    if !state.project_loaded {
+        return "Assets unavailable - no project open".to_string();
     }
-    if index.is_empty() {
-        "Assets: No assets scanned".to_string()
-    } else {
-        format!("Assets: {}", index.len())
+    if state.dirty || state.scan_status == AssetScanStatus::Dirty {
+        return format!(
+            "Asset index dirty - refresh recommended | {}",
+            watch_label(state.watch_status)
+        );
     }
+    if let Some(diagnostic) = first_diagnostic(state.diagnostics)
+        && state.scan_status == AssetScanStatus::Error
+    {
+        return format!("Asset error: {}", diagnostic.summary());
+    }
+    match state.scan_status {
+        AssetScanStatus::UnavailableNoProject => "Assets unavailable - no project open".to_string(),
+        AssetScanStatus::Scanning => "Scanning assets...".to_string(),
+        AssetScanStatus::Error => "Asset error".to_string(),
+        AssetScanStatus::Dirty => {
+            format!(
+                "Asset index dirty - refresh recommended | {}",
+                watch_label(state.watch_status)
+            )
+        }
+        AssetScanStatus::Ready => {
+            if index.is_empty() && !state.scanned {
+                format!(
+                    "Assets not scanned - Run asset.scan | {}",
+                    watch_label(state.watch_status)
+                )
+            } else {
+                format!(
+                    "Assets: {} | {} | {}",
+                    index.len(),
+                    index.kind_summary(),
+                    watch_label(state.watch_status)
+                )
+            }
+        }
+    }
+}
+
+fn watch_label(status: &AssetWatchStatus) -> String {
+    match status {
+        AssetWatchStatus::Stopped => "Watch: stopped".to_string(),
+        AssetWatchStatus::Watching(_) => "Watch: watching".to_string(),
+        AssetWatchStatus::Error(_) => "Watch: error".to_string(),
+    }
+}
+
+fn first_diagnostic(diagnostics: &[AssetDiagnostic]) -> Option<&AssetDiagnostic> {
+    diagnostics.first()
 }

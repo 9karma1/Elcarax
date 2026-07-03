@@ -1512,7 +1512,7 @@ impl EditorShellContent {
             adapter_diagnostics: "Adapter Diagnostics: 0".to_string(),
             adapter_command: "Adapter Command: None".to_string(),
             asset_section_title: "Assets".to_string(),
-            asset_count: "Assets: Unavailable".to_string(),
+            asset_count: "Assets unavailable - no project open".to_string(),
             asset_row_labels: empty_asset_row_labels(),
             asset_selected_summary: "Selected: None".to_string(),
             scene_section_title: "Scene".to_string(),
@@ -3425,11 +3425,11 @@ mod tests {
     fn asset_panel_paints_asset_count_and_rows() {
         let theme = Theme::editor_dark();
         let mut row_labels = std::array::from_fn(|_| String::new());
-        row_labels[0] = "level.scene (Scene)".to_string();
-        row_labels[1] = "hero.glb (Model)".to_string();
+        row_labels[0] = "level.scene - assets/level.scene (Scene)".to_string();
+        row_labels[1] = "hero.glb - assets/hero.glb (Model)".to_string();
         let content = EditorShellContent {
             asset_section_title: "Assets".to_string(),
-            asset_count: "Assets: 2".to_string(),
+            asset_count: "Assets: 2 | Scene=1, Model=1 | Watch: stopped".to_string(),
             asset_row_labels: row_labels,
             asset_selected_summary: "Selected: None".to_string(),
             ..EditorShellContent::default()
@@ -3441,9 +3441,73 @@ mod tests {
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
         assert!(texts.contains(&"Assets"));
-        assert!(texts.contains(&"Assets: 2"));
-        assert!(texts.contains(&"level.scene (Scene)"));
-        assert!(texts.contains(&"hero.glb (Model)"));
+        assert!(texts.contains(&"Assets: 2 | Scene=1, Model=1 | Watch: stopped"));
+        assert!(texts.contains(&"level.scene - assets/level.scene (Scene)"));
+        assert!(texts.contains(&"hero.glb - assets/hero.glb (Model)"));
+    }
+
+    #[test]
+    fn no_project_asset_state_paints_unavailable_message() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            asset_count: "Assets unavailable - no project open".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Assets unavailable - no project open"));
+    }
+
+    #[test]
+    fn not_scanned_asset_state_paints_scan_hint() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            asset_count: "Assets not scanned - Run asset.scan | Watch: stopped".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Assets not scanned - Run asset.scan | Watch: stopped"));
+    }
+
+    #[test]
+    fn dirty_asset_state_paints_refresh_hint() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            asset_count: "Asset index dirty - refresh recommended | Watch: watching".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Asset index dirty - refresh recommended | Watch: watching"));
+    }
+
+    #[test]
+    fn error_asset_state_paints_diagnostic_summary() {
+        let theme = Theme::editor_dark();
+        let content = EditorShellContent {
+            asset_count: "Asset error: root: Asset root is not a directory".to_string(),
+            ..EditorShellContent::default()
+        };
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &content,
+        ));
+        let scene = must(shell.tree.paint(&PaintContext::new(theme)));
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Asset error: root: Asset root is not a directory"));
     }
 
     #[test]
@@ -3455,8 +3519,11 @@ mod tests {
         )));
         let mut tree = shell.tree;
         assert!(
-            tree.set_button_text(shell.ids.asset_rows[0], "level.scene (Scene)")
-                .is_ok()
+            tree.set_button_text(
+                shell.ids.asset_rows[0],
+                "level.scene - assets/level.scene (Scene)"
+            )
+            .is_ok()
         );
         assert!(tree.set_focused(Some(shell.ids.asset_rows[0])).is_ok());
         assert!(
@@ -3468,7 +3535,7 @@ mod tests {
         );
         assert!(tree.get(shell.ids.asset_rows[0]).is_some_and(|node| {
             node.interaction.focused
-                && matches!(&node.kind, WidgetKind::Button(text) if text == "level.scene (Scene)")
+                && matches!(&node.kind, WidgetKind::Button(text) if text == "level.scene - assets/level.scene (Scene)")
         }));
         let scene = must(tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);

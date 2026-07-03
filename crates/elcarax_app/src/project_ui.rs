@@ -31,11 +31,11 @@ pub(crate) fn shell_content_from_project(snapshot: &ProjectUiSnapshot) -> Editor
 fn empty_asset_snapshot() -> AssetUiSnapshot {
     AssetUiSnapshot {
         asset_section_title: "Assets".to_string(),
-        asset_count: "Assets: No asset root loaded".to_string(),
+        asset_count: "Assets unavailable - no project open".to_string(),
         asset_row_labels: std::array::from_fn(|_| String::new()),
         asset_selected_summary: "Selected: None".to_string(),
         selected_row_index: None,
-        status_asset_suffix: "Asset: No asset root loaded".to_string(),
+        status_asset_suffix: "Asset: No project open".to_string(),
     }
 }
 

@@ -9,7 +9,9 @@ use elcarax_render::{Rect, RenderStats, batch_scene, image_stats, text_stats};
 use elcarax_ui::{PaintContext, Theme, UiContext, build_editor_shell_with_content};
 
 use crate::adapter_state::AdapterState;
-use crate::asset_state::{ASSET_SCAN_COMMAND, AssetState};
+use crate::asset_state::{
+    ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, ASSET_SHOW_SELECTED_COMMAND, AssetState,
+};
 use crate::inspector_state::InspectorState;
 use crate::project_config::AppProjectConfig;
 use crate::project_effects::apply_project_command_side_effects;
@@ -125,7 +127,7 @@ fn build_startup_summary() -> Result<StartupSummary> {
     Ok(StartupSummary {
         command_count: registry.all().len(),
         project_state: "No project open".to_string(),
-        asset_state: "No asset root loaded".to_string(),
+        asset_state: "No project open".to_string(),
         adapter_state: "Disconnected; no adapter configured".to_string(),
         scene_state: "No scene loaded".to_string(),
         inspector_state: "No object selected".to_string(),
@@ -197,6 +199,7 @@ fn run_project_proof() -> Result<()> {
         &mut scene_state,
         &mut inspector_state,
     );
+    create_console_asset_files(project_root.join("assets").as_path())?;
 
     let validate = project_state
         .execute_command_id(PROJECT_VALIDATE_COMMAND)
@@ -211,6 +214,34 @@ fn run_project_proof() -> Result<()> {
     println!("asset.scan: {scan}");
     apply_project_command_side_effects(
         ASSET_SCAN_COMMAND,
+        &mut project_state,
+        &mut asset_state,
+        &mut scene_state,
+        &mut inspector_state,
+    );
+    println!("asset.kinds: {}", asset_state.kind_summary());
+    if asset_state.select_row(0) {
+        let selected = asset_state
+            .execute_command_id(
+                ASSET_SHOW_SELECTED_COMMAND,
+                project_state.is_project_loaded(),
+            )
+            .map(|result| result.message().to_string())
+            .unwrap_or_else(|| "missing selected result".to_string());
+        println!("asset.show_selected: {selected}");
+    }
+
+    let assets_root = project_root.join("assets");
+    fs::write(assets_root.join("notes.txt"), "notes").map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to update console asset: {error}"))
+    })?;
+    let refresh = asset_state
+        .execute_command_id(ASSET_REFRESH_COMMAND, project_state.is_project_loaded())
+        .map(|result| result.message().to_string())
+        .unwrap_or_else(|| "missing refresh result".to_string());
+    println!("asset.refresh: {refresh}");
+    apply_project_command_side_effects(
+        ASSET_REFRESH_COMMAND,
         &mut project_state,
         &mut asset_state,
         &mut scene_state,
@@ -237,6 +268,7 @@ fn run_project_proof() -> Result<()> {
     );
     assert!(!project_state.is_project_loaded());
     assert!(asset_state.index().is_empty());
+    assert!(asset_state.scanned_asset_count().is_none());
 
     let reopen_config = AppProjectConfig {
         recent_store_path: Some(recent_path),
@@ -259,6 +291,24 @@ fn run_project_proof() -> Result<()> {
 
     let _ = fs::remove_dir_all(&temp);
     println!("project_proof: complete");
+    Ok(())
+}
+
+fn create_console_asset_files(asset_root: &std::path::Path) -> Result<()> {
+    use std::fs;
+
+    fs::create_dir_all(asset_root.join("models")).map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to create model folder: {error}"))
+    })?;
+    fs::create_dir_all(asset_root.join("textures")).map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to create texture folder: {error}"))
+    })?;
+    fs::write(asset_root.join("models").join("hero.glb"), "model").map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to write model asset: {error}"))
+    })?;
+    fs::write(asset_root.join("textures").join("checker.png"), "image").map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to write image asset: {error}"))
+    })?;
     Ok(())
 }
 

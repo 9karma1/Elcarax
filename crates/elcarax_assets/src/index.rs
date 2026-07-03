@@ -8,6 +8,11 @@ pub struct AssetIndex {
     records: Vec<AssetRecord>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AssetIndexSnapshot {
+    records: Vec<AssetRecord>,
+}
+
 impl AssetIndex {
     pub fn new() -> Self {
         Self::default()
@@ -62,5 +67,25 @@ impl AssetIndex {
             .map(|(kind, count)| format!("{}={count}", kind.label()))
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    pub fn snapshot(&self) -> AssetIndexSnapshot {
+        AssetIndexSnapshot {
+            records: self.records.clone(),
+        }
+    }
+}
+
+impl AssetIndexSnapshot {
+    pub fn records(&self) -> &[AssetRecord] {
+        self.records.as_slice()
+    }
+
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
     }
 }

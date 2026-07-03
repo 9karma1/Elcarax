@@ -58,7 +58,11 @@ Ctrl+K should open the command palette. Typing `ready` and pressing Enter should
 
 Typing `project.create`, `project.open`, `project.validate`, `project.close`, `project.show_recent`, or `project.reopen_last` in the command palette should update the status bar and project panel when paths are configured.
 
-`asset.scan` scans the loaded project's asset root. Without a loaded project it reports `No project open`.
+`asset.scan` scans the loaded project's asset root. Without a loaded project it reports `No project open`. `project.open` prepares the asset root but does not scan automatically.
+
+`asset.refresh` rescans the loaded project's asset root and clears dirty state. `asset.start_watching` starts the asset-root watcher, `asset.stop_watching` stops it, and filesystem changes mark the asset index dirty until refresh. Watcher events are drained nonblocking by the app layer; CI tests use synthetic events instead of flaky real-time watcher timing.
+
+`asset.clear_selection`, `asset.show_selected`, and `asset.reveal_root` operate on the current real asset index. They do not rename, move, delete, preview, import, or reveal through an OS shell yet.
 
 `scene.load` should report `No scene source configured` until a project or adapter can provide a real scene. `scene.clear` and `scene.clear_selection` remain available and should be safe on an empty scene.
 
@@ -70,7 +74,7 @@ Editable inspector tests still cover command-history mutation through fixtures, 
 
 Adapter-backed writeback remains covered through adapter tests and fixture commands. Normal UI widgets emit editor actions only and do not spawn adapter processes directly.
 
-The console proof prints empty startup state, exercises real temporary project create/open/validate/scan/close/reopen, then runs `viewport.request_frame` without an adapter, spawns the stdio game adapter, requests a viewport frame, prints frame metadata, clears the viewport, and shuts the adapter down.
+The console proof prints empty startup state, exercises real temporary project create/open/validate, writes real files under `assets/`, runs `asset.scan`, reports asset kinds, selects the first asset, modifies the asset folder, runs `asset.refresh`, proves project close clears asset state, reopens the last project, then runs `viewport.request_frame` without an adapter, spawns the stdio game adapter, requests a viewport frame, prints frame metadata, clears the viewport, and shuts the adapter down.
 
 `viewport.request_frame`, `viewport.clear`, and `viewport.show_status` are registered viewport commands. Without a connected adapter, `viewport.request_frame` reports `No adapter connected`. With a connected adapter that supports viewport preview, the center viewport should display the adapter-provided RGBA frame.
 
@@ -96,8 +100,9 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_ui` owns retained UI tree, layout, hit testing, interaction state, command palette state/painting, dirty flags, theme/style resolution, and paint output.
 - `elcarax_adapter_api` owns serializable adapter protocol messages only.
 - `elcarax_adapter_host` owns adapter process spawning, JSON-line transport, request correlation, events, and failure handling.
-- `elcarax_app` owns app-level project, asset, scene, inspector, viewport, and adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, then pushes display text into the UI tree.
+- `elcarax_assets` owns filesystem asset scanning, stable path-derived asset IDs, metadata, diagnostics, index snapshots, and the contained `notify` watcher service abstraction.
+- `elcarax_app` owns app-level project, asset, scene, inspector, viewport, and adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, coordinates asset scan/refresh/watch commands, then pushes display text into the UI tree.
 
 ## Current Exclusions
 
-The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, native file dialogs, file watching, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset import pipeline, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
+The current shell deliberately excludes docking, drag resizing, real text input fields, IME, caret/selection editing, full keybinding system, fuzzy scoring, command macros, scroll views, real accessibility adapter integration, native file dialogs, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, shared GPU texture interop, scene save/writeback, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
