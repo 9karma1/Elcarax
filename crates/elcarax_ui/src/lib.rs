@@ -216,7 +216,7 @@ impl UiStyle {
     pub const STATUS_BAR: Self = Self::new(StyleRole::RaisedSurface);
     pub const VIEWPORT: Self = Self::new(StyleRole::Viewport);
     pub const LABEL: Self = Self::new(StyleRole::Transparent);
-    pub const BUTTON: Self = Self::new(StyleRole::Control).rounded(4.0);
+    pub const BUTTON: Self = Self::new(StyleRole::Control).rounded(RADIUS_SM);
     pub const SEPARATOR: Self = Self::new(StyleRole::Border);
 
     pub const fn new(role: StyleRole) -> Self {
@@ -259,17 +259,21 @@ pub enum TextRole {
     Danger,
 }
 
+/// Shared with [`UiStyle::BUTTON`] so the constant-evaluated widget style and
+/// the runtime [`Theme`] agree on the same radius without duplicating the value.
+const RADIUS_SM: f32 = 4.0;
+const RADIUS_MD: f32 = 6.0;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
     pub background: Color,
     pub surface: Color,
     pub surface_raised: Color,
     pub viewport: Color,
-    pub control: Color,
-    pub control_hovered: Color,
-    pub control_active: Color,
+    pub control: ControlColors,
     pub focus_ring: Color,
     pub border: Color,
+    pub overlay_scrim: Color,
     pub text: Color,
     pub text_muted: Color,
     pub accent: Color,
@@ -277,6 +281,7 @@ pub struct Theme {
     pub warning: Color,
     pub danger: Color,
     pub spacing: SpacingScale,
+    pub radius: RadiusScale,
     pub fonts: FontScale,
 }
 
@@ -287,11 +292,15 @@ impl Theme {
             surface: Color::srgb(0.095, 0.105, 0.14, 1.0),
             surface_raised: Color::srgb(0.075, 0.082, 0.11, 1.0),
             viewport: Color::srgb(0.045, 0.05, 0.07, 1.0),
-            control: Color::srgb(0.13, 0.15, 0.20, 1.0),
-            control_hovered: Color::srgb(0.18, 0.21, 0.29, 1.0),
-            control_active: Color::srgb(0.23, 0.29, 0.44, 1.0),
+            control: ControlColors {
+                default: Color::srgb(0.13, 0.15, 0.20, 1.0),
+                hovered: Color::srgb(0.18, 0.21, 0.29, 1.0),
+                active: Color::srgb(0.23, 0.29, 0.44, 1.0),
+                disabled: Color::srgb(0.095, 0.105, 0.14, 1.0),
+            },
             focus_ring: Color::srgb(0.58, 0.68, 0.95, 1.0),
             border: Color::srgb(0.18, 0.20, 0.26, 1.0),
+            overlay_scrim: Color::srgb(0.0, 0.0, 0.0, 0.42),
             text: Color::srgb(0.91, 0.93, 0.97, 1.0),
             text_muted: Color::srgb(0.62, 0.66, 0.74, 1.0),
             accent: Color::srgb(0.26, 0.34, 0.55, 1.0),
@@ -303,6 +312,10 @@ impl Theme {
                 sm: 8.0,
                 md: 16.0,
                 lg: 24.0,
+            },
+            radius: RadiusScale {
+                sm: RADIUS_SM,
+                md: RADIUS_MD,
             },
             fonts: FontScale {
                 small: 13.0,
@@ -317,7 +330,7 @@ impl Theme {
             StyleRole::Background => Some(self.background),
             StyleRole::Surface => Some(self.surface),
             StyleRole::RaisedSurface => Some(self.surface_raised),
-            StyleRole::Control => Some(self.control),
+            StyleRole::Control => Some(self.control.default),
             StyleRole::Viewport => Some(self.viewport),
             StyleRole::Border => Some(self.border),
             StyleRole::Transparent => None,
@@ -342,12 +355,29 @@ impl Default for Theme {
     }
 }
 
+/// Interactive-state colors for controls (buttons, text fields). Grouping these
+/// keeps the four states of one concept together instead of scattering them as
+/// unrelated top-level theme fields.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ControlColors {
+    pub default: Color,
+    pub hovered: Color,
+    pub active: Color,
+    pub disabled: Color,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpacingScale {
     pub xs: f32,
     pub sm: f32,
     pub md: f32,
     pub lg: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RadiusScale {
+    pub sm: f32,
+    pub md: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2750,13 +2780,13 @@ fn paint_label(text: &str, node: &UiNode, context: &PaintContext, scene: &mut Re
 
 fn paint_button(text: &str, node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
     let color = if node.interaction.disabled {
-        context.theme.surface
+        context.theme.control.disabled
     } else if node.interaction.active {
-        context.theme.control_active
+        context.theme.control.active
     } else if node.interaction.hovered {
-        context.theme.control_hovered
+        context.theme.control.hovered
     } else {
-        context.theme.control
+        context.theme.control.default
     };
     scene.push(
         RenderLayer::Chrome,
@@ -2808,14 +2838,14 @@ pub fn paint_command_palette_overlay(
     );
     scene.push(
         RenderLayer::Overlay,
-        RenderPrimitive::solid_rect(bounds, Color::srgb(0.0, 0.0, 0.0, 0.42))
+        RenderPrimitive::solid_rect(bounds, context.theme.overlay_scrim)
             .with_debug_label("command palette dim"),
     );
     scene.push(
         RenderLayer::Overlay,
         RenderPrimitive::rounded_rect(
             panel,
-            CornerRadius::uniform(6.0),
+            CornerRadius::uniform(context.theme.radius.md),
             context.theme.surface_raised,
         )
         .with_debug_label("command palette"),
@@ -2840,8 +2870,8 @@ fn paint_palette_query(
         RenderLayer::Overlay,
         RenderPrimitive::rounded_rect(
             query_rect,
-            CornerRadius::uniform(4.0),
-            context.theme.control,
+            CornerRadius::uniform(context.theme.radius.sm),
+            context.theme.control.default,
         )
         .with_debug_label("command palette query"),
     );
@@ -2913,8 +2943,8 @@ fn paint_palette_row(
             RenderLayer::Overlay,
             RenderPrimitive::rounded_rect(
                 row,
-                CornerRadius::uniform(4.0),
-                context.theme.control_hovered,
+                CornerRadius::uniform(context.theme.radius.sm),
+                context.theme.control.hovered,
             )
             .with_debug_label("command palette selected row"),
         );

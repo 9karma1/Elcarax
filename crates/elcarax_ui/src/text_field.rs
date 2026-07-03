@@ -61,13 +61,13 @@ pub fn paint_text_field(
     scene: &mut RenderScene,
 ) {
     let background = if node.interaction.disabled {
-        context.theme.surface
+        context.theme.control.disabled
     } else if node.interaction.focused {
-        context.theme.control_active
+        context.theme.control.active
     } else if node.interaction.hovered {
-        context.theme.control_hovered
+        context.theme.control.hovered
     } else {
-        context.theme.control
+        context.theme.control.default
     };
     scene.push(
         RenderLayer::Chrome,
