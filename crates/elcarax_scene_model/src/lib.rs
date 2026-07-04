@@ -4,6 +4,7 @@ mod diagnostic;
 mod error;
 mod hierarchy;
 mod inspector;
+mod inspector_widget;
 mod kind;
 mod name;
 mod patch;
@@ -16,6 +17,7 @@ mod scene_io;
 mod schema;
 mod selection;
 mod snapshot;
+mod viewport_pick;
 
 pub use diagnostic::SceneDiagnostic;
 pub use error::{SceneError, SceneIoError};
@@ -23,6 +25,10 @@ pub use hierarchy::{SceneHierarchy, SceneTreeRow};
 pub use inspector::{
     InspectorDiagnostic, InspectorObject, InspectorRow, InspectorSection,
     build_inspector_for_selection, build_inspector_object,
+};
+pub use inspector_widget::{
+    EnumVariantList, InspectorValueWidget, inspector_value_widget_for,
+    inspector_value_widget_for_row,
 };
 pub use kind::SceneObjectKind;
 pub use name::{PropertyName, SceneName, SceneObjectName};
@@ -51,6 +57,7 @@ pub use selection::{SceneExpansion, SceneSelection};
 pub use snapshot::{
     SceneId, SceneMarker, SceneObject, SceneObjectId, SceneObjectMarker, SceneSnapshot,
 };
+pub use viewport_pick::{ViewportPickCoord, pick_object_at};
 
 #[cfg(test)]
 mod tests {
@@ -235,7 +242,7 @@ mod tests {
         };
         assert_eq!(inspector.name, "Player");
         assert_eq!(inspector.kind, SceneObjectKind::Character);
-        assert_eq!(inspector.property_count(), 7);
+        assert_eq!(inspector.property_count(), 8);
         let labels: Vec<_> = inspector
             .sections
             .iter()
@@ -243,6 +250,7 @@ mod tests {
             .collect();
         assert!(labels.contains(&"Health"));
         assert!(labels.contains(&"Speed"));
+        assert!(labels.contains(&"Stance"));
         assert!(labels.contains(&"Mesh"));
     }
 

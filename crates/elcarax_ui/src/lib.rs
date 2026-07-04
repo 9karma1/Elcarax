@@ -1,16 +1,26 @@
 //! Retained UI tree, layout, style, and paint foundation for Elcarax.
 
+mod property_widgets;
 mod text_field;
 
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+use property_widgets::{
+    EnumFieldState, NumberFieldState, PropertyWidgetClick, ToggleFieldState, VectorFieldState,
+    interaction_for_property_widget, is_property_widget, paint_enum_field, paint_number_field,
+    paint_toggle_field, paint_vector_field, property_widget_click, step_number_field,
+};
+
 use text_field::{
     TextFieldKeyAction, TextFieldState, handle_key as handle_text_field_key, paint_text_field,
 };
 
-use elcarax_core::{Id, IdGenerator};
+use elcarax_core::{
+    Id, IdGenerator, ViewportCamera, ViewportFramePlacement, ViewportRect, layout_viewport_frame,
+    pointer_to_frame_uv,
+};
 use elcarax_render::{
     Border, ClipRect, Color, CornerRadius, FontFamily, FontWeight, ImagePrimitive, Rect,
     RenderLayer, RenderPrimitive, RenderScene, ShadowPrimitive, TextStyle,
@@ -66,6 +76,10 @@ pub enum WidgetKind {
     IconButton(String),
     ListItem(String),
     TextField(TextFieldState),
+    Toggle(ToggleFieldState),
+    NumberField(NumberFieldState),
+    VectorField(VectorFieldState),
+    EnumField(EnumFieldState),
     Separator(Axis),
     ResizeSplitter(Axis),
     StatusBar,
@@ -893,7 +907,7 @@ impl InteractionState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     HoverChanged { id: WidgetId, hovered: bool },
     FocusChanged(FocusChange),
@@ -902,7 +916,13 @@ pub enum UiEvent {
     TextCommitted { id: WidgetId, text: String },
     TextCancelled { id: WidgetId },
     TextChanged { id: WidgetId },
+    ToggleChanged { id: WidgetId, checked: bool },
+    NumberCommitted { id: WidgetId, text: String },
+    EnumChanged { id: WidgetId, selected: String },
+    VectorCommitted { id: WidgetId, text: String },
     Scrolled { id: WidgetId, delta_rows: i32 },
+    ViewportZoom { id: WidgetId, factor: f32 },
+    ViewportClicked { id: WidgetId, u: f32, v: f32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -985,13 +1005,17 @@ pub enum ViewportPaintStatus {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ViewportPaintSnapshot {
     pub title: String,
     pub message: String,
+    pub hint: String,
     pub status: ViewportPaintStatus,
     pub frame: Option<ViewportFramePaint>,
     pub show_preview_label: bool,
+    pub camera: ViewportCamera,
+    pub content_rect: ViewportRect,
+    pub frame_placement: Option<ViewportFramePlacement>,
 }
 
 impl Default for ViewportPaintSnapshot {
@@ -999,9 +1023,13 @@ impl Default for ViewportPaintSnapshot {
         Self {
             title: "Viewport".to_string(),
             message: "No viewport source".to_string(),
+            hint: "Connect an adapter and run viewport.request_frame".to_string(),
             status: ViewportPaintStatus::NoSource,
             frame: None,
             show_preview_label: false,
+            camera: ViewportCamera::default_editor(),
+            content_rect: ViewportRect::new(0.0, 0.0, 0.0, 0.0),
+            frame_placement: None,
         }
     }
 }
@@ -1295,6 +1323,82 @@ impl UiTree {
         Ok(())
     }
 
+    pub fn set_toggle_field(&mut self, id: WidgetId, checked: bool) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        node.kind = WidgetKind::Toggle(ToggleFieldState::new(checked));
+        node.layout.height = SizePolicy::Fixed(TEXT_FIELD_HEIGHT);
+        node.interaction = interaction_for_property_widget(&node.kind);
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
+    pub fn set_number_field(
+        &mut self,
+        id: WidgetId,
+        text: impl Into<String>,
+        step: f64,
+        is_integer: bool,
+    ) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        node.kind = WidgetKind::NumberField(NumberFieldState::new(text, step, is_integer));
+        node.layout.height = SizePolicy::Fixed(TEXT_FIELD_HEIGHT);
+        node.interaction = interaction_for_property_widget(&node.kind);
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
+    pub fn set_vector_field(
+        &mut self,
+        id: WidgetId,
+        components: [String; 3],
+        count: u8,
+    ) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        node.kind = WidgetKind::VectorField(VectorFieldState::new(components, count));
+        node.layout.height = SizePolicy::Fixed(TEXT_FIELD_HEIGHT);
+        node.interaction = interaction_for_property_widget(&node.kind);
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
+    pub fn set_enum_field(
+        &mut self,
+        id: WidgetId,
+        selected: impl Into<String>,
+        variants: &[String],
+    ) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        node.kind = WidgetKind::EnumField(EnumFieldState::new(selected, variants));
+        node.layout.height = SizePolicy::Fixed(TEXT_FIELD_HEIGHT);
+        node.interaction = interaction_for_property_widget(&node.kind);
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
     pub fn set_button_text(
         &mut self,
         id: WidgetId,
@@ -1496,7 +1600,11 @@ impl UiTree {
         let mut events = Vec::new();
         if let Some(id) = hit {
             events.extend(self.set_focused(Some(id))?);
-            if is_clickable(self.nodes.get(&id)) {
+            if let Some(node) = self.nodes.get(&id)
+                && (is_clickable(Some(node))
+                    || is_property_widget(&node.kind)
+                    || matches!(node.kind, WidgetKind::ViewportPlaceholder))
+            {
                 events.extend(self.set_active(Some(id))?);
             }
         } else {
@@ -1514,11 +1622,114 @@ impl UiTree {
         let mut events = self.set_active(None)?;
         if let Some(id) = pressed
             && release_hit == Some(id)
-            && is_clickable(self.nodes.get(&id))
+            && let Some(node) = self.nodes.get(&id)
         {
-            events.push(UiEvent::Clicked { id });
+            if is_clickable(Some(node)) {
+                events.push(UiEvent::Clicked { id });
+            } else if is_property_widget(&node.kind)
+                && let Some(position) = self.pointer_position
+            {
+                events.extend(self.property_widget_click(id, position)?);
+            } else if matches!(node.kind, WidgetKind::ViewportPlaceholder)
+                && let Some(position) = self.pointer_position
+                && let Some(uv) = self.viewport_click_coord(position)
+            {
+                events.push(UiEvent::ViewportClicked {
+                    id,
+                    u: uv.u,
+                    v: uv.v,
+                });
+            }
         }
         Ok(events)
+    }
+
+    fn viewport_click_coord(
+        &self,
+        position: PointerPosition,
+    ) -> Option<elcarax_core::NormalizedViewportCoord> {
+        let placement = self.viewport_paint.frame_placement?;
+        pointer_to_frame_uv(position.x, position.y, &placement)
+    }
+
+    fn property_widget_click(
+        &mut self,
+        id: WidgetId,
+        position: PointerPosition,
+    ) -> Result<Vec<UiEvent>, UiError> {
+        let Some(node) = self.nodes.get(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        let kind = node.kind.clone();
+        let rect = node.rect;
+        match property_widget_click(&kind, rect, position) {
+            PropertyWidgetClick::Toggle => {
+                if let WidgetKind::Toggle(state) = &mut self
+                    .nodes
+                    .get_mut(&id)
+                    .ok_or(UiError::MissingNode(id))?
+                    .kind
+                {
+                    state.checked = !state.checked;
+                    return Ok(vec![UiEvent::ToggleChanged {
+                        id,
+                        checked: state.checked,
+                    }]);
+                }
+            }
+            PropertyWidgetClick::NumberDecrement => {
+                return self.step_number_field(id, -1);
+            }
+            PropertyWidgetClick::NumberIncrement => {
+                return self.step_number_field(id, 1);
+            }
+            PropertyWidgetClick::EnumCycle => {
+                return self.cycle_enum_field(id);
+            }
+            PropertyWidgetClick::VectorComponent(component) => {
+                if let WidgetKind::VectorField(state) = &mut self
+                    .nodes
+                    .get_mut(&id)
+                    .ok_or(UiError::MissingNode(id))?
+                    .kind
+                {
+                    state.focused_component = Some(component);
+                }
+                return Ok(Vec::new());
+            }
+            PropertyWidgetClick::None => {}
+        }
+        Ok(Vec::new())
+    }
+
+    fn step_number_field(&mut self, id: WidgetId, delta: i32) -> Result<Vec<UiEvent>, UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        let WidgetKind::NumberField(state) = &mut node.kind else {
+            return Ok(Vec::new());
+        };
+        if !step_number_field(state, delta) {
+            return Ok(Vec::new());
+        }
+        let text = state.text.clone();
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        Ok(vec![UiEvent::NumberCommitted { id, text }])
+    }
+
+    fn cycle_enum_field(&mut self, id: WidgetId) -> Result<Vec<UiEvent>, UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        let WidgetKind::EnumField(state) = &mut node.kind else {
+            return Ok(Vec::new());
+        };
+        state.selected = state.next_variant();
+        let selected = state.selected.clone();
+        node.dirty.insert(DirtyFlags::TEXT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        Ok(vec![UiEvent::EnumChanged { id, selected }])
     }
 
     fn press_key(&mut self, key: KeyboardKey) -> Result<Vec<UiEvent>, UiError> {
@@ -1526,6 +1737,16 @@ impl UiTree {
             && is_text_field(self.nodes.get(&id))
         {
             return self.route_text_field_key(id, key);
+        }
+        if let Some(id) = self.focused_id
+            && let KeyboardKey::Enter = key
+            && let Some(node) = self.nodes.get(&id)
+            && let WidgetKind::VectorField(state) = &node.kind
+        {
+            return Ok(vec![UiEvent::VectorCommitted {
+                id,
+                text: state.merged_text(),
+            }]);
         }
         match key {
             KeyboardKey::Enter | KeyboardKey::Space => {
@@ -1580,19 +1801,38 @@ impl UiTree {
 
     fn scroll_wheel(&self, delta_y: f32) -> Result<Vec<UiEvent>, UiError> {
         let delta_rows = wheel_delta_rows(delta_y);
-        if delta_rows == 0 {
-            return Ok(Vec::new());
-        }
         let Some(position) = self.pointer_position else {
             return Ok(Vec::new());
         };
         let Some(hit) = self.hit_test(position) else {
             return Ok(Vec::new());
         };
+        if let Some(viewport_id) = self.viewport_widget_for(hit.id) {
+            let factor = if delta_y > 0.0 { 0.9 } else { 1.1 };
+            return Ok(vec![UiEvent::ViewportZoom {
+                id: viewport_id,
+                factor,
+            }]);
+        }
+        if delta_rows == 0 {
+            return Ok(Vec::new());
+        }
         let Some(id) = self.scroll_view_for(hit.id) else {
             return Ok(Vec::new());
         };
         Ok(vec![UiEvent::Scrolled { id, delta_rows }])
+    }
+
+    fn viewport_widget_for(&self, id: WidgetId) -> Option<WidgetId> {
+        let mut next = Some(id);
+        while let Some(candidate) = next {
+            let node = self.nodes.get(&candidate)?;
+            if matches!(node.kind, WidgetKind::ViewportPlaceholder) {
+                return Some(candidate);
+            }
+            next = node.parent;
+        }
+        None
     }
 
     fn scroll_view_for(&self, id: WidgetId) -> Option<WidgetId> {
@@ -3016,6 +3256,10 @@ fn default_interaction_for(kind: &WidgetKind) -> InteractionState {
             InteractionState::control()
         }
         WidgetKind::TextField(_) => InteractionState::control(),
+        WidgetKind::Toggle(_)
+        | WidgetKind::NumberField(_)
+        | WidgetKind::VectorField(_)
+        | WidgetKind::EnumField(_) => InteractionState::control(),
         WidgetKind::Label(_) | WidgetKind::InfoRow(_) | WidgetKind::Separator(_) => {
             InteractionState::passive()
         }
@@ -3090,6 +3334,10 @@ fn paint_node(
             paint_button(text, node, context, scene);
         }
         WidgetKind::TextField(state) => paint_text_field(state, node, context, scene),
+        WidgetKind::Toggle(state) => paint_toggle_field(state, node, context, scene),
+        WidgetKind::NumberField(state) => paint_number_field(state, node, context, scene),
+        WidgetKind::VectorField(state) => paint_vector_field(state, node, context, scene),
+        WidgetKind::EnumField(state) => paint_enum_field(state, node, context, scene),
     }
 }
 
@@ -3159,9 +3407,11 @@ fn paint_viewport(
         left: 12.0,
     };
     let content = inset.shrink(node.rect);
+    let content_viewport = ViewportRect::new(content.x, content.y, content.width, content.height);
     if let ViewportPaintStatus::Error = viewport_paint.status {
-        paint_viewport_message(
+        paint_viewport_empty_state(
             &viewport_paint.message,
+            &viewport_paint.hint,
             content,
             context,
             scene,
@@ -3170,8 +3420,9 @@ fn paint_viewport(
         return;
     }
     if viewport_paint.status != ViewportPaintStatus::FrameAvailable {
-        paint_viewport_message(
+        paint_viewport_empty_state(
             &viewport_paint.message,
+            &viewport_paint.hint,
             content,
             context,
             scene,
@@ -3180,21 +3431,44 @@ fn paint_viewport(
         return;
     }
     if let Some(frame) = &viewport_paint.frame {
-        let image = ImagePrimitive::new(content, frame.width, frame.height, frame.rgba.clone());
+        let placement = viewport_paint.frame_placement.or_else(|| {
+            layout_viewport_frame(
+                content_viewport,
+                frame.width,
+                frame.height,
+                &viewport_paint.camera,
+            )
+        });
+        let destination = placement
+            .map(|value| value.displayed)
+            .unwrap_or(content_viewport);
+        let image = ImagePrimitive::new(
+            viewport_rect_to_render(destination),
+            frame.width,
+            frame.height,
+            frame.rgba.clone(),
+        );
         if image.is_drawable() {
             scene.push(
                 RenderLayer::Overlay,
                 RenderPrimitive::image(image)
-                    .with_clip(elcarax_render::ClipRect::new(content))
+                    .with_clip(ClipRect::new(content))
                     .with_debug_label("viewport frame"),
             );
         }
+        if let Some(placement) = placement {
+            paint_letterbox_bars(placement, context, scene);
+        }
     }
     if viewport_paint.show_preview_label {
+        let zoom_label = format!(
+            "{}% | Adapter Preview",
+            viewport_paint.camera.zoom_percent()
+        );
         scene.push(
             RenderLayer::Overlay,
             RenderPrimitive::text(
-                "Adapter Preview",
+                zoom_label,
                 content.x + context.theme.spacing.sm,
                 content.y + context.theme.spacing.lg,
                 context
@@ -3204,6 +3478,94 @@ fn paint_viewport(
             .with_debug_label("viewport preview label"),
         );
     }
+}
+
+fn viewport_rect_to_render(rect: ViewportRect) -> Rect {
+    Rect::new(rect.x, rect.y, rect.width, rect.height)
+}
+
+fn paint_letterbox_bars(
+    placement: ViewportFramePlacement,
+    context: &PaintContext,
+    scene: &mut RenderScene,
+) {
+    let content = viewport_rect_to_render(placement.content);
+    let displayed = viewport_rect_to_render(placement.displayed);
+    if displayed.y > content.y {
+        let bar = Rect::new(content.x, content.y, content.width, displayed.y - content.y);
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::solid_rect(bar, context.theme.viewport)
+                .with_debug_label("viewport letterbox top"),
+        );
+    }
+    let bottom = displayed.y + displayed.height;
+    if bottom < content.y + content.height {
+        let bar = Rect::new(
+            content.x,
+            bottom,
+            content.width,
+            content.y + content.height - bottom,
+        );
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::solid_rect(bar, context.theme.viewport)
+                .with_debug_label("viewport letterbox bottom"),
+        );
+    }
+    if displayed.x > content.x {
+        let bar = Rect::new(
+            content.x,
+            displayed.y,
+            displayed.x - content.x,
+            displayed.height,
+        );
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::solid_rect(bar, context.theme.viewport)
+                .with_debug_label("viewport letterbox left"),
+        );
+    }
+    let right = displayed.x + displayed.width;
+    if right < content.x + content.width {
+        let bar = Rect::new(
+            right,
+            displayed.y,
+            content.x + content.width - right,
+            displayed.height,
+        );
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::solid_rect(bar, context.theme.viewport)
+                .with_debug_label("viewport letterbox right"),
+        );
+    }
+}
+
+fn paint_viewport_empty_state(
+    message: &str,
+    hint: &str,
+    rect: Rect,
+    context: &PaintContext,
+    scene: &mut RenderScene,
+    color: Color,
+) {
+    paint_viewport_message(message, rect, context, scene, color);
+    if hint.is_empty() {
+        return;
+    }
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::text(
+            hint.to_string(),
+            rect.x + context.theme.spacing.sm,
+            rect.y + rect.height * 0.5 + 18.0,
+            context
+                .theme
+                .text_style_for(TextRole::Muted, TypeRole::Caption),
+        )
+        .with_debug_label("viewport hint"),
+    );
 }
 
 fn paint_viewport_message(
@@ -3228,7 +3590,7 @@ fn paint_viewport_message(
     );
 }
 
-fn paint_background(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
+pub(crate) fn paint_background(node: &UiNode, context: &PaintContext, scene: &mut RenderScene) {
     let Some(color) = context.theme.color_for(node.style) else {
         return;
     };

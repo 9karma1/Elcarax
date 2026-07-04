@@ -83,6 +83,22 @@ pub fn prepare_property_change(
         .ok_or(PropertyEditError::ObjectNotFound { object_id })?;
     let schema = editable_schema_for(snapshot, object.type_id, path)?;
     validate_value_type(path, schema.kind, schema.edit_kind, new_value)?;
+    if schema.kind == PropertyKind::Enum {
+        let PropertyValue::Enum { variant } = new_value else {
+            return Err(PropertyEditError::TypeMismatch {
+                path: path.clone(),
+                expected: schema.edit_kind,
+                actual: value_kind_label(new_value).to_string(),
+            });
+        };
+        if !schema.enum_variants.iter().any(|value| value == variant) {
+            return Err(PropertyEditError::TypeMismatch {
+                path: path.clone(),
+                expected: schema.edit_kind,
+                actual: format!("unknown enum variant '{variant}'"),
+            });
+        }
+    }
     let old_value = object
         .property(path)
         .cloned()
@@ -138,6 +154,9 @@ pub fn parse_property_text(
                 .map_err(|_| type_mismatch(path, edit_kind, text))?;
             Ok(PropertyValue::Vec3([values[0], values[1], values[2]]))
         }
+        PropertyEditKind::Enum => Ok(PropertyValue::Enum {
+            variant: text.to_string(),
+        }),
         PropertyEditKind::Unsupported => Err(PropertyEditError::ReadOnly {
             path: path.clone(),
             reason: "Property type does not support text entry".to_string(),
@@ -228,6 +247,7 @@ fn validate_value_type(
             | (PropertyKind::String, PropertyValue::String(_))
             | (PropertyKind::Vec2, PropertyValue::Vec2(_))
             | (PropertyKind::Vec3, PropertyValue::Vec3(_))
+            | (PropertyKind::Enum, PropertyValue::Enum { .. })
     );
     if matches {
         return Ok(());

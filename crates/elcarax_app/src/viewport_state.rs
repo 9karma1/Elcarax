@@ -2,7 +2,9 @@ use elcarax_adapter_api::{
     AdapterViewportId, GetViewportFrameRequest, GetViewportFrameResponse,
     ViewportFrameResponseStatus,
 };
-use elcarax_core::{ViewportError, ViewportFrame, ViewportFrameFormat, ViewportSource};
+use elcarax_core::{
+    ViewportCamera, ViewportError, ViewportFrame, ViewportFrameFormat, ViewportSource,
+};
 
 use crate::adapter_state::AdapterState;
 use crate::viewport_display::{ViewportUiSnapshot, viewport_ui_snapshot};
@@ -13,10 +15,25 @@ pub(crate) const VIEWPORT_SHOW_STATUS_COMMAND: &str = "viewport.show_status";
 
 pub(crate) struct AppViewportState {
     inner: elcarax_core::ViewportState,
+    camera: ViewportCamera,
     last_command_result: Option<ViewportCommandResult>,
 }
 
 impl AppViewportState {
+    pub(crate) fn camera(&self) -> ViewportCamera {
+        self.camera
+    }
+
+    #[cfg(feature = "native-shell")]
+    pub(crate) fn pan_camera_by(&mut self, delta_x: f32, delta_y: f32) {
+        self.camera.pan_by(delta_x, delta_y);
+    }
+
+    #[cfg(feature = "native-shell")]
+    pub(crate) fn zoom_camera_by(&mut self, factor: f32) {
+        self.camera.zoom_by(factor);
+    }
+
     pub(crate) fn execute_command_id(
         &mut self,
         id: &str,
@@ -50,8 +67,6 @@ impl AppViewportState {
     pub(crate) fn ui_snapshot(&self) -> ViewportUiSnapshot {
         viewport_ui_snapshot(&self.inner, self.last_command_result.as_ref())
     }
-
-    #[cfg_attr(feature = "native-shell", allow(dead_code))]
     pub(crate) fn apply_host_response(
         &mut self,
         response: GetViewportFrameResponse,
@@ -139,6 +154,7 @@ impl AppViewportState {
 
     fn clear(&mut self) -> ViewportCommandResult {
         self.inner.clear_frame();
+        self.camera.reset();
         ViewportCommandResult::new(VIEWPORT_CLEAR_COMMAND, "viewport cleared")
     }
 
@@ -159,6 +175,7 @@ impl Default for AppViewportState {
     fn default() -> Self {
         Self {
             inner: elcarax_core::ViewportState::default_editor(),
+            camera: ViewportCamera::default_editor(),
             last_command_result: None,
         }
     }
