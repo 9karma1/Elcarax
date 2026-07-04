@@ -23,13 +23,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Viewport camera and letterboxed frame layout with scroll-to-zoom, Alt/middle-drag pan, actionable empty states, and scene-object picking from normalized viewport coordinates
 - Schema-driven inspector value widgets: toggles, number steppers, vector fields, and enum selectors wired through `InspectorValueWidget` descriptors
 - `PropertyEditKind::Enum` with `PropertySchema::editable_enum` and enum variant validation on property commits
+- Declarative command metadata, platform-neutral key chords, default keybindings, conflict diagnostics, command availability reasons, help summaries, and a toolbar action snapshot generated from the command registry
 
 ### Changed
 
 - Route project-bound lifecycle through `EditorSession` instead of `project_effects.rs` (removed)
-- Console proof covers scene document save round-trip after project reopen
+- Console proof covers command binding diagnostics, toolbar snapshot construction, Ctrl+S-equivalent scene save dispatch through the registry path, and scene document save round-trip after project reopen
+- Native shell shortcut handling now converts platform input into registry key chords and dispatches toolbar, palette, and shortcut commands through one command execution path
 - Beta cleanup: removed in-memory asset demo index and `examples/demo_project`; renamed `demo_scene_snapshot` to `reference_scene_snapshot`; consolidated adapter capabilities to `AdapterCapabilities::stdio_game_adapter()`
-- Documentation: milestone markdown files replaced by this changelog; README, STATUS, ROADMAP, and BUILD_NOTES updated for scroll views, inspector widgets, and viewport camera behavior
+- Documentation: milestone markdown files replaced by this changelog; README, STATUS, ROADMAP, and BUILD_NOTES updated for scroll views, inspector widgets, viewport camera behavior, toolbar actions, and keybindings
 
 ## [0.1.0] - 2026-07-03
 

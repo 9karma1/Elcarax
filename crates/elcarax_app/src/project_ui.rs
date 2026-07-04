@@ -1,9 +1,12 @@
 use elcarax_render::Rect;
-use elcarax_ui::{EditorShellContent, EditorShellIds, TextRole, UiError, UiTree};
+use elcarax_ui::{
+    EditorShellContent, EditorShellIds, MAX_TOOLBAR_ACTIONS, TextRole, UiError, UiTree,
+};
 
 use crate::adapter_display::AdapterUiSnapshot;
 use crate::asset_display::AssetUiSnapshot;
 use crate::asset_ui::apply_asset_snapshot;
+use crate::editor_commands::ToolbarSnapshot;
 use crate::editor_status::editor_status_bar;
 use crate::inspector_display::InspectorUiSnapshot;
 use crate::inspector_ui::apply_inspector_snapshot;
@@ -186,6 +189,29 @@ pub(crate) fn apply_editor_snapshot(
     apply_scene_snapshot(tree, ids, scene, &status, bounds)?;
     apply_inspector_snapshot(tree, ids, inspector, bounds)?;
     apply_viewport_snapshot(tree, ids, snapshots.viewport, viewport_state, bounds)?;
+    Ok(())
+}
+
+#[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
+pub(crate) fn apply_toolbar_snapshot(
+    tree: &mut UiTree,
+    ids: EditorShellIds,
+    snapshot: &ToolbarSnapshot,
+) -> Result<(), UiError> {
+    for (index, id) in ids
+        .toolbar_actions
+        .iter()
+        .enumerate()
+        .take(MAX_TOOLBAR_ACTIONS)
+    {
+        let Some(action) = snapshot.actions().nth(index) else {
+            tree.set_button_text(*id, "")?;
+            tree.set_disabled(*id, true)?;
+            continue;
+        };
+        tree.set_button_text(*id, action.button_label())?;
+        tree.set_disabled(*id, !action.state.is_enabled())?;
+    }
     Ok(())
 }
 

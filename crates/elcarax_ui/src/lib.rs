@@ -32,6 +32,7 @@ pub type WidgetId = Id<WidgetMarker>;
 pub const MAX_VISIBLE_ASSET_ROWS: usize = 8;
 pub const MAX_VISIBLE_SCENE_ROWS: usize = 12;
 pub const MAX_VISIBLE_INSPECTOR_ROWS: usize = 14;
+pub const MAX_TOOLBAR_ACTIONS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirtyFlags(u32);
@@ -626,6 +627,8 @@ pub struct CommandPaletteEntry {
     pub category: String,
     pub description: Option<String>,
     pub enabled: bool,
+    pub shortcut: Option<String>,
+    pub disabled_reason: Option<String>,
 }
 
 impl CommandPaletteEntry {
@@ -642,7 +645,19 @@ impl CommandPaletteEntry {
             category: category.into(),
             description,
             enabled,
+            shortcut: None,
+            disabled_reason: None,
         }
+    }
+
+    pub fn with_shortcut(mut self, shortcut: Option<String>) -> Self {
+        self.shortcut = shortcut;
+        self
+    }
+
+    pub fn with_disabled_reason(mut self, reason: Option<String>) -> Self {
+        self.disabled_reason = reason;
+        self
     }
 }
 
@@ -787,6 +802,10 @@ fn palette_entry_matches(entry: &CommandPaletteEntry, query: &str) -> bool {
             .description
             .as_ref()
             .is_some_and(|description| description.to_lowercase().contains(query))
+        || entry
+            .shortcut
+            .as_ref()
+            .is_some_and(|shortcut| shortcut.to_lowercase().contains(query))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1541,6 +1560,12 @@ impl UiTree {
         Ok(vec![UiEvent::FocusChanged(FocusChange { previous, next })])
     }
 
+    pub fn focus_accepts_text(&self) -> bool {
+        self.focused_id
+            .and_then(|id| self.nodes.get(&id))
+            .is_some_and(|node| is_text_field(Some(node)))
+    }
+
     pub fn set_disabled(&mut self, id: WidgetId, disabled: bool) -> Result<(), UiError> {
         let Some(node) = self.nodes.get_mut(&id) else {
             return Err(UiError::MissingNode(id));
@@ -2031,6 +2056,7 @@ pub struct EditorShell {
 pub struct EditorShellIds {
     pub toolbar_title: WidgetId,
     pub run_button: WidgetId,
+    pub toolbar_actions: [WidgetId; MAX_TOOLBAR_ACTIONS],
     pub project_panel: WidgetId,
     pub left_splitter: WidgetId,
     pub inspector_panel: WidgetId,
@@ -2217,6 +2243,13 @@ pub fn build_editor_shell_with_layout(
     let inspector_label = WidgetId::new(15).ok_or(UiError::MissingRoot)?;
     let status_label = WidgetId::new(16).ok_or(UiError::MissingRoot)?;
     let run_button = WidgetId::new(17).ok_or(UiError::MissingRoot)?;
+    let toolbar_new = WidgetId::new(101).ok_or(UiError::MissingRoot)?;
+    let toolbar_save = WidgetId::new(102).ok_or(UiError::MissingRoot)?;
+    let toolbar_undo = WidgetId::new(103).ok_or(UiError::MissingRoot)?;
+    let toolbar_redo = WidgetId::new(104).ok_or(UiError::MissingRoot)?;
+    let toolbar_scan = WidgetId::new(105).ok_or(UiError::MissingRoot)?;
+    let toolbar_refresh = WidgetId::new(106).ok_or(UiError::MissingRoot)?;
+    let toolbar_connect = WidgetId::new(107).ok_or(UiError::MissingRoot)?;
     let project_name = WidgetId::new(18).ok_or(UiError::MissingRoot)?;
     let project_path = WidgetId::new(19).ok_or(UiError::MissingRoot)?;
     let project_status = WidgetId::new(20).ok_or(UiError::MissingRoot)?;
@@ -2366,6 +2399,16 @@ pub fn build_editor_shell_with_layout(
         inspector_row_value_12,
         inspector_row_value_13,
     ];
+    let toolbar_actions = [
+        toolbar_new,
+        run_button,
+        toolbar_save,
+        toolbar_undo,
+        toolbar_redo,
+        toolbar_scan,
+        toolbar_refresh,
+        toolbar_connect,
+    ];
 
     tree.set_root(UiNode::new(
         root,
@@ -2441,6 +2484,18 @@ pub fn build_editor_shell_with_layout(
     tree.insert_child(
         toolbar,
         UiNode::new(
+            toolbar_new,
+            WidgetKind::Label(String::new()),
+            UiStyle::BUTTON,
+            LayoutNode::leaf()
+                .with_width(SizePolicy::Content)
+                .with_height(SizePolicy::Fixed(0.0)),
+        ),
+    )?;
+    tree.set_disabled(toolbar_new, true)?;
+    tree.insert_child(
+        toolbar,
+        UiNode::new(
             run_button,
             WidgetKind::Button("Open".to_string()),
             UiStyle::BUTTON,
@@ -2449,6 +2504,27 @@ pub fn build_editor_shell_with_layout(
                 .with_height(SizePolicy::Fixed(BUTTON_HEIGHT)),
         ),
     )?;
+    for id in [
+        toolbar_save,
+        toolbar_undo,
+        toolbar_redo,
+        toolbar_scan,
+        toolbar_refresh,
+        toolbar_connect,
+    ] {
+        tree.insert_child(
+            toolbar,
+            UiNode::new(
+                id,
+                WidgetKind::Label(String::new()),
+                UiStyle::BUTTON,
+                LayoutNode::leaf()
+                    .with_width(SizePolicy::Content)
+                    .with_height(SizePolicy::Fixed(0.0)),
+            ),
+        )?;
+        tree.set_disabled(id, true)?;
+    }
     tree.insert_child(
         body,
         UiNode::new(
@@ -2973,6 +3049,7 @@ pub fn build_editor_shell_with_layout(
         ids: EditorShellIds {
             toolbar_title: title,
             run_button,
+            toolbar_actions,
             project_panel: project,
             left_splitter: left_separator,
             inspector_panel: inspector,
@@ -4039,23 +4116,49 @@ fn paint_palette_row(
     let category_style = context
         .theme
         .text_style_for(TextRole::Muted, TypeRole::Micro);
+    let category_font_size = category_style.size;
     let text_x = row.x + context.theme.spacing.sm;
-    let name_rect = Rect::new(text_x, row.y + context.theme.spacing.xxs, row.width, 18.0);
-    let category_rect = Rect::new(text_x, row.y + 18.0, row.width, 16.0);
+    let shortcut_width = if entry.shortcut.is_some() { 112.0 } else { 0.0 };
+    let text_width = (row.width - shortcut_width - context.theme.spacing.md).max(0.0);
+    let name_rect = Rect::new(text_x, row.y + context.theme.spacing.xxs, text_width, 18.0);
+    let category_rect = Rect::new(text_x, row.y + 18.0, text_width, 16.0);
     let name_baseline = text_baseline(name_rect, name_style.size);
     let category_baseline = text_baseline(category_rect, category_style.size);
+    let category = match &entry.disabled_reason {
+        Some(reason) if !entry.enabled => format!("{} - {reason}", entry.category),
+        _ => entry.category.clone(),
+    };
     scene.push(
         RenderLayer::Overlay,
         RenderPrimitive::text(&entry.name, text_x, name_baseline, name_style)
-            .with_clip(ClipRect::new(row))
+            .with_clip(ClipRect::new(name_rect))
             .with_debug_label("command palette row name"),
     );
     scene.push(
         RenderLayer::Overlay,
-        RenderPrimitive::text(&entry.category, text_x, category_baseline, category_style)
-            .with_clip(ClipRect::new(row))
+        RenderPrimitive::text(&category, text_x, category_baseline, category_style.clone())
+            .with_clip(ClipRect::new(category_rect))
             .with_debug_label("command palette row category"),
     );
+    if let Some(shortcut) = &entry.shortcut {
+        let shortcut_rect = Rect::new(
+            row.x + row.width - shortcut_width,
+            row.y + context.theme.spacing.xxs,
+            shortcut_width - context.theme.spacing.sm,
+            18.0,
+        );
+        scene.push(
+            RenderLayer::Overlay,
+            RenderPrimitive::text(
+                shortcut,
+                shortcut_rect.x,
+                text_baseline(shortcut_rect, category_font_size),
+                category_style,
+            )
+            .with_clip(ClipRect::new(shortcut_rect))
+            .with_debug_label("command palette row shortcut"),
+        );
+    }
 }
 
 #[cfg(test)]
@@ -5636,5 +5739,31 @@ mod tests {
         assert!(scene.primitives().iter().any(|(_, primitive)| {
             primitive.debug_label.as_deref() == Some("command palette row")
         }));
+    }
+
+    #[test]
+    fn command_palette_paints_shortcut_and_disabled_reason() {
+        let mut palette = CommandPaletteState::new(vec![
+            CommandPaletteEntry::new(
+                "scene.save",
+                "Save Scene",
+                "Scene",
+                Some("Save loaded scene".to_string()),
+                false,
+            )
+            .with_shortcut(Some("Ctrl+S".to_string()))
+            .with_disabled_reason(Some("No project scene loaded".to_string())),
+        ]);
+        palette.open();
+        let mut scene = RenderScene::new();
+        paint_command_palette_overlay(
+            &mut scene,
+            &palette,
+            Rect::new(0.0, 0.0, 800.0, 600.0),
+            &PaintContext::new(Theme::default()),
+        );
+        let texts = painted_texts(&scene);
+        assert!(texts.contains(&"Ctrl+S"));
+        assert!(texts.contains(&"Scene - No project scene loaded"));
     }
 }
