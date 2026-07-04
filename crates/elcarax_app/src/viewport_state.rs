@@ -34,11 +34,6 @@ impl AppViewportState {
         self.camera.zoom_by(factor);
     }
 
-    #[cfg(feature = "native-shell")]
-    pub(crate) fn reset_camera(&mut self) {
-        self.camera.reset();
-    }
-
     pub(crate) fn execute_command_id(
         &mut self,
         id: &str,
@@ -159,6 +154,7 @@ impl AppViewportState {
 
     fn clear(&mut self) -> ViewportCommandResult {
         self.inner.clear_frame();
+        self.camera.reset();
         ViewportCommandResult::new(VIEWPORT_CLEAR_COMMAND, "viewport cleared")
     }
 
