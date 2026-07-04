@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use elcarax_commands::{
-    CommandId, CommandInvocation, CommandRegistry, CommandResult, RegisteredCommand,
-    built_in_commands,
+    CommandBindingRegistry, CommandId, CommandInvocation, CommandRegistry, CommandResult,
+    CommandScope, KeyChord, KeyModifier, built_in_commands,
 };
 use elcarax_core::{ElcaraxError, Result};
 use elcarax_gpu::{GpuContext, GpuContextSpec, GpuSurface, RenderError, SurfaceSize};
@@ -12,16 +12,20 @@ use elcarax_platform::{
 };
 use elcarax_render::{Rect, RenderScene, Renderer, RendererConfig, RendererError, text_stats};
 use elcarax_ui::{
-    CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, EditorShellIds, KeyboardKey,
-    LayoutConstraints, ModifierState, PaintContext, PointerButton, PointerPosition, Theme,
-    UiContext, UiEvent, UiInputEvent, UiTree, build_editor_shell_with_layout,
-    paint_command_palette_overlay,
+    CommandPaletteAction, CommandPaletteState, EditorShellIds, KeyboardKey, LayoutConstraints,
+    ModifierState, PaintContext, PointerButton, PointerPosition, Theme, UiContext, UiEvent,
+    UiInputEvent, UiTree, build_editor_shell_with_layout, paint_command_palette_overlay,
 };
 
 use crate::adapter_state::{
     ADAPTER_HANDSHAKE_COMMAND, AdapterState, adapter_command_for_inspector_edit,
 };
 use crate::asset_ui::asset_row_index_for_widget;
+use crate::editor_commands::{
+    HELP_COMMANDS_COMMAND, HELP_SHORTCUTS_COMMAND, PALETTE_CLOSE_COMMAND, PALETTE_OPEN_COMMAND,
+    SHOW_READY_STATUS_COMMAND, SHOW_RENDERER_STATS_COMMAND, ToolbarSnapshot, command_availability,
+    command_summary, palette_entries, shortcut_summary, toolbar_snapshot,
+};
 use crate::editor_session::EditorSessionState;
 use crate::inspector_ui::inspector_value_index_for_widget;
 use crate::project_config::AppProjectConfig;
@@ -29,7 +33,8 @@ use crate::project_picker::{
     ProjectPathResolution, resolve_create_project_root, resolve_open_project_path,
 };
 use crate::project_state::{PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND};
-use crate::project_ui::{apply_editor_snapshot, editor_snapshots};
+use crate::project_ui::{apply_editor_snapshot, apply_toolbar_snapshot, editor_snapshots};
+use crate::scene_state::SCENE_SAVE_COMMAND;
 use crate::scene_ui::{
     scene_expand_index_for_widget, scene_row_index_for_widget, shell_content_from_editor_state,
 };
@@ -65,7 +70,9 @@ struct UiState {
     scene: RenderScene,
     scene_dirty: bool,
     command_registry: CommandRegistry,
+    command_bindings: CommandBindingRegistry,
     command_palette: CommandPaletteState,
+    toolbar: ToolbarSnapshot,
     editor: EditorSessionState,
     adapter_state: AdapterState,
     viewport_state: AppViewportState,
@@ -230,11 +237,7 @@ impl ShellState {
         if poll_asset_watch(ui)? {
             app.request_redraw();
         }
-        if handle_editor_shortcut(ui, &input, self.modifiers)? {
-            app.request_redraw();
-            return Ok(());
-        }
-        if handle_palette_shortcut(ui, &input, self.modifiers)? {
+        if handle_registry_shortcut(ui, &input, self.modifiers)? {
             app.request_redraw();
             return Ok(());
         }
@@ -289,11 +292,24 @@ fn build_ui_state(
             .map_err(|error| {
                 NativeAppError::Window(format!("failed to build UI shell: {error}"))
             })?;
+    let bounds = context.root_bounds;
     let command_registry =
         built_in_commands().map_err(|error| NativeAppError::Window(error.to_string()))?;
-    let command_palette =
-        CommandPaletteState::new(palette_entries_from_registry(&command_registry));
-    let bounds = context.root_bounds;
+    let command_bindings = CommandBindingRegistry::from_commands(&command_registry);
+    let command_palette = CommandPaletteState::new(palette_entries(
+        &command_registry,
+        &command_bindings,
+        &editor,
+        &adapter_state,
+        &viewport_state,
+    ));
+    let toolbar = toolbar_snapshot(
+        &command_registry,
+        &command_bindings,
+        &editor,
+        &adapter_state,
+        &viewport_state,
+    );
     let mut ui = UiState {
         tree: shell.tree,
         ids: shell.ids,
@@ -301,7 +317,9 @@ fn build_ui_state(
         scene: RenderScene::new(),
         scene_dirty: true,
         command_registry,
+        command_bindings,
         command_palette,
+        toolbar,
         editor,
         adapter_state,
         viewport_state,
@@ -552,73 +570,70 @@ fn repaint_ui_scene(ui: &mut UiState) -> std::result::Result<(), NativeAppError>
     Ok(())
 }
 
-fn palette_entries_from_registry(registry: &CommandRegistry) -> Vec<CommandPaletteEntry> {
-    registry
-        .all()
-        .into_iter()
-        .map(palette_entry_from_command)
-        .collect()
-}
-
-fn palette_entry_from_command(command: &RegisteredCommand) -> CommandPaletteEntry {
-    CommandPaletteEntry::new(
-        command.id().as_str(),
-        command.name().as_str(),
-        command.category().label(),
-        command
-            .description()
-            .map(|description| description.as_str().to_string()),
-        command.enabled(),
-    )
-}
-
-fn handle_editor_shortcut(
+fn handle_registry_shortcut(
     ui: &mut UiState,
     input: &UiInputEvent,
     modifiers: elcarax_platform::ModifierState,
 ) -> std::result::Result<bool, NativeAppError> {
-    if !modifiers.control {
-        return Ok(false);
-    }
     let UiInputEvent::KeyPressed(key) = input else {
         return Ok(false);
     };
-    if matches!(key, KeyboardKey::Character(value) if value.eq_ignore_ascii_case("s")) {
-        execute_scene_save(ui)?;
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-fn execute_scene_save(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
-    let Some(outcome) = ui.editor.session_mut().save_scene() else {
-        return Ok(());
-    };
-    set_status_text(ui, outcome.status_message())?;
-    apply_editor_snapshot_to_ui(ui)?;
-    Ok(())
-}
-
-fn handle_palette_shortcut(
-    ui: &mut UiState,
-    input: &UiInputEvent,
-    modifiers: elcarax_platform::ModifierState,
-) -> std::result::Result<bool, NativeAppError> {
-    if !modifiers.control {
-        return Ok(false);
-    }
-    let UiInputEvent::KeyPressed(key) = input else {
+    let Some(chord) = key_chord_from_input(key, modifiers) else {
         return Ok(false);
     };
-    if !is_command_palette_shortcut(key) {
+    let Some(command_id) = ui
+        .command_bindings
+        .command_for_chord(&chord, CommandScope::Global)
+        .cloned()
+    else {
+        return Ok(false);
+    };
+    if ui.tree.focus_accepts_text() && !text_focus_allows_shortcut(command_id.as_str()) {
         return Ok(false);
     }
-    open_palette(ui)?;
+    dispatch_command_id(ui, command_id.as_str())?;
     Ok(true)
 }
 
-fn is_command_palette_shortcut(key: &KeyboardKey) -> bool {
-    matches!(key, KeyboardKey::Character(value) if value.eq_ignore_ascii_case("k") || value.eq_ignore_ascii_case("p"))
+fn key_chord_from_input(
+    key: &KeyboardKey,
+    modifiers: elcarax_platform::ModifierState,
+) -> Option<KeyChord> {
+    let key = key_name_for_chord(key)?;
+    let mut chord_modifiers = Vec::new();
+    if modifiers.control {
+        chord_modifiers.push(KeyModifier::Control);
+    }
+    if modifiers.shift {
+        chord_modifiers.push(KeyModifier::Shift);
+    }
+    if modifiers.alt {
+        chord_modifiers.push(KeyModifier::Alt);
+    }
+    if modifiers.super_key {
+        chord_modifiers.push(KeyModifier::Super);
+    }
+    KeyChord::new(chord_modifiers, key).ok()
+}
+
+fn key_name_for_chord(key: &KeyboardKey) -> Option<&str> {
+    match key {
+        KeyboardKey::Enter => Some("Enter"),
+        KeyboardKey::Space => Some("Space"),
+        KeyboardKey::Tab => Some("Tab"),
+        KeyboardKey::Escape => Some("Escape"),
+        KeyboardKey::Backspace => Some("Backspace"),
+        KeyboardKey::ArrowLeft => Some("ArrowLeft"),
+        KeyboardKey::ArrowRight => Some("ArrowRight"),
+        KeyboardKey::ArrowUp => Some("ArrowUp"),
+        KeyboardKey::ArrowDown => Some("ArrowDown"),
+        KeyboardKey::Character(value) => Some(value.as_str()),
+        KeyboardKey::Other(_) => None,
+    }
+}
+
+fn text_focus_allows_shortcut(command_id: &str) -> bool {
+    matches!(command_id, SCENE_SAVE_COMMAND | PALETTE_OPEN_COMMAND)
 }
 
 fn handle_palette_input(
@@ -649,13 +664,12 @@ fn handle_palette_input(
 }
 
 fn open_palette(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
-    let open_id = command_id("elcarax.palette.open")?;
+    let open_id = command_id(PALETTE_OPEN_COMMAND)?;
     if matches!(
         ui.command_registry.invoke(&open_id),
         CommandResult::Invoked(_)
     ) {
-        ui.command_palette
-            .replace_entries(palette_entries_from_registry(&ui.command_registry));
+        refresh_command_surfaces(ui)?;
         ui.command_palette.open();
         ui.scene_dirty = true;
     }
@@ -666,12 +680,24 @@ fn execute_selected_palette_command(ui: &mut UiState) -> std::result::Result<(),
     let Some(entry) = ui.command_palette.selected_entry() else {
         return Ok(());
     };
-    let id = command_id(entry.id.as_str())?;
-    if let CommandResult::Invoked(invocation) = ui.command_registry.invoke(&id) {
-        apply_command_invocation(ui, &invocation)?;
-    }
+    let id = entry.id.clone();
+    dispatch_command_id(ui, id.as_str())?;
     if ui.command_palette.is_open() {
         ui.command_palette.close();
+    }
+    Ok(())
+}
+
+fn dispatch_command_id(ui: &mut UiState, id: &str) -> std::result::Result<(), NativeAppError> {
+    let availability = command_availability(id, &ui.editor, &ui.adapter_state, &ui.viewport_state);
+    if !availability.is_enabled() {
+        let reason = availability.disabled_reason().unwrap_or("Command disabled");
+        set_status_text(ui, format!("{id}: {reason}"))?;
+        return Ok(());
+    }
+    let id = command_id(id)?;
+    if let CommandResult::Invoked(invocation) = ui.command_registry.invoke(&id) {
+        apply_command_invocation(ui, &invocation)?;
     }
     Ok(())
 }
@@ -716,6 +742,13 @@ fn apply_command_invocation(
             .session_mut()
             .after_asset_command(invocation.id.as_str());
         apply_editor_snapshot_to_ui(ui)?;
+        return Ok(());
+    }
+    if invocation.id.as_str() == SCENE_SAVE_COMMAND {
+        if let Some(outcome) = ui.editor.session_mut().save_scene() {
+            set_status_text(ui, outcome.status_message())?;
+            apply_editor_snapshot_to_ui(ui)?;
+        }
         return Ok(());
     }
     if let Some(outcome) = ui
@@ -768,12 +801,18 @@ fn apply_command_invocation(
         return Ok(());
     }
     match invocation.id.as_str() {
-        "elcarax.palette.open" => ui.command_palette.open(),
-        "elcarax.palette.close" => ui.command_palette.close(),
-        "elcarax.status.show_renderer_stats" => {
-            set_status_text(ui, renderer_stats_status(&ui.scene))?
-        }
-        "elcarax.status.show_ready" => set_status_text(
+        PALETTE_OPEN_COMMAND => open_palette(ui)?,
+        PALETTE_CLOSE_COMMAND => ui.command_palette.close(),
+        HELP_SHORTCUTS_COMMAND => set_status_text(
+            ui,
+            shortcut_summary(&ui.command_registry, &ui.command_bindings),
+        )?,
+        HELP_COMMANDS_COMMAND => set_status_text(
+            ui,
+            command_summary(&ui.command_registry, &ui.command_bindings),
+        )?,
+        SHOW_RENDERER_STATS_COMMAND => set_status_text(ui, renderer_stats_status(&ui.scene))?,
+        SHOW_READY_STATUS_COMMAND => set_status_text(
             ui,
             "Ready - open a project or connect an adapter".to_string(),
         )?,
@@ -877,7 +916,31 @@ fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), Nati
         &ui.viewport_state,
         ui.bounds,
     )
-    .map_err(|error| NativeAppError::Window(format!("failed to update editor UI: {error}")))
+    .map_err(|error| NativeAppError::Window(format!("failed to update editor UI: {error}")))?;
+    refresh_command_surfaces(ui)?;
+    ui.tree
+        .layout(LayoutConstraints { bounds: ui.bounds })
+        .map_err(|error| NativeAppError::Window(format!("failed to relayout UI: {error}")))?;
+    Ok(())
+}
+
+fn refresh_command_surfaces(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    ui.command_palette.replace_entries(palette_entries(
+        &ui.command_registry,
+        &ui.command_bindings,
+        &ui.editor,
+        &ui.adapter_state,
+        &ui.viewport_state,
+    ));
+    ui.toolbar = toolbar_snapshot(
+        &ui.command_registry,
+        &ui.command_bindings,
+        &ui.editor,
+        &ui.adapter_state,
+        &ui.viewport_state,
+    );
+    apply_toolbar_snapshot(&mut ui.tree, ui.ids, &ui.toolbar)
+        .map_err(|error| NativeAppError::Window(format!("failed to update toolbar: {error}")))
 }
 
 fn poll_asset_watch(ui: &mut UiState) -> std::result::Result<bool, NativeAppError> {
@@ -894,8 +957,11 @@ fn apply_ui_events(
 ) -> std::result::Result<bool, NativeAppError> {
     let mut changed = false;
     for event in events {
-        if matches!(event, UiEvent::Clicked { id } if *id == ui.ids.run_button) {
-            execute_project_open(ui)?;
+        if let UiEvent::Clicked { id } = event
+            && let Some(command_id) = toolbar_command_for_widget(ui, *id)
+        {
+            let command_id = command_id.to_string();
+            dispatch_command_id(ui, command_id.as_str())?;
             changed = true;
             continue;
         }
@@ -1008,6 +1074,18 @@ fn apply_ui_events(
         }
     }
     Ok(changed)
+}
+
+fn toolbar_command_for_widget(ui: &UiState, id: elcarax_ui::WidgetId) -> Option<&str> {
+    let index = ui
+        .ids
+        .toolbar_actions
+        .iter()
+        .position(|action_id| *action_id == id)?;
+    ui.toolbar
+        .actions()
+        .nth(index)
+        .map(|action| action.command_id.as_str())
 }
 
 fn apply_scroll_delta(

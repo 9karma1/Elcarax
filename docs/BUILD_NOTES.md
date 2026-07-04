@@ -40,7 +40,17 @@ Editable inspector properties are chosen from schema metadata via `InspectorValu
 - **Vector** — grouped X/Y/Z fields; Enter commits the merged vector text
 - **Enum** — click to cycle through `PropertySchema::editable_enum` variants
 
-**Ctrl+S** saves the loaded project scene. Unsaved project scenes show `*` in the toolbar and scene panel. Project close/open/switch is blocked until the scene is saved or reloaded with `scene.load`.
+Default editor shortcuts are owned by `elcarax_commands` as platform-neutral key chords and are dispatched by `elcarax_app` after the native shell maps platform input:
+
+- `Ctrl+K` opens the command palette
+- `Ctrl+N` creates a project through the configured/native picker path
+- `Ctrl+O` opens a project through the configured/native picker path
+- `Ctrl+Shift+O` reopens the last project
+- `Ctrl+S` saves the loaded project scene
+- `Ctrl+Z` runs `edit.undo`
+- `Ctrl+Y` and `Ctrl+Shift+Z` run `edit.redo`
+
+Unsaved project scenes show `*` in the toolbar and scene panel. Project close/open/switch is blocked until the scene is saved or reloaded with `scene.load`.
 
 CLI:
 
@@ -66,7 +76,7 @@ cargo run -p elcarax_app --features native-shell
 
 The native shell is a manual desktop smoke test. It opens an `Elcarax` window through `winit`, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes pointer and keyboard input into the UI tree and command palette, renders primitive rectangles/lines through `elcarax_render`, and renders static labels through `elcarax_text`.
 
-The toolbar `Open` button executes `project.open`, using a configured path when present or the native folder picker otherwise.
+Toolbar buttons are generated from command metadata and current app availability. New, Open, Save, Undo, Redo, Scan, Refresh, and Connect currently dispatch through the same command path as palette rows and shortcuts. Disabled toolbar commands remain visible but non-interactive; the command palette shows disabled commands muted with a short reason.
 
 ## Windows MSVC Linker (LNK1104)
 
@@ -79,7 +89,9 @@ cargo clean
 cargo run -p elcarax_app --features native-shell
 ```
 
-Ctrl+K should open the command palette. Typing `ready` and pressing Enter should execute `Show Ready Status` and update the status text to `Ready - open a project or connect an adapter`. Escape should close the palette without executing a command.
+Ctrl+K should open the command palette. Rows show shortcut hints where a default binding exists. Typing `ready` and pressing Enter should execute `Show Ready Status` and update the status text to `Ready - open a project or connect an adapter`. Escape should close the palette without executing a command.
+
+`help.shortcuts` reports the default keybinding summary and conflict count. `help.commands` reports command counts by category and conflicted binding count.
 
 Typing `project.create`, `project.open`, `project.validate`, `project.close`, `project.show_recent`, or `project.reopen_last` in the command palette should update the status bar and project panel. `project.create` and `project.open` use configured paths when present, otherwise the native folder picker.
 
@@ -101,7 +113,7 @@ Editable inspector tests still cover command-history mutation through fixtures, 
 
 Adapter-backed writeback remains covered through adapter tests and reference scene fixtures. Normal UI widgets emit editor actions only and do not spawn adapter processes directly.
 
-The console proof prints empty startup state, exercises real temporary project create/open/validate with auto-loaded default scene, writes real files under `assets/`, runs `asset.scan`, reports asset kinds, selects the first asset, modifies the asset folder, runs `asset.refresh`, proves project close clears asset state, reopens the last project, proves scene save and document round-trip, then runs the viewport proof with the stdio game adapter.
+The console proof prints empty startup state, command registry size, keybinding count, binding conflict count, toolbar action count, `help.shortcuts`, and `help.commands`. It exercises real temporary project create/open/validate with auto-loaded default scene, writes real files under `assets/`, runs `asset.scan`, reports asset kinds, selects the first asset, modifies the asset folder, runs `asset.refresh`, proves project close clears asset state, reopens the last project, saves the scene through the Ctrl+S-equivalent registry binding, proves scene document round-trip, then runs the viewport proof with the stdio game adapter.
 
 `viewport.request_frame`, `viewport.clear`, and `viewport.show_status` are registered viewport commands. Without a connected adapter, `viewport.request_frame` reports `No adapter connected`. With a connected adapter that supports viewport preview, the center viewport displays the adapter-provided RGBA frame with letterboxed layout.
 
@@ -130,6 +142,7 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, `elcarax_adapter_api`, `elcarax_project`, and `elcarax_assets` remain engine-, GPU-, window-, renderer-, UI-, and text-library-neutral.
 - `elcarax_core` also owns viewport camera/layout math (`ViewportCamera`, `layout_viewport_frame`).
 - `elcarax_scene_model` owns `InspectorValueWidget` descriptors and orthographic `pick_object_at` helpers.
+- `elcarax_commands` owns command metadata, categories, key chords, default shortcuts, keybinding lookup, and conflict diagnostics. It does not depend on `winit`.
 - `elcarax_platform` owns `winit` integration.
 - `elcarax_gpu` owns `wgpu` context and surface integration.
 - `elcarax_text` owns `cosmic-text` shaping, layout cache, and system-font rasterization.
@@ -138,8 +151,8 @@ $env:TEMP='D:\elcarax_v0_1\target\tmp'
 - `elcarax_adapter_api` owns serializable adapter protocol messages only.
 - `elcarax_adapter_host` owns adapter process spawning, JSON-line transport, request correlation, events, and failure handling.
 - `elcarax_assets` owns filesystem asset scanning, stable path-derived asset IDs, metadata, diagnostics, index snapshots, and the contained `notify` watcher service abstraction.
-- `elcarax_app` owns `EditorSession` / `EditorSessionState`, app-level project/asset/scene/inspector/viewport/adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, then pushes display text into the UI tree
+- `elcarax_app` owns `EditorSession` / `EditorSessionState`, command availability, command dispatch against editor state, toolbar snapshots, app-level project/asset/scene/inspector/viewport/adapter state composition, routes local edits through command history, routes adapter-backed edits through adapter writeback, then pushes display text into the UI tree
 
 ## Current Exclusions
 
-The current shell deliberately excludes full tabbed/floating docking, IME/full caret selection editing, full keybinding registry, fuzzy scoring, command macros, recent-projects welcome UI, real accessibility adapter integration, async command execution, request timeouts, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, multi-scene switcher UI, save-on-close confirmation dialogs, continuous autosave, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, adapter viewport pick protocol, shared GPU texture interop, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.
+The current shell deliberately excludes full tabbed/floating docking, IME/full caret selection editing, user-editable keybinding preferences, multi-stroke chords, command macro recording, fuzzy command scoring, menu bars, full settings UI, accessibility command output beyond stored metadata, recent-projects welcome UI, real accessibility adapter integration, async command execution, request timeouts, project migration beyond basic schema version checks, asset thumbnails, asset previews, asset import pipeline, asset drag/drop, asset rename/move/delete, asset dependency graph, asset sidecar metadata, asset build/import cache, hierarchy mutation, hierarchy drag/drop, component add/remove, scene object creation/deletion, multi-scene switcher UI, save-on-close confirmation dialogs, continuous autosave, asset assignment editing, multi-object editing, validation beyond basic type/editability checks, conflict resolution beyond expected-old-value checks, continuous viewport frame streaming, adapter viewport pick protocol, shared GPU texture interop, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, real engine synchronization, real engine adapter integration, and C++ adapter SDK integration.

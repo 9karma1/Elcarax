@@ -1,6 +1,8 @@
 use elcarax_adapter_api::{HandshakeRequest, LoadProjectRequest};
 use elcarax_adapter_host::{AdapterHost, AdapterProcessSpec};
-use elcarax_commands::built_in_commands;
+use elcarax_commands::{
+    CommandBindingRegistry, CommandScope, KeyChord, KeyModifier, built_in_commands,
+};
 use elcarax_core::{Result, ViewportStatus};
 use elcarax_devtools::DevtoolsSnapshot;
 use elcarax_gpu::FrameStats;
@@ -10,6 +12,7 @@ use elcarax_ui::{PaintContext, Theme, UiContext, build_editor_shell_with_content
 
 use crate::adapter_state::AdapterState;
 use crate::asset_state::{ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, ASSET_SHOW_SELECTED_COMMAND};
+use crate::editor_commands::{command_summary, shortcut_summary, toolbar_snapshot};
 use crate::editor_session::EditorSessionState;
 use crate::project_config::AppProjectConfig;
 use crate::project_state::{
@@ -17,7 +20,7 @@ use crate::project_state::{
     PROJECT_SHOW_RECENT_COMMAND, PROJECT_VALIDATE_COMMAND,
 };
 use crate::project_ui::editor_snapshots;
-use crate::scene_state::SCENE_LOAD_COMMAND;
+use crate::scene_state::{SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND};
 use crate::scene_ui::shell_content_from_editor_state;
 use crate::viewport_state::{
     AppViewportState, VIEWPORT_CLEAR_COMMAND, VIEWPORT_REQUEST_FRAME_COMMAND,
@@ -28,6 +31,9 @@ pub fn run_console_proof() -> Result<()> {
     println!("Elcarax v0.1 editor startup");
     println!("app_initialized: true");
     println!("command_registry: {} command(s)", startup.command_count);
+    println!("keybindings: {} binding(s)", startup.binding_count);
+    println!("keybinding_conflicts: {}", startup.binding_conflict_count);
+    println!("toolbar_actions: {}", startup.toolbar_action_count);
     println!("project_state: {}", startup.project_state);
     println!("asset_state: {}", startup.asset_state);
     println!("adapter_state: {}", startup.adapter_state);
@@ -47,6 +53,8 @@ pub fn run_console_proof() -> Result<()> {
     );
     println!("devtools: {}", startup.devtools);
     println!("status: Ready - open a project or connect an adapter");
+    println!("help.shortcuts: {}", startup.shortcut_help);
+    println!("help.commands: {}", startup.command_help);
 
     run_project_proof()?;
     run_viewport_proof()?;
@@ -55,6 +63,11 @@ pub fn run_console_proof() -> Result<()> {
 
 struct StartupSummary {
     command_count: usize,
+    binding_count: usize,
+    binding_conflict_count: usize,
+    toolbar_action_count: usize,
+    shortcut_help: String,
+    command_help: String,
     project_state: String,
     asset_state: String,
     adapter_state: String,
@@ -85,6 +98,14 @@ fn build_startup_summary() -> Result<StartupSummary> {
     let registry = built_in_commands().map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to register commands: {error}"))
     })?;
+    let bindings = CommandBindingRegistry::from_commands(&registry);
+    let toolbar = toolbar_snapshot(
+        &registry,
+        &bindings,
+        &editor,
+        &adapter_state,
+        &viewport_state,
+    );
     let content = shell_content_from_editor_state(editor_snapshots(
         &editor.project.ui_snapshot(),
         &editor.assets.ui_snapshot(),
@@ -118,6 +139,11 @@ fn build_startup_summary() -> Result<StartupSummary> {
     };
     Ok(StartupSummary {
         command_count: registry.all().len(),
+        binding_count: bindings.bindings().len(),
+        binding_conflict_count: bindings.diagnostics().len(),
+        toolbar_action_count: toolbar.actions().count(),
+        shortcut_help: shortcut_summary(&registry, &bindings),
+        command_help: command_summary(&registry, &bindings),
         project_state: "No project open".to_string(),
         asset_state: "No project open".to_string(),
         adapter_state: "Disconnected; no adapter configured".to_string(),
@@ -145,6 +171,10 @@ fn run_project_proof() -> Result<()> {
     let project_root = temp.join("project");
 
     println!("project_proof: begin");
+    let registry = built_in_commands().map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("failed to register commands: {error}"))
+    })?;
+    let bindings = CommandBindingRegistry::from_commands(&registry);
     let config = AppProjectConfig {
         create_root: Some(project_root.clone()),
         create_name: Some("Console Proof Project".to_string()),
@@ -156,11 +186,7 @@ fn run_project_proof() -> Result<()> {
     assert!(!session.project.is_project_loaded());
     println!("project.startup: no project open");
 
-    let create = session
-        .session_mut()
-        .execute_project_command(PROJECT_CREATE_COMMAND)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing create result".to_string());
+    let create = dispatch_session_command(&mut session, PROJECT_CREATE_COMMAND);
     println!("project.create: {create}");
     assert!(session.project.is_project_loaded());
     assert!(session.scene.snapshot().is_some());
@@ -171,30 +197,15 @@ fn run_project_proof() -> Result<()> {
         ..AppProjectConfig::default()
     };
     session = EditorSessionState::new(open_config);
-    let open = session
-        .session_mut()
-        .execute_project_command(PROJECT_OPEN_COMMAND)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing open result".to_string());
+    let open = dispatch_session_command(&mut session, PROJECT_OPEN_COMMAND);
     println!("project.open: {open}");
     create_console_asset_files(project_root.join("assets").as_path())?;
 
-    let validate = session
-        .session_mut()
-        .execute_project_command(PROJECT_VALIDATE_COMMAND)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing validate result".to_string());
+    let validate = dispatch_session_command(&mut session, PROJECT_VALIDATE_COMMAND);
     println!("project.validate: {validate}");
 
-    let scan = session
-        .assets
-        .execute_command_id(ASSET_SCAN_COMMAND, session.project.is_project_loaded())
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing scan result".to_string());
+    let scan = dispatch_session_command(&mut session, ASSET_SCAN_COMMAND);
     println!("asset.scan: {scan}");
-    session
-        .session_mut()
-        .after_asset_command(ASSET_SCAN_COMMAND);
     println!("asset.kinds: {}", session.assets.kind_summary());
     if session.assets.select_row(0) {
         let selected = session
@@ -212,21 +223,10 @@ fn run_project_proof() -> Result<()> {
     fs::write(assets_root.join("notes.txt"), "notes").map_err(|error| {
         elcarax_core::ElcaraxError::Internal(format!("failed to update console asset: {error}"))
     })?;
-    let refresh = session
-        .assets
-        .execute_command_id(ASSET_REFRESH_COMMAND, session.project.is_project_loaded())
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing refresh result".to_string());
+    let refresh = dispatch_session_command(&mut session, ASSET_REFRESH_COMMAND);
     println!("asset.refresh: {refresh}");
-    session
-        .session_mut()
-        .after_asset_command(ASSET_REFRESH_COMMAND);
 
-    let recent = session
-        .session_mut()
-        .execute_project_command(PROJECT_SHOW_RECENT_COMMAND)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing recent result".to_string());
+    let recent = dispatch_session_command(&mut session, PROJECT_SHOW_RECENT_COMMAND);
     println!("project.show_recent: {recent}");
 
     let close = session.session_mut().close_project();
@@ -240,25 +240,14 @@ fn run_project_proof() -> Result<()> {
         ..AppProjectConfig::default()
     };
     session = EditorSessionState::new(reopen_config);
-    let reopen = session
-        .session_mut()
-        .execute_project_command(PROJECT_REOPEN_LAST_COMMAND)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing reopen result".to_string());
+    let reopen = dispatch_session_command(&mut session, PROJECT_REOPEN_LAST_COMMAND);
     println!("project.reopen_last: {reopen}");
     assert!(session.project.is_project_loaded());
 
-    let scene_reload = session
-        .session_mut()
-        .execute_scene_command(SCENE_LOAD_COMMAND)
-        .map(|outcome| outcome.status_message())
-        .unwrap_or_else(|| "missing scene reload result".to_string());
+    let scene_reload = dispatch_session_command(&mut session, SCENE_LOAD_COMMAND);
     println!("scene.reload: {scene_reload}");
-    let scene_save = session
-        .session_mut()
-        .save_scene()
-        .map(|outcome| outcome.status_message())
-        .unwrap_or_else(|| "missing scene save result".to_string());
+    let scene_save_command = command_for_shortcut(&bindings, &[KeyModifier::Control], "S")?;
+    let scene_save = dispatch_session_command(&mut session, scene_save_command.as_str());
     println!("scene.save: {scene_save}");
 
     prove_scene_document_round_trip(&mut session)?;
@@ -266,6 +255,49 @@ fn run_project_proof() -> Result<()> {
     let _ = fs::remove_dir_all(&temp);
     println!("project_proof: complete");
     Ok(())
+}
+
+fn command_for_shortcut(
+    bindings: &CommandBindingRegistry,
+    modifiers: &[KeyModifier],
+    key: &str,
+) -> Result<String> {
+    let chord = KeyChord::new(modifiers.iter().cloned(), key).map_err(|error| {
+        elcarax_core::ElcaraxError::Internal(format!("invalid console shortcut: {error}"))
+    })?;
+    bindings
+        .command_for_chord(&chord, CommandScope::Global)
+        .map(|id| id.as_str().to_string())
+        .ok_or_else(|| {
+            elcarax_core::ElcaraxError::Internal(format!(
+                "missing console shortcut binding for {}",
+                chord.display_label()
+            ))
+        })
+}
+
+fn dispatch_session_command(session: &mut EditorSessionState, command_id: &str) -> String {
+    if command_id == SCENE_SAVE_COMMAND {
+        return session
+            .session_mut()
+            .save_scene()
+            .map(|outcome| outcome.status_message())
+            .unwrap_or_else(|| "missing scene save result".to_string());
+    }
+    if let Some(result) = session.session_mut().execute_project_command(command_id) {
+        return result.message().to_string();
+    }
+    if let Some(result) = session
+        .assets
+        .execute_command_id(command_id, session.project.is_project_loaded())
+    {
+        session.session_mut().after_asset_command(command_id);
+        return result.message().to_string();
+    }
+    if let Some(outcome) = session.session_mut().execute_scene_command(command_id) {
+        return outcome.status_message();
+    }
+    format!("missing command result: {command_id}")
 }
 
 fn prove_scene_document_round_trip(session: &mut EditorSessionState) -> Result<()> {
