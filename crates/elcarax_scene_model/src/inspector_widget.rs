@@ -1,8 +1,6 @@
 //! Schema-driven inspector value widget descriptors.
 
-use crate::{
-    NumericEditMetadata, PropertyEditKind, PropertyKind, PropertySchema, PropertyValue,
-};
+use crate::{NumericEditMetadata, PropertyEditKind, PropertyKind, PropertySchema, PropertyValue};
 
 pub const MAX_ENUM_VARIANTS: usize = 8;
 
@@ -35,10 +33,7 @@ impl EnumVariantList {
         if slice.is_empty() {
             return None;
         }
-        let index = slice
-            .iter()
-            .position(|value| value == current)
-            .unwrap_or(0);
+        let index = slice.iter().position(|value| value == current).unwrap_or(0);
         let next = (index + 1) % slice.len();
         Some(slice[next].clone())
     }
@@ -105,9 +100,7 @@ pub fn inspector_value_widget_for(
             selected: enum_display(value),
             variants: EnumVariantList::from_slice(&schema.enum_variants),
         },
-        PropertyEditKind::Unsupported => {
-            InspectorValueWidget::ReadOnly(value.display_label())
-        }
+        PropertyEditKind::Unsupported => InspectorValueWidget::ReadOnly(value.display_label()),
     }
 }
 
@@ -215,10 +208,7 @@ mod tests {
             PropertyGroup::new("General"),
         );
         let widget = inspector_value_widget_for(&schema, &PropertyValue::Bool(true));
-        assert_eq!(
-            widget,
-            InspectorValueWidget::Toggle { checked: true }
-        );
+        assert_eq!(widget, InspectorValueWidget::Toggle { checked: true });
     }
 
     #[test]

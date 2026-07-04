@@ -10,10 +10,7 @@ pub struct ViewportPickCoord {
     pub v: f32,
 }
 
-pub fn pick_object_at(
-    snapshot: &SceneSnapshot,
-    coord: ViewportPickCoord,
-) -> Option<SceneObjectId> {
+pub fn pick_object_at(snapshot: &SceneSnapshot, coord: ViewportPickCoord) -> Option<SceneObjectId> {
     let world_x = coord.u * 2.0 - 1.0;
     let world_z = 1.0 - coord.v * 2.0;
     let mut best: Option<(SceneObjectId, f32)> = None;
@@ -62,13 +59,7 @@ mod tests {
             Some(object_id) => object_id,
             None => panic!("player should exist"),
         };
-        let picked = pick_object_at(
-            &snapshot,
-            ViewportPickCoord {
-                u: 0.5,
-                v: 0.5,
-            },
-        );
+        let picked = pick_object_at(&snapshot, ViewportPickCoord { u: 0.5, v: 0.5 });
         assert_eq!(picked, Some(player));
     }
 }

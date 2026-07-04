@@ -73,16 +73,12 @@ fn apply_inspector_value_widget(
     widget: &InspectorValueWidget,
 ) -> Result<(), UiError> {
     match widget {
-        InspectorValueWidget::Hidden => tree.set_sized_label_text(
-            value_id,
-            String::new(),
-            INSPECTOR_READONLY_ROW_HEIGHT,
-        ),
-        InspectorValueWidget::ReadOnly(text) => tree.set_sized_label_text(
-            value_id,
-            text.clone(),
-            INSPECTOR_READONLY_ROW_HEIGHT,
-        ),
+        InspectorValueWidget::Hidden => {
+            tree.set_sized_label_text(value_id, String::new(), INSPECTOR_READONLY_ROW_HEIGHT)
+        }
+        InspectorValueWidget::ReadOnly(text) => {
+            tree.set_sized_label_text(value_id, text.clone(), INSPECTOR_READONLY_ROW_HEIGHT)
+        }
         InspectorValueWidget::Text(text) => tree.set_text_field(value_id, text.clone()),
         InspectorValueWidget::Toggle { checked } => tree.set_toggle_field(value_id, *checked),
         InspectorValueWidget::Number {

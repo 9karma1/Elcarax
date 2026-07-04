@@ -1323,11 +1323,7 @@ impl UiTree {
         Ok(())
     }
 
-    pub fn set_toggle_field(
-        &mut self,
-        id: WidgetId,
-        checked: bool,
-    ) -> Result<(), UiError> {
+    pub fn set_toggle_field(&mut self, id: WidgetId, checked: bool) -> Result<(), UiError> {
         let Some(node) = self.nodes.get_mut(&id) else {
             return Err(UiError::MissingNode(id));
         };
@@ -1668,7 +1664,12 @@ impl UiTree {
         let rect = node.rect;
         match property_widget_click(&kind, rect, position) {
             PropertyWidgetClick::Toggle => {
-                if let WidgetKind::Toggle(state) = &mut self.nodes.get_mut(&id).ok_or(UiError::MissingNode(id))?.kind {
+                if let WidgetKind::Toggle(state) = &mut self
+                    .nodes
+                    .get_mut(&id)
+                    .ok_or(UiError::MissingNode(id))?
+                    .kind
+                {
                     state.checked = !state.checked;
                     return Ok(vec![UiEvent::ToggleChanged {
                         id,
@@ -1686,7 +1687,12 @@ impl UiTree {
                 return self.cycle_enum_field(id);
             }
             PropertyWidgetClick::VectorComponent(component) => {
-                if let WidgetKind::VectorField(state) = &mut self.nodes.get_mut(&id).ok_or(UiError::MissingNode(id))?.kind {
+                if let WidgetKind::VectorField(state) = &mut self
+                    .nodes
+                    .get_mut(&id)
+                    .ok_or(UiError::MissingNode(id))?
+                    .kind
+                {
                     state.focused_component = Some(component);
                 }
                 return Ok(Vec::new());
@@ -3455,7 +3461,10 @@ fn paint_viewport(
         }
     }
     if viewport_paint.show_preview_label {
-        let zoom_label = format!("{}% | Adapter Preview", viewport_paint.camera.zoom_percent());
+        let zoom_label = format!(
+            "{}% | Adapter Preview",
+            viewport_paint.camera.zoom_percent()
+        );
         scene.push(
             RenderLayer::Overlay,
             RenderPrimitive::text(
@@ -3505,7 +3514,12 @@ fn paint_letterbox_bars(
         );
     }
     if displayed.x > content.x {
-        let bar = Rect::new(content.x, displayed.y, displayed.x - content.x, displayed.height);
+        let bar = Rect::new(
+            content.x,
+            displayed.y,
+            displayed.x - content.x,
+            displayed.height,
+        );
         scene.push(
             RenderLayer::Overlay,
             RenderPrimitive::solid_rect(bar, context.theme.viewport)

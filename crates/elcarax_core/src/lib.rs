@@ -15,7 +15,7 @@ pub use viewport::{
     ViewportFrameSize, ViewportId, ViewportSource, ViewportState, ViewportStatus,
 };
 pub use viewport_camera::{
-    NormalizedViewportCoord, ViewportCamera, ViewportFramePlacement, ViewportRect,
-    fit_frame_rect, layout_viewport_frame, pointer_to_frame_uv,
+    NormalizedViewportCoord, ViewportCamera, ViewportFramePlacement, ViewportRect, fit_frame_rect,
+    layout_viewport_frame, pointer_to_frame_uv,
 };
 pub use workspace::{Workspace, WorkspaceId, WorkspaceMarker};

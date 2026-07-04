@@ -16,7 +16,9 @@ pub(crate) fn apply_viewport_snapshot(
 ) -> Result<(), UiError> {
     tree.set_label_text(ids.viewport_title, snapshot.title.clone())?;
     tree.set_label_text(ids.viewport_message, snapshot.message.clone())?;
-    let viewport_node = tree.get(ids.viewport_surface).ok_or(UiError::MissingNode(ids.viewport_surface))?;
+    let viewport_node = tree
+        .get(ids.viewport_surface)
+        .ok_or(UiError::MissingNode(ids.viewport_surface))?;
     const VIEWPORT_INSET_TOP: f32 = 40.0;
     const VIEWPORT_INSET_SIDE: f32 = 12.0;
     let content = Rect::new(
@@ -135,7 +137,10 @@ mod tests {
             panic!("viewport snapshot should apply: {error}");
         }
         let paint = shell.tree.viewport_paint().clone();
-        match shell.tree.paint(&PaintContext::new(theme).with_viewport(paint)) {
+        match shell
+            .tree
+            .paint(&PaintContext::new(theme).with_viewport(paint))
+        {
             Ok(scene) => scene,
             Err(error) => panic!("paint should succeed: {error}"),
         }

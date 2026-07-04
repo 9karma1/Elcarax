@@ -1,10 +1,12 @@
 //! Typed inspector property widgets.
 
-use elcarax_render::{Border, CornerRadius, FontFamily, FontWeight, Rect, RenderLayer, RenderPrimitive, TextStyle};
+use elcarax_render::{
+    Border, CornerRadius, FontFamily, FontWeight, Rect, RenderLayer, RenderPrimitive, TextStyle,
+};
 
 use crate::{
     InteractionState, PaintContext, PointerPosition, TextRole, Theme, TypeRole, UiNode, WidgetKind,
-    paint_background, text_field::paint_text_field, text_field::TextFieldState,
+    paint_background, text_field::TextFieldState, text_field::paint_text_field,
 };
 
 pub const TOGGLE_FIELD_WIDTH: f32 = 44.0;
@@ -157,7 +159,12 @@ pub fn paint_number_field(
 ) {
     let theme = &context.theme;
     paint_background(node, context, scene);
-    let decrement = Rect::new(node.rect.x, node.rect.y, NUMBER_STEPPER_WIDTH, node.rect.height);
+    let decrement = Rect::new(
+        node.rect.x,
+        node.rect.y,
+        NUMBER_STEPPER_WIDTH,
+        node.rect.height,
+    );
     let increment = Rect::new(
         node.rect.x + node.rect.width - NUMBER_STEPPER_WIDTH,
         node.rect.y,

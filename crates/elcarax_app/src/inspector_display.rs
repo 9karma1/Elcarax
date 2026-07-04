@@ -286,10 +286,12 @@ mod tests {
         assert!(snapshot.row_labels.iter().any(|label| label == "Health"));
         assert!(snapshot.row_values.iter().any(|value| value == "100"));
         assert!(snapshot.row_editable.iter().any(|editable| *editable));
-        assert!(snapshot
-            .row_widgets
-            .iter()
-            .any(|widget| matches!(widget, InspectorValueWidget::Number { .. })));
+        assert!(
+            snapshot
+                .row_widgets
+                .iter()
+                .any(|widget| matches!(widget, InspectorValueWidget::Number { .. }))
+        );
     }
 
     fn selected_fixture_scene() -> SceneState {

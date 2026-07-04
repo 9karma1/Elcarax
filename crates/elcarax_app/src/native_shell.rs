@@ -984,10 +984,8 @@ fn apply_ui_events(
             && let Some(snapshot) = ui.editor.scene.snapshot()
         {
             use elcarax_scene_model::{ViewportPickCoord, pick_object_at};
-            if let Some(object_id) = pick_object_at(
-                snapshot,
-                ViewportPickCoord { u: *u, v: *v },
-            ) && ui.editor.scene.select_object(object_id)
+            if let Some(object_id) = pick_object_at(snapshot, ViewportPickCoord { u: *u, v: *v })
+                && ui.editor.scene.select_object(object_id)
             {
                 ui.editor.inspector.on_scene_selection_changed();
                 apply_editor_snapshot_to_ui(ui)?;
