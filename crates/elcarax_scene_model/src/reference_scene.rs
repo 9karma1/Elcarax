@@ -162,6 +162,12 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
             PropertyKind::F64,
             &gameplay,
         ))
+        .with_property(editable_enum_property(
+            &["gameplay", "stance"],
+            "Stance",
+            &["Idle", "Run", "Jump"],
+            &gameplay,
+        ))
         .with_property(read_only_property(
             &["references", "mesh"],
             "Mesh",
@@ -190,6 +196,12 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
             ),
             (&["gameplay", "health"], PropertyValue::I64(100)),
             (&["gameplay", "speed"], PropertyValue::F64(6.5)),
+            (
+                &["gameplay", "stance"],
+                PropertyValue::Enum {
+                    variant: "Idle".to_string(),
+                },
+            ),
             (
                 &["references", "mesh"],
                 PropertyValue::AssetRef("assets/models/cube.glb".to_string()),
@@ -262,6 +274,16 @@ fn editable_property(
 ) -> PropertySchema {
     let path = PropertyPath::fixture_from_segments(segments);
     PropertySchema::editable(path, display_name, kind, group.clone())
+}
+
+fn editable_enum_property(
+    segments: &[&str],
+    display_name: &str,
+    variants: &[&str],
+    group: &PropertyGroup,
+) -> PropertySchema {
+    let path = PropertyPath::fixture_from_segments(segments);
+    PropertySchema::editable_enum(path, display_name, variants, group.clone())
 }
 
 fn apply_schema(

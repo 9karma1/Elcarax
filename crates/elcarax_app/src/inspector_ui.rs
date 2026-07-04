@@ -1,4 +1,5 @@
 use elcarax_render::Rect;
+use elcarax_scene_model::InspectorValueWidget;
 use elcarax_ui::{
     EditorShellIds, INSPECTOR_EDITABLE_ROW_HEIGHT, INSPECTOR_READONLY_ROW_HEIGHT, ScrollViewState,
     TextRole, UiError, UiTree,
@@ -50,15 +51,10 @@ pub(crate) fn apply_inspector_snapshot(
         tree.set_sized_label_text(*row_id, snapshot.row_labels[index].clone(), row_height)?;
     }
     for (index, value_id) in ids.inspector_row_values.iter().enumerate() {
+        apply_inspector_value_widget(tree, *value_id, &snapshot.row_widgets[index])?;
         if snapshot.row_editable[index] {
-            tree.set_text_field(*value_id, snapshot.row_values[index].clone())?;
             tree.set_text_role(*value_id, TextRole::Accent)?;
         } else {
-            tree.set_sized_label_text(
-                *value_id,
-                snapshot.row_values[index].clone(),
-                INSPECTOR_READONLY_ROW_HEIGHT,
-            )?;
             tree.set_text_role(*value_id, TextRole::Muted)?;
         }
     }
@@ -69,6 +65,40 @@ pub(crate) fn apply_inspector_snapshot(
     )?;
     tree.layout(elcarax_ui::LayoutConstraints { bounds })?;
     Ok(())
+}
+
+fn apply_inspector_value_widget(
+    tree: &mut UiTree,
+    value_id: elcarax_ui::WidgetId,
+    widget: &InspectorValueWidget,
+) -> Result<(), UiError> {
+    match widget {
+        InspectorValueWidget::Hidden => tree.set_sized_label_text(
+            value_id,
+            String::new(),
+            INSPECTOR_READONLY_ROW_HEIGHT,
+        ),
+        InspectorValueWidget::ReadOnly(text) => tree.set_sized_label_text(
+            value_id,
+            text.clone(),
+            INSPECTOR_READONLY_ROW_HEIGHT,
+        ),
+        InspectorValueWidget::Text(text) => tree.set_text_field(value_id, text.clone()),
+        InspectorValueWidget::Toggle { checked } => tree.set_toggle_field(value_id, *checked),
+        InspectorValueWidget::Number {
+            display,
+            step,
+            is_integer,
+        } => tree.set_number_field(value_id, display.clone(), *step, *is_integer),
+        InspectorValueWidget::Vector {
+            components,
+            count,
+            step: _,
+        } => tree.set_vector_field(value_id, components.clone(), *count),
+        InspectorValueWidget::Enum { selected, variants } => {
+            tree.set_enum_field(value_id, selected.clone(), variants.as_slice())
+        }
+    }
 }
 
 #[cfg_attr(not(feature = "native-shell"), allow(dead_code))]

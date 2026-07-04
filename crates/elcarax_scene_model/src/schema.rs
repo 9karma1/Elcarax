@@ -30,6 +30,7 @@ pub enum PropertyEditKind {
     String,
     Vec2,
     Vec3,
+    Enum,
     Unsupported,
 }
 
@@ -42,8 +43,8 @@ impl PropertyEditKind {
             PropertyKind::String => Self::String,
             PropertyKind::Vec2 => Self::Vec2,
             PropertyKind::Vec3 => Self::Vec3,
+            PropertyKind::Enum => Self::Enum,
             PropertyKind::ColorRgba
-            | PropertyKind::Enum
             | PropertyKind::AssetRef
             | PropertyKind::ObjectRef
             | PropertyKind::List => Self::Unsupported,
@@ -58,6 +59,7 @@ impl PropertyEditKind {
             Self::String => "string",
             Self::Vec2 => "vec2",
             Self::Vec3 => "vec3",
+            Self::Enum => "enum",
             Self::Unsupported => "unsupported",
         }
     }
@@ -141,6 +143,29 @@ impl PropertySchema {
             },
         }
     }
+
+    pub fn editable_enum(
+        path: PropertyPath,
+        display_name: impl Into<String>,
+        variants: &[&str],
+        group: PropertyGroup,
+    ) -> Self {
+        Self {
+            path,
+            display_name: display_name.into(),
+            kind: PropertyKind::Enum,
+            group,
+            editable: !variants.is_empty(),
+            edit_kind: PropertyEditKind::Enum,
+            numeric: None,
+            enum_variants: variants.iter().map(|value| (*value).to_string()).collect(),
+            read_only_reason: if variants.is_empty() {
+                Some("Enum property requires at least one variant".to_string())
+            } else {
+                None
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -183,7 +208,7 @@ fn read_only_reason(kind: PropertyKind) -> String {
         PropertyKind::ObjectRef => {
             "Object reference editing is not enabled in this milestone".to_string()
         }
-        PropertyKind::Enum => "Enum editing is not enabled in this milestone".to_string(),
+        PropertyKind::Enum => "Enum property is read-only in this scene snapshot".to_string(),
         PropertyKind::List => "List editing is not enabled in this milestone".to_string(),
         PropertyKind::Bool
         | PropertyKind::I64

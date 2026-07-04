@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Elcarax is a Rust workspace of narrow crates. `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, `elcarax_adapter_api`, and `elcarax_project` are engine-, GPU-, window-, renderer-, UI-, and text-library-neutral. `elcarax_platform` owns `winit`; `elcarax_gpu` owns `wgpu`; `elcarax_text` owns `cosmic-text`; `elcarax_render` owns primitives, batching, and draw submission; `elcarax_ui` owns retained UI state, layout, input, paint output, and command palette presentation. `elcarax_app` composes console proof and native shell behavior through `EditorSession` for project-bound lifecycle. Keep new feature logic in the owning crate and pass display state into UI rather than letting widgets load or mutate project data.
+Elcarax is a Rust workspace of narrow crates. `elcarax_core`, `elcarax_scene_model`, `elcarax_commands`, `elcarax_adapter_api`, and `elcarax_project` are engine-, GPU-, window-, renderer-, UI-, and text-library-neutral. `elcarax_platform` owns `winit`; `elcarax_gpu` owns `wgpu`; `elcarax_text` owns `cosmic-text`; `elcarax_render` owns primitives, batching, and draw submission; `elcarax_ui` owns retained UI state, layout, scroll views, typed property widgets, input, paint output, and command palette presentation. `elcarax_app` composes console proof and native shell behavior through `EditorSession` for project-bound lifecycle. Keep new feature logic in the owning crate and pass display state into UI rather than letting widgets load or mutate project data.
 
 ## Build, Test, and Development Commands
 

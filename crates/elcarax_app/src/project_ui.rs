@@ -69,6 +69,7 @@ fn empty_inspector_snapshot() -> InspectorUiSnapshot {
         object_kind: String::new(),
         row_labels: std::array::from_fn(|_| String::new()),
         row_values: std::array::from_fn(|_| String::new()),
+        row_widgets: std::array::from_fn(|_| elcarax_scene_model::InspectorValueWidget::Hidden),
         row_editable: [false; elcarax_ui::MAX_VISIBLE_INSPECTOR_ROWS],
         row_property_paths: std::array::from_fn(|_| String::new()),
         row_edit_kinds: [elcarax_scene_model::PropertyEditKind::Unsupported;
@@ -106,6 +107,7 @@ pub(crate) fn apply_project_snapshot(
     snapshot: &ProjectUiSnapshot,
     bounds: Rect,
 ) -> Result<(), UiError> {
+    let viewport = crate::viewport_state::AppViewportState::default();
     apply_editor_snapshot(
         tree,
         ids,
@@ -117,6 +119,7 @@ pub(crate) fn apply_project_snapshot(
             &empty_adapter_snapshot(),
             &empty_viewport_snapshot(),
         ),
+        &viewport,
         bounds,
     )
 }
@@ -153,6 +156,7 @@ pub(crate) fn apply_editor_snapshot(
     tree: &mut UiTree,
     ids: EditorShellIds,
     snapshots: EditorSnapshotRefs<'_>,
+    viewport_state: &crate::viewport_state::AppViewportState,
     bounds: Rect,
 ) -> Result<(), UiError> {
     let project = snapshots.project;
@@ -181,7 +185,7 @@ pub(crate) fn apply_editor_snapshot(
     apply_asset_snapshot(tree, ids, assets, &status, bounds)?;
     apply_scene_snapshot(tree, ids, scene, &status, bounds)?;
     apply_inspector_snapshot(tree, ids, inspector, bounds)?;
-    apply_viewport_snapshot(tree, ids, snapshots.viewport, bounds)?;
+    apply_viewport_snapshot(tree, ids, snapshots.viewport, viewport_state, bounds)?;
     Ok(())
 }
 

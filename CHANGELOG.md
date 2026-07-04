@@ -20,13 +20,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Component-level UI polish for buttons, property rows, and the command palette: disabled button text/fill states, aligned inspector label/value rows, palette scrim/shadow, and row-backed palette entries
 - Width-constrained text primitives so clipped UI text is constrained during layout/rasterization and cannot bleed out of component rows
 - Scroll-view foundation for asset, scene, and inspector row regions with wheel input, offset-backed presentation windows, and scrollbar paint metrics
+- Viewport camera and letterboxed frame layout with scroll-to-zoom, Alt/middle-drag pan, actionable empty states, and scene-object picking from normalized viewport coordinates
+- Schema-driven inspector value widgets: toggles, number steppers, vector fields, and enum selectors wired through `InspectorValueWidget` descriptors
+- `PropertyEditKind::Enum` with `PropertySchema::editable_enum` and enum variant validation on property commits
 
 ### Changed
 
 - Route project-bound lifecycle through `EditorSession` instead of `project_effects.rs` (removed)
 - Console proof covers scene document save round-trip after project reopen
 - Beta cleanup: removed in-memory asset demo index and `examples/demo_project`; renamed `demo_scene_snapshot` to `reference_scene_snapshot`; consolidated adapter capabilities to `AdapterCapabilities::stdio_game_adapter()`
-- Documentation: milestone markdown files replaced by this changelog; see `ROADMAP.md` for planned work
+- Documentation: milestone markdown files replaced by this changelog; README, STATUS, ROADMAP, and BUILD_NOTES updated for scroll views, inspector widgets, and viewport camera behavior
 
 ## [0.1.0] - 2026-07-03
 

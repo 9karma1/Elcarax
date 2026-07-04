@@ -74,6 +74,7 @@ struct UiState {
     shell_layout: ShellLayout,
     shell_layout_path: std::path::PathBuf,
     panel_resize: Option<PanelResizeDrag>,
+    viewport_pan: Option<ViewportPanDrag>,
     last_pointer: Option<PointerPosition>,
     shell_cursor: PlatformCursor,
 }
@@ -89,6 +90,12 @@ struct ScrollOffsets {
 enum PanelResizeDrag {
     Left { start_x: f32, start_width: f32 },
     Right { start_x: f32, start_width: f32 },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ViewportPanDrag {
+    last_x: f32,
+    last_y: f32,
 }
 
 impl NativeAppHandler for ShellState {
@@ -235,6 +242,10 @@ impl ShellState {
             app.request_redraw();
             return Ok(());
         }
+        if handle_viewport_interaction(ui, &input, self.modifiers)? {
+            app.request_redraw();
+            return Ok(());
+        }
         if handle_panel_resize(ui, &input)? {
             apply_shell_cursor(ui, app);
             app.request_redraw();
@@ -299,6 +310,7 @@ fn build_ui_state(
         shell_layout,
         shell_layout_path,
         panel_resize: None,
+        viewport_pan: None,
         last_pointer: None,
         shell_cursor: PlatformCursor::Default,
     };
@@ -356,6 +368,65 @@ fn apply_shell_layout(ui: &mut UiState) -> std::result::Result<(), NativeAppErro
         .layout(LayoutConstraints { bounds: ui.bounds })
         .map_err(|error| NativeAppError::Window(format!("failed to layout UI: {error}")))?;
     Ok(())
+}
+
+fn handle_viewport_interaction(
+    ui: &mut UiState,
+    input: &UiInputEvent,
+    modifiers: elcarax_platform::ModifierState,
+) -> std::result::Result<bool, NativeAppError> {
+    match input {
+        UiInputEvent::PointerMoved(position) => {
+            ui.last_pointer = Some(*position);
+            if let Some(drag) = ui.viewport_pan {
+                let delta_x = position.x - drag.last_x;
+                let delta_y = position.y - drag.last_y;
+                ui.viewport_state.pan_camera_by(delta_x, delta_y);
+                ui.viewport_pan = Some(ViewportPanDrag {
+                    last_x: position.x,
+                    last_y: position.y,
+                });
+                apply_editor_snapshot_to_ui(ui)?;
+                return Ok(true);
+            }
+        }
+        UiInputEvent::PointerButtonPressed(button) => {
+            let pan_button = matches!(button, PointerButton::Middle)
+                || (matches!(button, PointerButton::Primary) && modifiers.alt);
+            if !pan_button {
+                return Ok(false);
+            }
+            let Some(position) = ui.last_pointer.or(ui.tree.pointer_position()) else {
+                return Ok(false);
+            };
+            if viewport_under_pointer(ui, position) {
+                ui.viewport_pan = Some(ViewportPanDrag {
+                    last_x: position.x,
+                    last_y: position.y,
+                });
+                return Ok(true);
+            }
+        }
+        UiInputEvent::PointerButtonReleased(_) if ui.viewport_pan.take().is_some() => {
+            return Ok(true);
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn viewport_under_pointer(ui: &UiState, position: PointerPosition) -> bool {
+    let Some(hit) = ui.tree.hit_test(position) else {
+        return false;
+    };
+    let mut next = Some(hit.id);
+    while let Some(candidate) = next {
+        if candidate == ui.ids.viewport_surface {
+            return true;
+        }
+        next = ui.tree.get(candidate).and_then(|node| node.parent);
+    }
+    false
 }
 
 fn handle_panel_resize(
@@ -803,6 +874,7 @@ fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), Nati
         &mut ui.tree,
         ui.ids,
         editor_snapshots(&project, &assets, &scene, &inspector, &adapter, &viewport),
+        &ui.viewport_state,
         ui.bounds,
     )
     .map_err(|error| NativeAppError::Window(format!("failed to update editor UI: {error}")))
@@ -870,6 +942,57 @@ fn apply_ui_events(
         {
             commit_inspector_row(ui, row_index, text.clone())?;
             changed = true;
+            continue;
+        }
+        if let UiEvent::ToggleChanged { id, checked } = event
+            && let Some(row_index) = inspector_value_index_for_widget(ui.ids, *id)
+        {
+            let text = if *checked { "true" } else { "false" };
+            commit_inspector_row(ui, row_index, text.to_string())?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::NumberCommitted { id, text } = event
+            && let Some(row_index) = inspector_value_index_for_widget(ui.ids, *id)
+        {
+            commit_inspector_row(ui, row_index, text.clone())?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::EnumChanged { id, selected } = event
+            && let Some(row_index) = inspector_value_index_for_widget(ui.ids, *id)
+        {
+            commit_inspector_row(ui, row_index, selected.clone())?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::VectorCommitted { id, text } = event
+            && let Some(row_index) = inspector_value_index_for_widget(ui.ids, *id)
+        {
+            commit_inspector_row(ui, row_index, text.clone())?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::ViewportZoom { factor, .. } = event {
+            #[cfg(feature = "native-shell")]
+            ui.viewport_state.zoom_camera_by(*factor);
+            apply_editor_snapshot_to_ui(ui)?;
+            changed = true;
+            continue;
+        }
+        if let UiEvent::ViewportClicked { u, v, .. } = event
+            && let Some(snapshot) = ui.editor.scene.snapshot()
+        {
+            use elcarax_scene_model::{ViewportPickCoord, pick_object_at};
+            if let Some(object_id) = pick_object_at(
+                snapshot,
+                ViewportPickCoord { u: *u, v: *v },
+            ) && ui.editor.scene.select_object(object_id)
+            {
+                ui.editor.inspector.on_scene_selection_changed();
+                apply_editor_snapshot_to_ui(ui)?;
+                changed = true;
+            }
             continue;
         }
         if let UiEvent::TextCancelled { id } = event
@@ -974,6 +1097,12 @@ fn events_affect_paint(events: &[UiEvent]) -> bool {
                 | UiEvent::TextChanged { .. }
                 | UiEvent::TextCommitted { .. }
                 | UiEvent::TextCancelled { .. }
+                | UiEvent::ToggleChanged { .. }
+                | UiEvent::NumberCommitted { .. }
+                | UiEvent::EnumChanged { .. }
+                | UiEvent::VectorCommitted { .. }
+                | UiEvent::ViewportZoom { .. }
+                | UiEvent::ViewportClicked { .. }
         )
     })
 }
