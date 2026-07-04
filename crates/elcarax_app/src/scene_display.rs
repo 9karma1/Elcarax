@@ -13,17 +13,21 @@ pub(crate) struct SceneUiSnapshot {
     pub(crate) scene_selected_summary: String,
     pub(crate) selected_row_index: Option<usize>,
     pub(crate) visible_object_ids: [Option<SceneObjectId>; MAX_VISIBLE_SCENE_ROWS],
+    pub(crate) scroll_offset: usize,
+    pub(crate) total_rows: usize,
+    pub(crate) visible_rows: usize,
     pub(crate) status_scene_suffix: String,
     pub(crate) has_unsaved_changes: bool,
 }
 
-pub(crate) fn scene_ui_snapshot(
+pub(crate) fn scene_ui_snapshot_with_scroll(
     snapshot: Option<&SceneSnapshot>,
     selection: &SceneSelection,
     expansion: &SceneExpansion,
     diagnostics: &[SceneDiagnostic],
     last_command_message: Option<&str>,
     has_unsaved_changes: bool,
+    scroll_offset: usize,
 ) -> SceneUiSnapshot {
     let mut scene_expand_labels = empty_labels();
     let mut scene_row_labels = empty_labels();
@@ -31,14 +35,21 @@ pub(crate) fn scene_ui_snapshot(
     let visible_rows = snapshot
         .map(|scene| SceneHierarchy::visible_rows(scene, expansion))
         .unwrap_or_default();
-    for (index, row) in visible_rows.iter().take(MAX_VISIBLE_SCENE_ROWS).enumerate() {
+    let total_rows = visible_rows.len();
+    let scroll_offset = clamp_scroll_offset(scroll_offset, total_rows, MAX_VISIBLE_SCENE_ROWS);
+    for (index, row) in visible_rows
+        .iter()
+        .skip(scroll_offset)
+        .take(MAX_VISIBLE_SCENE_ROWS)
+        .enumerate()
+    {
         scene_expand_labels[index] = row.expand_marker();
         scene_row_labels[index] = row.name_label();
         visible_object_ids[index] = Some(row.object_id);
     }
     let selected_row_index = selection
         .selected()
-        .and_then(|id| row_index_for_object(&visible_rows, id));
+        .and_then(|id| row_index_for_object(&visible_rows, id, scroll_offset));
     SceneUiSnapshot {
         scene_section_title: "Scene".to_string(),
         scene_name: scene_name_label(snapshot, has_unsaved_changes),
@@ -47,6 +58,9 @@ pub(crate) fn scene_ui_snapshot(
         scene_selected_summary: selected_object_summary(snapshot, selection),
         selected_row_index,
         visible_object_ids,
+        scroll_offset,
+        total_rows,
+        visible_rows: MAX_VISIBLE_SCENE_ROWS,
         status_scene_suffix: status_scene_suffix(
             snapshot,
             selection,
@@ -77,10 +91,19 @@ fn empty_object_ids() -> [Option<SceneObjectId>; MAX_VISIBLE_SCENE_ROWS] {
     std::array::from_fn(|_| None)
 }
 
-fn row_index_for_object(rows: &[SceneTreeRow], id: SceneObjectId) -> Option<usize> {
+fn row_index_for_object(
+    rows: &[SceneTreeRow],
+    id: SceneObjectId,
+    scroll_offset: usize,
+) -> Option<usize> {
     rows.iter()
+        .skip(scroll_offset)
         .take(MAX_VISIBLE_SCENE_ROWS)
         .position(|row| row.object_id == id)
+}
+
+fn clamp_scroll_offset(scroll_offset: usize, total_rows: usize, visible_rows: usize) -> usize {
+    scroll_offset.min(total_rows.saturating_sub(visible_rows))
 }
 
 fn selected_object_summary(snapshot: Option<&SceneSnapshot>, selection: &SceneSelection) -> String {

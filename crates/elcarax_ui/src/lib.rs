@@ -58,6 +58,7 @@ impl DirtyFlags {
 pub enum WidgetKind {
     Root,
     Panel,
+    ScrollView(ScrollViewState),
     Label(String),
     InfoRow(String),
     PropertyRow(String),
@@ -70,6 +71,51 @@ pub enum WidgetKind {
     StatusBar,
     Toolbar,
     ViewportPlaceholder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollViewState {
+    pub offset_rows: usize,
+    pub visible_rows: usize,
+    pub total_rows: usize,
+    pub row_height: f32,
+}
+
+impl ScrollViewState {
+    pub const fn new(visible_rows: usize) -> Self {
+        Self {
+            offset_rows: 0,
+            visible_rows,
+            total_rows: 0,
+            row_height: ROW_HEIGHT,
+        }
+    }
+
+    pub const fn with_metrics(offset_rows: usize, visible_rows: usize, total_rows: usize) -> Self {
+        Self::with_row_height(offset_rows, visible_rows, total_rows, ROW_HEIGHT)
+    }
+
+    pub const fn with_row_height(
+        offset_rows: usize,
+        visible_rows: usize,
+        total_rows: usize,
+        row_height: f32,
+    ) -> Self {
+        Self {
+            offset_rows,
+            visible_rows,
+            total_rows,
+            row_height,
+        }
+    }
+
+    pub const fn is_scrollable(self) -> bool {
+        self.total_rows > self.visible_rows && self.visible_rows > 0
+    }
+
+    pub fn viewport_height(self) -> f32 {
+        self.visible_rows.min(self.total_rows) as f32 * self.row_height
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,6 +353,7 @@ const TEXT_FIELD_HEIGHT: f32 = 28.0;
 const PROPERTY_LABEL_WIDTH: f32 = 96.0;
 pub const INSPECTOR_READONLY_ROW_HEIGHT: f32 = COMPACT_ROW_HEIGHT;
 pub const INSPECTOR_EDITABLE_ROW_HEIGHT: f32 = TEXT_FIELD_HEIGHT;
+pub const SCENE_TREE_ROW_HEIGHT: f32 = COMPACT_ROW_HEIGHT + ROW_HEIGHT;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
@@ -855,6 +902,7 @@ pub enum UiEvent {
     TextCommitted { id: WidgetId, text: String },
     TextCancelled { id: WidgetId },
     TextChanged { id: WidgetId },
+    Scrolled { id: WidgetId, delta_rows: i32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1140,6 +1188,7 @@ impl UiTree {
                 self.release_primary_button()
             }
             UiInputEvent::KeyPressed(key) => self.press_key(key),
+            UiInputEvent::MouseWheel { delta_y, .. } => self.scroll_wheel(delta_y),
             UiInputEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers;
                 Ok(Vec::new())
@@ -1148,7 +1197,6 @@ impl UiTree {
             UiInputEvent::PointerButtonPressed(_)
             | UiInputEvent::PointerButtonReleased(_)
             | UiInputEvent::KeyReleased(_)
-            | UiInputEvent::MouseWheel { .. }
             | UiInputEvent::WindowFocused => Ok(Vec::new()),
         }
     }
@@ -1337,6 +1385,23 @@ impl UiTree {
         Ok(())
     }
 
+    pub fn set_scroll_view_state(
+        &mut self,
+        id: WidgetId,
+        state: ScrollViewState,
+    ) -> Result<(), UiError> {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return Err(UiError::MissingNode(id));
+        };
+        node.kind = WidgetKind::ScrollView(state);
+        node.layout.height = SizePolicy::Fixed(state.viewport_height());
+        node.dirty.insert(DirtyFlags::LAYOUT);
+        node.dirty.insert(DirtyFlags::PAINT);
+        node.dirty.insert(DirtyFlags::HIT_TEST);
+        self.mark_ancestors(id, DirtyFlags::LAYOUT);
+        Ok(())
+    }
+
     pub fn set_hovered(&mut self, id: WidgetId, hovered: bool) -> Result<(), UiError> {
         let Some(node) = self.nodes.get_mut(&id) else {
             return Err(UiError::MissingNode(id));
@@ -1511,6 +1576,35 @@ impl UiTree {
             }
         }
         Ok(events)
+    }
+
+    fn scroll_wheel(&self, delta_y: f32) -> Result<Vec<UiEvent>, UiError> {
+        let delta_rows = wheel_delta_rows(delta_y);
+        if delta_rows == 0 {
+            return Ok(Vec::new());
+        }
+        let Some(position) = self.pointer_position else {
+            return Ok(Vec::new());
+        };
+        let Some(hit) = self.hit_test(position) else {
+            return Ok(Vec::new());
+        };
+        let Some(id) = self.scroll_view_for(hit.id) else {
+            return Ok(Vec::new());
+        };
+        Ok(vec![UiEvent::Scrolled { id, delta_rows }])
+    }
+
+    fn scroll_view_for(&self, id: WidgetId) -> Option<WidgetId> {
+        let mut next = Some(id);
+        while let Some(candidate) = next {
+            let node = self.nodes.get(&candidate)?;
+            if matches!(node.kind, WidgetKind::ScrollView(state) if state.is_scrollable()) {
+                return Some(candidate);
+            }
+            next = node.parent;
+        }
+        None
     }
 
     fn focus_next(&mut self) -> Result<Vec<UiEvent>, UiError> {
@@ -1713,16 +1807,19 @@ pub struct EditorShellIds {
     pub adapter_command: WidgetId,
     pub asset_section_title: WidgetId,
     pub asset_count: WidgetId,
+    pub asset_scroll_view: WidgetId,
     pub asset_rows: [WidgetId; MAX_VISIBLE_ASSET_ROWS],
     pub asset_selected_summary: WidgetId,
     pub scene_section_title: WidgetId,
     pub scene_name: WidgetId,
+    pub scene_scroll_view: WidgetId,
     pub scene_expand_rows: [WidgetId; MAX_VISIBLE_SCENE_ROWS],
     pub scene_rows: [WidgetId; MAX_VISIBLE_SCENE_ROWS],
     pub scene_selected_summary: WidgetId,
     pub inspector_object_name: WidgetId,
     pub inspector_object_kind: WidgetId,
     pub inspector_empty_message: WidgetId,
+    pub inspector_scroll_view: WidgetId,
     pub inspector_row_labels: [WidgetId; MAX_VISIBLE_INSPECTOR_ROWS],
     pub inspector_row_values: [WidgetId; MAX_VISIBLE_INSPECTOR_ROWS],
     pub inspector_summary: WidgetId,
@@ -1874,6 +1971,9 @@ pub fn build_editor_shell_with_layout(
     let project_title = WidgetId::new(13).ok_or(UiError::MissingRoot)?;
     let viewport_label = WidgetId::new(14).ok_or(UiError::MissingRoot)?;
     let viewport_title = WidgetId::new(97).ok_or(UiError::MissingRoot)?;
+    let asset_scroll_view = WidgetId::new(98).ok_or(UiError::MissingRoot)?;
+    let scene_scroll_view = WidgetId::new(99).ok_or(UiError::MissingRoot)?;
+    let inspector_scroll_view = WidgetId::new(100).ok_or(UiError::MissingRoot)?;
     let inspector_label = WidgetId::new(15).ok_or(UiError::MissingRoot)?;
     let status_label = WidgetId::new(16).ok_or(UiError::MissingRoot)?;
     let run_button = WidgetId::new(17).ok_or(UiError::MissingRoot)?;
@@ -2293,11 +2393,33 @@ pub fn build_editor_shell_with_layout(
                 .with_height(SizePolicy::Fixed(COMPACT_ROW_HEIGHT)),
         ),
     )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            asset_scroll_view,
+            WidgetKind::ScrollView(ScrollViewState::with_metrics(
+                0,
+                MAX_VISIBLE_ASSET_ROWS,
+                count_non_empty(&content.asset_row_labels),
+            )),
+            UiStyle::new(StyleRole::Transparent),
+            LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(
+                    ScrollViewState::with_metrics(
+                        0,
+                        MAX_VISIBLE_ASSET_ROWS,
+                        count_non_empty(&content.asset_row_labels),
+                    )
+                    .viewport_height(),
+                )),
+        ),
+    )?;
     for (index, row_id) in asset_rows.iter().enumerate() {
         let label = content.asset_row_labels[index].clone();
         let has_label = !label.is_empty();
         tree.insert_child(
-            project,
+            asset_scroll_view,
             UiNode::new(
                 *row_id,
                 if has_label {
@@ -2350,13 +2472,37 @@ pub fn build_editor_shell_with_layout(
                 .with_height(SizePolicy::Fixed(ROW_HEIGHT)),
         ),
     )?;
+    tree.insert_child(
+        project,
+        UiNode::new(
+            scene_scroll_view,
+            WidgetKind::ScrollView(ScrollViewState::with_row_height(
+                0,
+                MAX_VISIBLE_SCENE_ROWS,
+                count_non_empty(&content.scene_row_labels),
+                SCENE_TREE_ROW_HEIGHT,
+            )),
+            UiStyle::new(StyleRole::Transparent),
+            LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(
+                    ScrollViewState::with_row_height(
+                        0,
+                        MAX_VISIBLE_SCENE_ROWS,
+                        count_non_empty(&content.scene_row_labels),
+                        SCENE_TREE_ROW_HEIGHT,
+                    )
+                    .viewport_height(),
+                )),
+        ),
+    )?;
     for index in 0..MAX_VISIBLE_SCENE_ROWS {
         let expand_label = content.scene_expand_labels[index].clone();
         let row_label = content.scene_row_labels[index].clone();
         let has_expand = !expand_label.is_empty();
         let has_row = !row_label.is_empty();
         tree.insert_child(
-            project,
+            scene_scroll_view,
             UiNode::new(
                 scene_expand_rows[index],
                 if has_expand {
@@ -2376,7 +2522,7 @@ pub fn build_editor_shell_with_layout(
             tree.set_disabled(scene_expand_rows[index], true)?;
         }
         tree.insert_child(
-            project,
+            scene_scroll_view,
             UiNode::new(
                 scene_rows[index],
                 if has_row {
@@ -2467,6 +2613,28 @@ pub fn build_editor_shell_with_layout(
                 .with_height(SizePolicy::Fixed(ROW_HEIGHT)),
         ),
     )?;
+    tree.insert_child(
+        inspector,
+        UiNode::new(
+            inspector_scroll_view,
+            WidgetKind::ScrollView(ScrollViewState::with_metrics(
+                0,
+                MAX_VISIBLE_INSPECTOR_ROWS,
+                count_non_empty(&content.inspector_row_labels),
+            )),
+            UiStyle::new(StyleRole::Transparent),
+            LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
+                .with_width(SizePolicy::Fill)
+                .with_height(SizePolicy::Fixed(
+                    ScrollViewState::with_metrics(
+                        0,
+                        MAX_VISIBLE_INSPECTOR_ROWS,
+                        count_non_empty(&content.inspector_row_labels),
+                    )
+                    .viewport_height(),
+                )),
+        ),
+    )?;
     for index in 0..MAX_VISIBLE_INSPECTOR_ROWS {
         let has_row = !content.inspector_row_labels[index].is_empty();
         let row_height = if content.inspector_row_editable[index] {
@@ -2475,7 +2643,7 @@ pub fn build_editor_shell_with_layout(
             COMPACT_ROW_HEIGHT
         };
         tree.insert_child(
-            inspector,
+            inspector_scroll_view,
             UiNode::new(
                 inspector_row_labels[index],
                 if has_row {
@@ -2581,16 +2749,19 @@ pub fn build_editor_shell_with_layout(
             adapter_command,
             asset_section_title,
             asset_count,
+            asset_scroll_view,
             asset_rows,
             asset_selected_summary,
             scene_section_title,
             scene_name,
+            scene_scroll_view,
             scene_expand_rows,
             scene_rows,
             scene_selected_summary,
             inspector_object_name,
             inspector_object_kind,
             inspector_empty_message,
+            inspector_scroll_view,
             inspector_row_labels,
             inspector_row_values,
             inspector_summary,
@@ -2600,6 +2771,10 @@ pub fn build_editor_shell_with_layout(
             status_label,
         },
     })
+}
+
+fn count_non_empty<const N: usize>(values: &[String; N]) -> usize {
+    values.iter().filter(|value| !value.is_empty()).count()
 }
 
 fn layout_children(
@@ -2846,7 +3021,8 @@ fn default_interaction_for(kind: &WidgetKind) -> InteractionState {
         }
         WidgetKind::PropertyRow(_) => InteractionState::container(),
         WidgetKind::ResizeSplitter(_) => InteractionState::hit_target(),
-        WidgetKind::Root
+        WidgetKind::ScrollView(_)
+        | WidgetKind::Root
         | WidgetKind::Panel
         | WidgetKind::StatusBar
         | WidgetKind::Toolbar
@@ -2879,6 +3055,16 @@ fn rect_contains(rect: Rect, position: PointerPosition) -> bool {
         && position.y < rect.y + rect.height
 }
 
+fn wheel_delta_rows(delta_y: f32) -> i32 {
+    if delta_y > 0.0 {
+        -1
+    } else if delta_y < 0.0 {
+        1
+    } else {
+        0
+    }
+}
+
 fn paint_node(
     node: &UiNode,
     context: &PaintContext,
@@ -2889,6 +3075,7 @@ fn paint_node(
         WidgetKind::Root | WidgetKind::Panel | WidgetKind::Toolbar | WidgetKind::StatusBar => {
             paint_background(node, context, scene);
         }
+        WidgetKind::ScrollView(state) => paint_scroll_view(node, *state, context, scene),
         WidgetKind::ViewportPlaceholder => {
             paint_viewport(node, context, viewport_paint, scene);
         }
@@ -2904,6 +3091,53 @@ fn paint_node(
         }
         WidgetKind::TextField(state) => paint_text_field(state, node, context, scene),
     }
+}
+
+fn paint_scroll_view(
+    node: &UiNode,
+    state: ScrollViewState,
+    context: &PaintContext,
+    scene: &mut RenderScene,
+) {
+    paint_background(node, context, scene);
+    if !state.is_scrollable() {
+        return;
+    }
+    let track = Rect::new(
+        node.rect.x + node.rect.width - 6.0,
+        node.rect.y,
+        6.0,
+        node.rect.height,
+    );
+    let thumb = scroll_thumb_rect(track, state);
+    scene.push(
+        RenderLayer::Chrome,
+        RenderPrimitive::solid_rect(track, context.theme.row.quiet)
+            .with_debug_label("scroll track"),
+    );
+    scene.push(
+        RenderLayer::Overlay,
+        RenderPrimitive::rounded_rect(
+            thumb,
+            CornerRadius::uniform(context.theme.radius.sm),
+            context.theme.focus_ring,
+        )
+        .with_debug_label("scroll thumb"),
+    );
+}
+
+fn scroll_thumb_rect(track: Rect, state: ScrollViewState) -> Rect {
+    let visible = state.visible_rows as f32;
+    let total = state.total_rows.max(1) as f32;
+    let thumb_height = (track.height * (visible / total)).clamp(16.0, track.height);
+    let max_offset = state.total_rows.saturating_sub(state.visible_rows).max(1) as f32;
+    let progress = state.offset_rows.min(max_offset as usize) as f32 / max_offset;
+    Rect::new(
+        track.x,
+        track.y + (track.height - thumb_height) * progress,
+        track.width,
+        thumb_height,
+    )
 }
 
 fn paint_viewport(
@@ -3657,6 +3891,86 @@ mod tests {
     }
 
     #[test]
+    fn mouse_wheel_over_scroll_child_emits_scroll_event_for_container() {
+        let mut tree = root_tree(LayoutNode::fill(LayoutMode::Stack(Axis::Vertical)));
+        assert_eq!(
+            tree.insert_child(
+                id(1),
+                UiNode::new(
+                    id(2),
+                    WidgetKind::ScrollView(ScrollViewState::with_metrics(0, 2, 5)),
+                    UiStyle::new(StyleRole::Transparent),
+                    LayoutNode::fill(LayoutMode::Stack(Axis::Vertical))
+                )
+            ),
+            Ok(id(2))
+        );
+        assert_eq!(
+            tree.insert_child(
+                id(2),
+                UiNode::new(
+                    id(3),
+                    WidgetKind::ListItem("Asset".to_string()),
+                    UiStyle::LIST_ITEM,
+                    LayoutNode::fixed(80.0, ROW_HEIGHT)
+                )
+            ),
+            Ok(id(3))
+        );
+        assert!(
+            tree.layout(LayoutConstraints {
+                bounds: Rect::new(0.0, 0.0, 120.0, 80.0),
+            })
+            .is_ok()
+        );
+        assert!(
+            tree.process_input(UiInputEvent::PointerMoved(PointerPosition::new(4.0, 4.0)))
+                .is_ok()
+        );
+        let events = must(tree.process_input(UiInputEvent::MouseWheel {
+            delta_x: 0.0,
+            delta_y: -1.0,
+        }));
+        assert_eq!(
+            events,
+            vec![UiEvent::Scrolled {
+                id: id(2),
+                delta_rows: 1
+            }]
+        );
+    }
+
+    #[test]
+    fn scroll_view_paints_scrollbar_when_content_exceeds_visible_rows() {
+        let mut tree = root_tree(LayoutNode::fill(LayoutMode::Stack(Axis::Vertical)));
+        assert_eq!(
+            tree.insert_child(
+                id(1),
+                UiNode::new(
+                    id(2),
+                    WidgetKind::ScrollView(ScrollViewState::with_metrics(1, 2, 5)),
+                    UiStyle::new(StyleRole::Transparent),
+                    LayoutNode::fixed(80.0, 80.0)
+                )
+            ),
+            Ok(id(2))
+        );
+        assert!(
+            tree.layout(LayoutConstraints {
+                bounds: Rect::new(0.0, 0.0, 120.0, 80.0),
+            })
+            .is_ok()
+        );
+        let scene = must(tree.paint(&PaintContext::new(Theme::default())));
+        assert!(
+            scene
+                .primitives()
+                .iter()
+                .any(|(_, primitive)| { primitive.debug_label.as_deref() == Some("scroll thumb") })
+        );
+    }
+
+    #[test]
     fn horizontal_stack_respects_child_cross_axis_height() {
         let mut tree = root_tree(LayoutNode::fill(LayoutMode::Stack(Axis::Horizontal)));
         assert_eq!(
@@ -4289,6 +4603,36 @@ mod tests {
         let scene = must(shell.tree.paint(&PaintContext::new(theme)));
         let texts = painted_texts(&scene);
         assert!(texts.contains(&"Assets unavailable - no project open"));
+    }
+
+    #[test]
+    fn empty_scroll_regions_do_not_reserve_row_space() {
+        let theme = Theme::editor_dark();
+        let shell = must(build_editor_shell_with_content(
+            &UiContext::new(theme, Rect::new(0.0, 0.0, 1440.0, 900.0)),
+            &EditorShellContent::default(),
+        ));
+        assert_eq!(
+            shell
+                .tree
+                .get(shell.ids.asset_scroll_view)
+                .map(|node| node.rect.height),
+            Some(0.0)
+        );
+        assert_eq!(
+            shell
+                .tree
+                .get(shell.ids.scene_scroll_view)
+                .map(|node| node.rect.height),
+            Some(0.0)
+        );
+        assert_eq!(
+            shell
+                .tree
+                .get(shell.ids.inspector_scroll_view)
+                .map(|node| node.rect.height),
+            Some(0.0)
+        );
     }
 
     #[test]

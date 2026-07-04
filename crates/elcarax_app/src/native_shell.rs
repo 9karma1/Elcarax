@@ -69,12 +69,20 @@ struct UiState {
     editor: EditorSessionState,
     adapter_state: AdapterState,
     viewport_state: AppViewportState,
+    scroll_offsets: ScrollOffsets,
     bounds: Rect,
     shell_layout: ShellLayout,
     shell_layout_path: std::path::PathBuf,
     panel_resize: Option<PanelResizeDrag>,
     last_pointer: Option<PointerPosition>,
     shell_cursor: PlatformCursor,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ScrollOffsets {
+    asset: usize,
+    scene: usize,
+    inspector: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -286,6 +294,7 @@ fn build_ui_state(
         editor,
         adapter_state,
         viewport_state,
+        scroll_offsets: ScrollOffsets::default(),
         bounds,
         shell_layout,
         shell_layout_path,
@@ -294,6 +303,7 @@ fn build_ui_state(
         shell_cursor: PlatformCursor::Default,
     };
     apply_shell_layout(&mut ui)?;
+    apply_editor_snapshot_to_ui(&mut ui)?;
     repaint_ui_scene(&mut ui)?;
     ui.scene_dirty = false;
     Ok(ui)
@@ -777,17 +787,22 @@ fn pointer_button_event(button: MouseButton, state: ElementState) -> Option<UiIn
 }
 
 fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
+    let project = ui.editor.project.ui_snapshot();
+    let assets = ui.editor.assets.ui_snapshot_at(ui.scroll_offsets.asset);
+    ui.scroll_offsets.asset = assets.scroll_offset;
+    let scene = ui.editor.scene.ui_snapshot_at(ui.scroll_offsets.scene);
+    ui.scroll_offsets.scene = scene.scroll_offset;
+    let inspector = ui
+        .editor
+        .inspector
+        .ui_snapshot_at(&ui.editor.scene, ui.scroll_offsets.inspector);
+    ui.scroll_offsets.inspector = inspector.scroll_offset;
+    let adapter = ui.adapter_state.ui_snapshot();
+    let viewport = ui.viewport_state.ui_snapshot();
     apply_editor_snapshot(
         &mut ui.tree,
         ui.ids,
-        editor_snapshots(
-            &ui.editor.project.ui_snapshot(),
-            &ui.editor.assets.ui_snapshot(),
-            &ui.editor.scene.ui_snapshot(),
-            &ui.editor.inspector.ui_snapshot(&ui.editor.scene),
-            &ui.adapter_state.ui_snapshot(),
-            &ui.viewport_state.ui_snapshot(),
-        ),
+        editor_snapshots(&project, &assets, &scene, &inspector, &adapter, &viewport),
         ui.bounds,
     )
     .map_err(|error| NativeAppError::Window(format!("failed to update editor UI: {error}")))
@@ -814,7 +829,10 @@ fn apply_ui_events(
         }
         if let UiEvent::Clicked { id } = event
             && let Some(row_index) = asset_row_index_for_widget(ui.ids, *id)
-            && ui.editor.assets.select_row(row_index)
+            && ui
+                .editor
+                .assets
+                .select_row(ui.scroll_offsets.asset.saturating_add(row_index))
         {
             apply_editor_snapshot_to_ui(ui)?;
             changed = true;
@@ -822,7 +840,10 @@ fn apply_ui_events(
         }
         if let UiEvent::Clicked { id } = event
             && let Some(row_index) = scene_expand_index_for_widget(ui.ids, *id)
-            && ui.editor.scene.toggle_expand_row(row_index)
+            && ui
+                .editor
+                .scene
+                .toggle_expand_row_at(row_index, ui.scroll_offsets.scene)
         {
             apply_editor_snapshot_to_ui(ui)?;
             changed = true;
@@ -831,7 +852,11 @@ fn apply_ui_events(
         if let UiEvent::Clicked { id } = event
             && let Some(row_index) = scene_row_index_for_widget(ui.ids, *id)
         {
-            let object_id = ui.editor.scene.ui_snapshot().visible_object_ids[row_index];
+            let object_id = ui
+                .editor
+                .scene
+                .ui_snapshot_at(ui.scroll_offsets.scene)
+                .visible_object_ids[row_index];
             if let Some(object_id) = object_id
                 && ui.editor.scene.select_object(object_id)
             {
@@ -854,8 +879,37 @@ fn apply_ui_events(
             changed = true;
             continue;
         }
+        if let UiEvent::Scrolled { id, delta_rows } = event
+            && apply_scroll_delta(ui, *id, *delta_rows)?
+        {
+            changed = true;
+            continue;
+        }
     }
     Ok(changed)
+}
+
+fn apply_scroll_delta(
+    ui: &mut UiState,
+    id: elcarax_ui::WidgetId,
+    delta_rows: i32,
+) -> std::result::Result<bool, NativeAppError> {
+    let offset = if id == ui.ids.asset_scroll_view {
+        &mut ui.scroll_offsets.asset
+    } else if id == ui.ids.scene_scroll_view {
+        &mut ui.scroll_offsets.scene
+    } else if id == ui.ids.inspector_scroll_view {
+        &mut ui.scroll_offsets.inspector
+    } else {
+        return Ok(false);
+    };
+    let next = offset.saturating_add_signed(delta_rows as isize);
+    if next == *offset {
+        return Ok(false);
+    }
+    *offset = next;
+    apply_editor_snapshot_to_ui(ui)?;
+    Ok(true)
 }
 
 fn commit_inspector_row(
@@ -863,7 +917,10 @@ fn commit_inspector_row(
     row_index: usize,
     text: String,
 ) -> std::result::Result<(), NativeAppError> {
-    let snapshot = ui.editor.inspector.ui_snapshot(&ui.editor.scene);
+    let snapshot = ui
+        .editor
+        .inspector
+        .ui_snapshot_at(&ui.editor.scene, ui.scroll_offsets.inspector);
     let path = snapshot.row_property_paths[row_index].clone();
     let edit_kind = snapshot.row_edit_kinds[row_index];
     let label = snapshot.row_labels[row_index].clone();

@@ -18,13 +18,17 @@ pub(crate) struct InspectorUiSnapshot {
     pub(crate) row_edit_kinds: [PropertyEditKind; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_command_ids: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) property_count: usize,
+    pub(crate) scroll_offset: usize,
+    pub(crate) total_rows: usize,
+    pub(crate) visible_rows: usize,
     pub(crate) summary: String,
 }
 
-pub(crate) fn inspector_ui_snapshot(
+pub(crate) fn inspector_ui_snapshot_with_scroll(
     scene: &SceneState,
     suppressed: bool,
     last_command_message: Option<&str>,
+    scroll_offset: usize,
 ) -> InspectorUiSnapshot {
     if suppressed {
         let summary = last_command_message
@@ -40,7 +44,7 @@ pub(crate) fn inspector_ui_snapshot(
     };
     let selected = scene.selection().selected();
     let mut view = match build_inspector_for_selection(snapshot, selected) {
-        Ok(value) => build_selected_snapshot(value),
+        Ok(value) => build_selected_snapshot_with_scroll(value, scroll_offset),
         Err(InspectorDiagnostic::NoObjectSelected) => {
             return empty_snapshot_with_message("No object selected");
         }
@@ -63,37 +67,31 @@ pub(crate) fn inspector_summary_for_object(inspector: &InspectorObject) -> Strin
     )
 }
 
-fn build_selected_snapshot(inspector: InspectorObject) -> InspectorUiSnapshot {
+fn build_selected_snapshot_with_scroll(
+    inspector: InspectorObject,
+    scroll_offset: usize,
+) -> InspectorUiSnapshot {
     let mut row_labels = empty_rows();
     let mut row_values = empty_rows();
     let mut row_editable = empty_editable_rows();
     let mut row_property_paths = empty_rows();
     let mut row_edit_kinds = empty_edit_kinds();
     let mut row_command_ids = empty_rows();
-    let mut index = 0usize;
-    for section in &inspector.sections {
-        if index >= MAX_VISIBLE_INSPECTOR_ROWS {
-            break;
-        }
-        row_labels[index] = section.title.as_str().to_string();
-        row_values[index].clear();
-        index += 1;
-        for row in &section.rows {
-            if index >= MAX_VISIBLE_INSPECTOR_ROWS {
-                break;
-            }
-            row_labels[index] = row.label.as_str().to_string();
-            row_values[index] = if row.editable {
-                row.value.clone()
-            } else {
-                read_only_value_label(row)
-            };
-            row_editable[index] = row.editable;
-            row_property_paths[index] = row.path.to_string();
-            row_edit_kinds[index] = row.edit_kind;
-            row_command_ids[index] = inspector_command_for_row(row);
-            index += 1;
-        }
+    let rows = inspector_rows(&inspector);
+    let total_rows = rows.len();
+    let scroll_offset = clamp_scroll_offset(scroll_offset, total_rows, MAX_VISIBLE_INSPECTOR_ROWS);
+    for (index, row) in rows
+        .iter()
+        .skip(scroll_offset)
+        .take(MAX_VISIBLE_INSPECTOR_ROWS)
+        .enumerate()
+    {
+        row_labels[index] = row.label.clone();
+        row_values[index] = row.value.clone();
+        row_editable[index] = row.editable;
+        row_property_paths[index] = row.property_path.clone();
+        row_edit_kinds[index] = row.edit_kind;
+        row_command_ids[index] = row.command_id.clone();
     }
     let property_count = inspector.property_count();
     InspectorUiSnapshot {
@@ -108,8 +106,50 @@ fn build_selected_snapshot(inspector: InspectorObject) -> InspectorUiSnapshot {
         row_edit_kinds,
         row_command_ids,
         property_count,
+        scroll_offset,
+        total_rows,
+        visible_rows: MAX_VISIBLE_INSPECTOR_ROWS,
         summary: String::new(),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InspectorDisplayRow {
+    label: String,
+    value: String,
+    editable: bool,
+    property_path: String,
+    edit_kind: PropertyEditKind,
+    command_id: String,
+}
+
+fn inspector_rows(inspector: &InspectorObject) -> Vec<InspectorDisplayRow> {
+    let mut rows = Vec::new();
+    for section in &inspector.sections {
+        rows.push(InspectorDisplayRow {
+            label: section.title.as_str().to_string(),
+            value: String::new(),
+            editable: false,
+            property_path: String::new(),
+            edit_kind: PropertyEditKind::Unsupported,
+            command_id: String::new(),
+        });
+        for row in &section.rows {
+            rows.push(InspectorDisplayRow {
+                label: row.label.as_str().to_string(),
+                value: if row.editable {
+                    row.value.clone()
+                } else {
+                    read_only_value_label(row)
+                },
+                editable: row.editable,
+                property_path: row.path.to_string(),
+                edit_kind: row.edit_kind,
+                command_id: inspector_command_for_row(row),
+            });
+        }
+    }
+    rows
 }
 
 fn empty_snapshot_with_message(message: &str) -> InspectorUiSnapshot {
@@ -125,6 +165,9 @@ fn empty_snapshot_with_message(message: &str) -> InspectorUiSnapshot {
         row_edit_kinds: empty_edit_kinds(),
         row_command_ids: empty_rows(),
         property_count: 0,
+        scroll_offset: 0,
+        total_rows: 0,
+        visible_rows: MAX_VISIBLE_INSPECTOR_ROWS,
         summary: message.to_string(),
     }
 }
@@ -142,8 +185,15 @@ fn empty_snapshot_with_summary(summary: String) -> InspectorUiSnapshot {
         row_edit_kinds: empty_edit_kinds(),
         row_command_ids: empty_rows(),
         property_count: 0,
+        scroll_offset: 0,
+        total_rows: 0,
+        visible_rows: MAX_VISIBLE_INSPECTOR_ROWS,
         summary,
     }
+}
+
+fn clamp_scroll_offset(scroll_offset: usize, total_rows: usize, visible_rows: usize) -> usize {
+    scroll_offset.min(total_rows.saturating_sub(visible_rows))
 }
 
 fn empty_rows() -> [String; MAX_VISIBLE_INSPECTOR_ROWS] {
@@ -181,7 +231,7 @@ mod tests {
     #[test]
     fn selected_fixture_snapshot_contains_property_labels() {
         let scene = selected_fixture_scene();
-        let snapshot = inspector_ui_snapshot(&scene, false, None);
+        let snapshot = inspector_ui_snapshot_with_scroll(&scene, false, None, 0);
         assert!(snapshot.has_selection);
         assert_eq!(snapshot.object_name, "Fixture Actor");
         assert!(snapshot.row_labels.iter().any(|label| label == "Health"));

@@ -1,5 +1,5 @@
 use elcarax_render::Rect;
-use elcarax_ui::{EditorShellIds, LayoutConstraints, UiError, UiTree};
+use elcarax_ui::{EditorShellIds, LayoutConstraints, ScrollViewState, UiError, UiTree};
 
 use crate::asset_display::AssetUiSnapshot;
 
@@ -15,6 +15,14 @@ pub(crate) fn apply_asset_snapshot(
         snapshot.asset_section_title.clone(),
     )?;
     tree.set_label_text(ids.asset_count, snapshot.asset_count.clone())?;
+    tree.set_scroll_view_state(
+        ids.asset_scroll_view,
+        ScrollViewState::with_metrics(
+            snapshot.scroll_offset,
+            snapshot.visible_rows,
+            snapshot.total_rows,
+        ),
+    )?;
     for (index, row_id) in ids.asset_rows.iter().enumerate() {
         tree.set_button_text(*row_id, snapshot.asset_row_labels[index].clone())?;
     }

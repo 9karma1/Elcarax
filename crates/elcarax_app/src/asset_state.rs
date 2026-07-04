@@ -8,7 +8,7 @@ use elcarax_assets::{
     apply_selection_after_scan,
 };
 
-use crate::asset_display::{AssetUiSnapshot, asset_ui_snapshot};
+use crate::asset_display::{AssetUiSnapshot, asset_ui_snapshot_with_scroll};
 
 pub(crate) const ASSET_SCAN_COMMAND: &str = "asset.scan";
 pub(crate) const ASSET_REFRESH_COMMAND: &str = "asset.refresh";
@@ -130,22 +130,26 @@ impl AssetState {
     }
 
     pub(crate) fn ui_snapshot(&self) -> AssetUiSnapshot {
-        asset_ui_snapshot(
-            &self.index,
-            &self.selection,
-            AssetUiState {
-                project_loaded: self.asset_root.is_some(),
-                scan_status: self.scan_status,
-                watch_status: &self.watch_status,
-                diagnostics: &self.diagnostics,
-                last_command_message: self
-                    .last_command_result
-                    .as_ref()
-                    .map(AssetCommandResult::message),
-                dirty: self.index_dirty,
-                scanned: self.last_scan.is_some(),
-            },
-        )
+        self.ui_snapshot_at(0)
+    }
+
+    pub(crate) fn ui_snapshot_at(&self, scroll_offset: usize) -> AssetUiSnapshot {
+        asset_ui_snapshot_with_scroll(&self.index, &self.selection, self.ui_state(), scroll_offset)
+    }
+
+    fn ui_state(&self) -> AssetUiState<'_> {
+        AssetUiState {
+            project_loaded: self.asset_root.is_some(),
+            scan_status: self.scan_status,
+            watch_status: &self.watch_status,
+            diagnostics: &self.diagnostics,
+            last_command_message: self
+                .last_command_result
+                .as_ref()
+                .map(AssetCommandResult::message),
+            dirty: self.index_dirty,
+            scanned: self.last_scan.is_some(),
+        }
     }
 
     pub(crate) fn scanned_asset_count(&self) -> Option<usize> {

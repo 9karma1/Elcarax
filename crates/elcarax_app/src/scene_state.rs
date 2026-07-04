@@ -8,7 +8,7 @@ use elcarax_scene_model::{
     load_scene_from_project, write_scene_file,
 };
 
-use crate::scene_display::{SceneUiSnapshot, scene_ui_snapshot};
+use crate::scene_display::{SceneUiSnapshot, scene_ui_snapshot_with_scroll};
 
 pub(crate) const SCENE_LOAD_COMMAND: &str = "scene.load";
 pub(crate) const SCENE_SAVE_COMMAND: &str = "scene.save";
@@ -60,9 +60,8 @@ impl SceneState {
         true
     }
 
-    #[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
-    pub(crate) fn toggle_expand_row(&mut self, row_index: usize) -> bool {
-        let id = match self.ui_snapshot().visible_object_ids[row_index] {
+    pub(crate) fn toggle_expand_row_at(&mut self, row_index: usize, scroll_offset: usize) -> bool {
+        let id = match self.ui_snapshot_at(scroll_offset).visible_object_ids[row_index] {
             Some(id) => id,
             None => return false,
         };
@@ -81,7 +80,11 @@ impl SceneState {
     }
 
     pub(crate) fn ui_snapshot(&self) -> SceneUiSnapshot {
-        scene_ui_snapshot(
+        self.ui_snapshot_at(0)
+    }
+
+    pub(crate) fn ui_snapshot_at(&self, scroll_offset: usize) -> SceneUiSnapshot {
+        scene_ui_snapshot_with_scroll(
             self.snapshot.as_ref(),
             &self.selection,
             &self.expansion,
@@ -90,6 +93,7 @@ impl SceneState {
                 .as_ref()
                 .map(SceneCommandResult::message),
             self.has_unsaved_changes(),
+            scroll_offset,
         )
     }
 

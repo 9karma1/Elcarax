@@ -1,5 +1,8 @@
 use elcarax_render::Rect;
-use elcarax_ui::{EditorShellContent, EditorShellIds, LayoutConstraints, UiError, UiTree};
+use elcarax_ui::{
+    EditorShellContent, EditorShellIds, LayoutConstraints, SCENE_TREE_ROW_HEIGHT, ScrollViewState,
+    UiError, UiTree,
+};
 
 use crate::editor_status::editor_status_bar;
 use crate::project_ui::EditorSnapshotRefs;
@@ -72,6 +75,15 @@ pub(crate) fn apply_scene_snapshot(
         snapshot.scene_section_title.clone(),
     )?;
     tree.set_label_text(ids.scene_name, snapshot.scene_name.clone())?;
+    tree.set_scroll_view_state(
+        ids.scene_scroll_view,
+        ScrollViewState::with_row_height(
+            snapshot.scroll_offset,
+            snapshot.visible_rows,
+            snapshot.total_rows,
+            SCENE_TREE_ROW_HEIGHT,
+        ),
+    )?;
     for (index, expand_id) in ids.scene_expand_rows.iter().enumerate() {
         tree.set_icon_button_text(*expand_id, snapshot.scene_expand_labels[index].clone())?;
     }

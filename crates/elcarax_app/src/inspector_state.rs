@@ -10,7 +10,7 @@ use elcarax_scene_model::{
 };
 
 use crate::inspector_display::{
-    InspectorUiSnapshot, inspector_summary_for_object, inspector_ui_snapshot,
+    InspectorUiSnapshot, inspector_summary_for_object, inspector_ui_snapshot_with_scroll,
 };
 use crate::scene_state::SceneState;
 
@@ -97,12 +97,21 @@ impl InspectorState {
     }
 
     pub(crate) fn ui_snapshot(&self, scene: &SceneState) -> InspectorUiSnapshot {
-        inspector_ui_snapshot(
+        self.ui_snapshot_at(scene, 0)
+    }
+
+    pub(crate) fn ui_snapshot_at(
+        &self,
+        scene: &SceneState,
+        scroll_offset: usize,
+    ) -> InspectorUiSnapshot {
+        inspector_ui_snapshot_with_scroll(
             scene,
             self.suppressed,
             self.last_command_result
                 .as_ref()
                 .map(InspectorCommandResult::message),
+            scroll_offset,
         )
     }
 

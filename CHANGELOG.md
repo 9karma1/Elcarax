@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Theme-backed info rows and clipped text paint so toolbar/status/project/inspector facts render as bounded components instead of loose labels
 - Component-level UI polish for buttons, property rows, and the command palette: disabled button text/fill states, aligned inspector label/value rows, palette scrim/shadow, and row-backed palette entries
 - Width-constrained text primitives so clipped UI text is constrained during layout/rasterization and cannot bleed out of component rows
+- Scroll-view foundation for asset, scene, and inspector row regions with wheel input, offset-backed presentation windows, and scrollbar paint metrics
 
 ### Changed
 

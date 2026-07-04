@@ -12,18 +12,25 @@ pub(crate) struct AssetUiSnapshot {
     pub(crate) asset_row_labels: [String; MAX_VISIBLE_ASSET_ROWS],
     pub(crate) asset_selected_summary: String,
     pub(crate) selected_row_index: Option<usize>,
+    pub(crate) scroll_offset: usize,
+    pub(crate) total_rows: usize,
+    pub(crate) visible_rows: usize,
     pub(crate) status_asset_suffix: String,
 }
 
-pub(crate) fn asset_ui_snapshot(
+pub(crate) fn asset_ui_snapshot_with_scroll(
     index: &AssetIndex,
     selection: &AssetSelection,
     state: AssetUiState<'_>,
+    scroll_offset: usize,
 ) -> AssetUiSnapshot {
+    let total_rows = index.len();
+    let scroll_offset = clamp_scroll_offset(scroll_offset, total_rows, MAX_VISIBLE_ASSET_ROWS);
     let mut asset_row_labels = empty_row_labels();
     let records: Vec<_> = index
         .records()
         .iter()
+        .skip(scroll_offset)
         .take(MAX_VISIBLE_ASSET_ROWS)
         .collect();
     for (index, record) in records.iter().enumerate() {
@@ -31,7 +38,7 @@ pub(crate) fn asset_ui_snapshot(
     }
     let selected_row_index = selection
         .selected()
-        .and_then(|id| row_index_for_asset(index, id));
+        .and_then(|id| row_index_for_asset(index, id, scroll_offset));
     let selected_summary = selected_asset_summary(index, selection);
     let status_asset_suffix = status_asset_suffix(index, selection, &state);
     AssetUiSnapshot {
@@ -40,6 +47,9 @@ pub(crate) fn asset_ui_snapshot(
         asset_row_labels,
         asset_selected_summary: selected_summary,
         selected_row_index,
+        scroll_offset,
+        total_rows,
+        visible_rows: MAX_VISIBLE_ASSET_ROWS,
         status_asset_suffix,
     }
 }
@@ -57,12 +67,17 @@ fn asset_row_label(record: &AssetRecord) -> String {
     )
 }
 
-fn row_index_for_asset(index: &AssetIndex, id: AssetId) -> Option<usize> {
+fn row_index_for_asset(index: &AssetIndex, id: AssetId, scroll_offset: usize) -> Option<usize> {
     index
         .records()
         .iter()
+        .skip(scroll_offset)
         .take(MAX_VISIBLE_ASSET_ROWS)
         .position(|record| record.id == id)
+}
+
+fn clamp_scroll_offset(scroll_offset: usize, total_rows: usize, visible_rows: usize) -> usize {
+    scroll_offset.min(total_rows.saturating_sub(visible_rows))
 }
 
 fn selected_asset_summary(index: &AssetIndex, selection: &AssetSelection) -> String {
@@ -167,4 +182,45 @@ fn watch_label(status: &AssetWatchStatus) -> String {
 
 fn first_diagnostic(diagnostics: &[AssetDiagnostic]) -> Option<&AssetDiagnostic> {
     diagnostics.first()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elcarax_assets::{AssetKind, AssetRecord, stable_asset_id_from_path};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn asset_snapshot_uses_scroll_offset_window() {
+        let records: Vec<_> = (0..(MAX_VISIBLE_ASSET_ROWS + 2))
+            .map(|index| {
+                let path = PathBuf::from(format!("asset-{index}.txt"));
+                AssetRecord::from_parts(
+                    stable_asset_id_from_path(Path::new(&path)),
+                    format!("asset-{index}.txt"),
+                    path,
+                    AssetKind::Text,
+                )
+            })
+            .collect();
+        let index = AssetIndex::from_records(records);
+        let snapshot = asset_ui_snapshot_with_scroll(
+            &index,
+            &AssetSelection::none(),
+            AssetUiState {
+                project_loaded: true,
+                scan_status: AssetScanStatus::Ready,
+                watch_status: &AssetWatchStatus::Stopped,
+                diagnostics: &[],
+                last_command_message: None,
+                dirty: false,
+                scanned: true,
+            },
+            2,
+        );
+        assert_eq!(snapshot.scroll_offset, 2);
+        assert_eq!(snapshot.total_rows, MAX_VISIBLE_ASSET_ROWS + 2);
+        assert!(snapshot.asset_row_labels[0].contains("asset-2.txt"));
+        assert!(snapshot.asset_row_labels[MAX_VISIBLE_ASSET_ROWS - 1].contains("asset-9.txt"));
+    }
 }

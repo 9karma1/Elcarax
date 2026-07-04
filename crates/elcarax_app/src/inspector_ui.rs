@@ -1,7 +1,7 @@
 use elcarax_render::Rect;
 use elcarax_ui::{
-    EditorShellIds, INSPECTOR_EDITABLE_ROW_HEIGHT, INSPECTOR_READONLY_ROW_HEIGHT, TextRole,
-    UiError, UiTree,
+    EditorShellIds, INSPECTOR_EDITABLE_ROW_HEIGHT, INSPECTOR_READONLY_ROW_HEIGHT, ScrollViewState,
+    TextRole, UiError, UiTree,
 };
 
 use crate::inspector_display::InspectorUiSnapshot;
@@ -33,6 +33,14 @@ pub(crate) fn apply_inspector_snapshot(
             INSPECTOR_READONLY_ROW_HEIGHT,
         )?;
     }
+    tree.set_scroll_view_state(
+        ids.inspector_scroll_view,
+        ScrollViewState::with_metrics(
+            snapshot.scroll_offset,
+            snapshot.visible_rows,
+            snapshot.total_rows,
+        ),
+    )?;
     for (index, row_id) in ids.inspector_row_labels.iter().enumerate() {
         let row_height = if snapshot.row_editable[index] {
             INSPECTOR_EDITABLE_ROW_HEIGHT

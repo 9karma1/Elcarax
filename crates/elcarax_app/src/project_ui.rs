@@ -35,6 +35,9 @@ fn empty_asset_snapshot() -> AssetUiSnapshot {
         asset_row_labels: std::array::from_fn(|_| String::new()),
         asset_selected_summary: "Selected: None".to_string(),
         selected_row_index: None,
+        scroll_offset: 0,
+        total_rows: 0,
+        visible_rows: elcarax_ui::MAX_VISIBLE_ASSET_ROWS,
         status_asset_suffix: "Asset: No project open".to_string(),
     }
 }
@@ -49,6 +52,9 @@ fn empty_scene_snapshot() -> SceneUiSnapshot {
         scene_selected_summary: "Selected: None".to_string(),
         selected_row_index: None,
         visible_object_ids: std::array::from_fn(|_| None),
+        scroll_offset: 0,
+        total_rows: 0,
+        visible_rows: elcarax_ui::MAX_VISIBLE_SCENE_ROWS,
         status_scene_suffix: "Scene: No scene loaded | Object: None".to_string(),
         has_unsaved_changes: false,
     }
@@ -69,6 +75,9 @@ fn empty_inspector_snapshot() -> InspectorUiSnapshot {
             elcarax_ui::MAX_VISIBLE_INSPECTOR_ROWS],
         row_command_ids: std::array::from_fn(|_| String::new()),
         property_count: 0,
+        scroll_offset: 0,
+        total_rows: 0,
+        visible_rows: elcarax_ui::MAX_VISIBLE_INSPECTOR_ROWS,
         summary: String::new(),
     }
 }
