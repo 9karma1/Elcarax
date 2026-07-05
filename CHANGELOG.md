@@ -24,6 +24,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Schema-driven inspector value widgets: toggles, number steppers, vector fields, and enum selectors wired through `InspectorValueWidget` descriptors
 - `PropertyEditKind::Enum` with `PropertySchema::editable_enum` and enum variant validation on property commits
 - Declarative command metadata, platform-neutral key chords, default keybindings, conflict diagnostics, command availability reasons, help summaries, and a toolbar action snapshot generated from the command registry
+- Native-shell adapter launch configuration through `ELCARAX_ADAPTER_EXE`, `ELCARAX_ADAPTER_PROJECT_PATH`, `ELCARAX_ADAPTER_AUTO_CONNECT`, `--adapter`, `--adapter-project`, and `--auto-connect-adapter`, with startup auto-connect/load for engine-provided adapters
+- Adapter-backed inspector property commits routed through `EditorSession` and `AdapterState::commit_inspector_property`, with native-shell `AdapterHost::set_property` writeback and adapter undo history population
+- Viewport interaction no longer reloads adapter scenes on pointer hover; local `ViewportCamera` stays aligned with pan/zoom/orbit for pick UV math; adapter pick misses no longer fall through to local geometric pick
+- `adapter.load_scene` respects unsaved project scene guards; `EditorSession` releases adapter/viewport bindings on project open/close/switch via `EditorShellContext`
+- Mock game adapter honors viewport `camera_input` / `editor_input`, supports frames up to 1024px, and renders at the requested resolution
 
 ### Changed
 

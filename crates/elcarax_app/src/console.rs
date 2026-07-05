@@ -229,7 +229,7 @@ fn run_project_proof() -> Result<()> {
     let recent = dispatch_session_command(&mut session, PROJECT_SHOW_RECENT_COMMAND);
     println!("project.show_recent: {recent}");
 
-    let close = session.session_mut().close_project();
+    let close = session.session_mut().close_project(None);
     println!("project.close: {}", close.message());
     assert!(!session.project.is_project_loaded());
     assert!(session.assets.index().is_empty());
@@ -284,7 +284,10 @@ fn dispatch_session_command(session: &mut EditorSessionState, command_id: &str) 
             .map(|outcome| outcome.status_message())
             .unwrap_or_else(|| "missing scene save result".to_string());
     }
-    if let Some(result) = session.session_mut().execute_project_command(command_id) {
+    if let Some(result) = session
+        .session_mut()
+        .execute_project_command(command_id, None)
+    {
         return result.message().to_string();
     }
     if let Some(result) = session
