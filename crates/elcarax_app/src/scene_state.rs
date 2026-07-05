@@ -105,6 +105,10 @@ impl SceneState {
         matches!(self.source, SceneSource::Project(_))
     }
 
+    pub(crate) fn is_adapter_backed(&self) -> bool {
+        self.adapter_id().is_some()
+    }
+
     pub(crate) fn mark_document_modified(&mut self) {
         if self.is_project_document() {
             self.document_dirty = true;
@@ -128,11 +132,6 @@ impl SceneState {
 
     pub(crate) fn snapshot_mut(&mut self) -> Option<&mut SceneSnapshot> {
         self.snapshot.as_mut()
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn source(&self) -> &SceneSource {
-        &self.source
     }
 
     #[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
@@ -172,6 +171,7 @@ impl SceneState {
         self.selection.clear();
         self.expansion.collapse_all();
         self.diagnostics.clear();
+        self.document_dirty = false;
         self.last_command_result = Some(SceneCommandResult::new(command_id, message));
     }
 

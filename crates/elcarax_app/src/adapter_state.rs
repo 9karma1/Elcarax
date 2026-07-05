@@ -10,6 +10,8 @@ use elcarax_adapter_api::{
 };
 #[cfg(any(test, feature = "native-shell"))]
 use elcarax_adapter_api::{AdapterViewportId, GetViewportFrameRequest};
+#[cfg(feature = "native-shell")]
+use elcarax_adapter_api::{PickViewportObjectRequest, ViewportPickResponseStatus};
 #[cfg(any(test, feature = "native-shell"))]
 use elcarax_adapter_host::AdapterHostError;
 use elcarax_adapter_host::AdapterHostState;
@@ -19,17 +21,21 @@ use elcarax_adapter_host::AdapterSession;
 use elcarax_adapter_host::{AdapterHost, AdapterProcessSpec};
 
 use crate::adapter_display::{AdapterUiSnapshot, adapter_ui_snapshot};
-#[cfg(test)]
-use crate::scene_state::SceneSource;
+use crate::project_config::AppProjectConfig;
+use crate::viewport_state::ViewportFrameRequestSize;
+use elcarax_adapter_api::{ViewportCameraInput, ViewportEditorInput};
 #[cfg(any(test, feature = "native-shell"))]
 use elcarax_core::ViewportFrameFormat;
 use elcarax_core::{ViewportError, ViewportFrame};
-use elcarax_scene_model::{PropertyChange, ScenePatch};
-#[cfg(test)]
-use elcarax_scene_model::{PropertyPath, PropertyValue, prepare_property_change};
+#[cfg(feature = "native-shell")]
+use elcarax_scene_model::SceneObjectId;
+use elcarax_scene_model::{
+    PropertyChange, PropertyEditKind, PropertyPath, PropertyValue, ScenePatch,
+    parse_property_text, prepare_property_change,
+};
 
-use crate::inspector_state::{EDIT_REDO_COMMAND, EDIT_UNDO_COMMAND};
-use crate::scene_state::SceneState;
+use crate::inspector_state::EDIT_SET_PROPERTY_COMMAND;
+use crate::scene_state::{SceneState, UNSAVED_SCENE_MESSAGE};
 
 pub(crate) const ADAPTER_CONNECT_COMMAND: &str = "adapter.connect";
 pub(crate) const ADAPTER_HANDSHAKE_COMMAND: &str = "adapter.handshake";
@@ -55,6 +61,28 @@ pub(crate) struct AdapterState {
     diagnostics: Vec<AdapterDiagnostic>,
     edit_history: AdapterEditHistory,
     last_result: Option<AdapterCommandResult>,
+    config: AdapterLaunchConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct AdapterLaunchConfig {
+    executable: Option<std::path::PathBuf>,
+    project_path: Option<std::path::PathBuf>,
+    auto_connect: bool,
+}
+
+impl AdapterLaunchConfig {
+    pub(crate) fn from_project_config(config: &AppProjectConfig) -> Self {
+        Self {
+            executable: config.adapter_executable.clone(),
+            project_path: config.adapter_project_path.clone(),
+            auto_connect: config.auto_connect_adapter,
+        }
+    }
+
+    pub(crate) const fn auto_connect(&self) -> bool {
+        self.auto_connect
+    }
 }
 
 #[cfg(test)]
@@ -64,6 +92,17 @@ enum AdapterConnection {
 }
 
 impl AdapterState {
+    pub(crate) fn new(config: AdapterLaunchConfig) -> Self {
+        Self {
+            config,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn auto_connect_enabled(&self) -> bool {
+        self.config.auto_connect()
+    }
+
     pub(crate) fn execute_command_id(
         &mut self,
         id: &str,
@@ -106,6 +145,21 @@ impl AdapterState {
             .is_some_and(|capabilities| capabilities.supports_viewport_preview)
     }
 
+    pub(crate) fn undo_count(&self) -> usize {
+        self.edit_history.undo_count()
+    }
+
+    pub(crate) fn redo_count(&self) -> usize {
+        self.edit_history.redo_count()
+    }
+
+    #[cfg(feature = "native-shell")]
+    pub(crate) fn supports_viewport_picking(&self) -> bool {
+        self.capabilities
+            .as_ref()
+            .is_some_and(|capabilities| capabilities.supports_viewport_picking)
+    }
+
     #[cfg(feature = "native-shell")]
     pub(crate) fn connected_viewport_info(&self) -> Option<(String, bool)> {
         if !self.is_connected() {
@@ -118,6 +172,9 @@ impl AdapterState {
     pub(crate) fn request_viewport_frame(
         &mut self,
         viewport: &mut elcarax_core::ViewportState,
+        request_size: ViewportFrameRequestSize,
+        camera_input: Option<ViewportCameraInput>,
+        editor_input: Option<ViewportEditorInput>,
     ) -> Result<String, String> {
         if let Err(error) = viewport.begin_frame_request() {
             return Err(error.to_string());
@@ -136,9 +193,11 @@ impl AdapterState {
                 let request = GetViewportFrameRequest {
                     viewport_id: AdapterViewportId(viewport.id.get()),
                     scene_id: None,
-                    width: 256,
-                    height: 256,
+                    width: request_size.width(),
+                    height: request_size.height(),
                     format: ViewportFrameFormat::Rgba8Unorm,
+                    camera_input,
+                    editor_input,
                 };
                 return match session.get_viewport_frame(request) {
                     Ok(response) => self.apply_viewport_response(viewport, response),
@@ -155,9 +214,11 @@ impl AdapterState {
                 let request = GetViewportFrameRequest {
                     viewport_id: AdapterViewportId(viewport.id.get()),
                     scene_id: None,
-                    width: 256,
-                    height: 256,
+                    width: request_size.width(),
+                    height: request_size.height(),
                     format: ViewportFrameFormat::Rgba8Unorm,
+                    camera_input,
+                    editor_input,
                 };
                 return match host.get_viewport_frame(request) {
                     Ok(response) => self.apply_viewport_response(viewport, response),
@@ -170,6 +231,42 @@ impl AdapterState {
         }
         viewport.apply_error(ViewportError::NoAdapterConnected);
         Err("No adapter connected".to_string())
+    }
+
+    #[cfg(feature = "native-shell")]
+    pub(crate) fn pick_viewport_object(
+        &mut self,
+        viewport_id: u64,
+        u: f32,
+        v: f32,
+    ) -> Result<Option<SceneObjectId>, String> {
+        if !self.is_connected() {
+            return Err("No adapter connected".to_string());
+        }
+        if !self.supports_viewport_picking() {
+            return Err("Adapter does not support viewport picking".to_string());
+        }
+        let Some(host) = &mut self.host else {
+            return Err("No adapter connected".to_string());
+        };
+        let request = PickViewportObjectRequest {
+            viewport_id: AdapterViewportId(viewport_id),
+            scene_id: None,
+            u,
+            v,
+        };
+        let response = host
+            .pick_viewport_object(request)
+            .map_err(|error| error.to_string())?;
+        match response.status {
+            ViewportPickResponseStatus::Picked => Ok(response.object_id),
+            ViewportPickResponseStatus::Missed => Ok(None),
+            _ => Err(response
+                .diagnostics
+                .first()
+                .map(|diagnostic| diagnostic.message.clone())
+                .unwrap_or_else(|| "adapter viewport pick failed".to_string())),
+        }
     }
 
     fn apply_viewport_response(
@@ -225,7 +322,7 @@ impl AdapterState {
                     "adapter process already active",
                 );
             }
-            match AdapterHost::spawn(AdapterProcessSpec::stdio_game_adapter(), None) {
+            match AdapterHost::spawn(self.process_spec(), None) {
                 Ok(host) => {
                     self.host = Some(host);
                     self.status = AdapterHostState::Starting;
@@ -240,11 +337,22 @@ impl AdapterState {
         }
     }
 
+    #[cfg(feature = "native-shell")]
+    fn process_spec(&self) -> AdapterProcessSpec {
+        match &self.config.executable {
+            Some(executable) => AdapterProcessSpec::new(executable),
+            None => AdapterProcessSpec::stdio_game_adapter(),
+        }
+    }
+
     fn handshake(&mut self) -> AdapterCommandResult {
         #[cfg(feature = "native-shell")]
         {
             if let Some(host) = &mut self.host {
-                return match host.handshake(HandshakeRequest::current("elcarax-app", None)) {
+                return match host.handshake(HandshakeRequest::current(
+                    "elcarax-app",
+                    self.config.project_path.clone(),
+                )) {
                     Ok(info) => {
                         self.name = Some(info.name);
                         self.version = Some(info.version);
@@ -260,7 +368,10 @@ impl AdapterState {
         #[cfg(test)]
         {
             if let AdapterConnection::Fake(session) = &mut self.connection {
-                return match session.handshake(HandshakeRequest::current("elcarax-app", None)) {
+                return match session.handshake(HandshakeRequest::current(
+                    "elcarax-app",
+                    self.config.project_path.clone(),
+                )) {
                     Ok(info) => {
                         self.name = Some(info.name);
                         self.version = Some(info.version);
@@ -283,7 +394,9 @@ impl AdapterState {
         #[cfg(feature = "native-shell")]
         {
             if let Some(host) = &mut self.host {
-                let request = LoadProjectRequest { project_path: None };
+                let request = LoadProjectRequest {
+                    project_path: self.config.project_path.clone(),
+                };
                 return match host.load_project(request) {
                     Ok(project) => AdapterCommandResult::new(
                         ADAPTER_LOAD_PROJECT_COMMAND,
@@ -296,7 +409,9 @@ impl AdapterState {
         #[cfg(test)]
         {
             if let AdapterConnection::Fake(session) = &mut self.connection {
-                let request = LoadProjectRequest { project_path: None };
+                let request = LoadProjectRequest {
+                    project_path: self.config.project_path.clone(),
+                };
                 return match session.load_project(request) {
                     Ok(project) => AdapterCommandResult::new(
                         ADAPTER_LOAD_PROJECT_COMMAND,
@@ -313,6 +428,12 @@ impl AdapterState {
     }
 
     fn load_scene(&mut self, scene_state: &mut SceneState) -> AdapterCommandResult {
+        if scene_state.has_unsaved_changes() {
+            return AdapterCommandResult::new(
+                ADAPTER_LOAD_SCENE_COMMAND,
+                format!("Diagnostic: {UNSAVED_SCENE_MESSAGE}"),
+            );
+        }
         #[cfg(feature = "native-shell")]
         {
             if let Some(host) = &mut self.host {
@@ -462,55 +583,94 @@ impl AdapterState {
         self.edit_history.clear();
     }
 
-    #[cfg(test)]
-    fn set_fixture_property(
+    pub(crate) fn commit_inspector_property(
         &mut self,
         scene_state: &mut SceneState,
-        command_id: &str,
         path: &str,
-        new_value: PropertyValue,
+        edit_kind: PropertyEditKind,
+        text: &str,
         label: &str,
     ) -> AdapterCommandResult {
         let path = match PropertyPath::parse(path) {
             Ok(path) => path,
             Err(error) => {
-                return AdapterCommandResult::new(
-                    command_id,
-                    format!("Diagnostic: invalid property path: {error}"),
+                return self.record_property_edit_failure(
+                    scene_state,
+                    EDIT_SET_PROPERTY_COMMAND,
+                    format!("invalid property path: {error}"),
                 );
             }
         };
-        let change = match adapter_property_change(scene_state, &path, &new_value) {
+        let value = match parse_property_text(&path, edit_kind, text) {
+            Ok(value) => value,
+            Err(error) => {
+                return self.record_property_edit_failure(
+                    scene_state,
+                    EDIT_SET_PROPERTY_COMMAND,
+                    error.message(),
+                );
+            }
+        };
+        self.commit_property_edit(
+            scene_state,
+            EDIT_SET_PROPERTY_COMMAND,
+            &path,
+            value,
+            label,
+        )
+    }
+
+    fn commit_property_edit(
+        &mut self,
+        scene_state: &mut SceneState,
+        command_id: &str,
+        path: &PropertyPath,
+        new_value: PropertyValue,
+        label: &str,
+    ) -> AdapterCommandResult {
+        let change = match adapter_property_change(scene_state, path, &new_value) {
             Ok(change) => change,
             Err(message) => {
-                return AdapterCommandResult::new(command_id, format!("Diagnostic: {message}"));
+                return self.record_property_edit_failure(scene_state, command_id, message);
             }
         };
         match self.apply_adapter_change(scene_state, &change, command_id) {
             Ok(()) => {
-                self.edit_history.push(change.clone(), label);
+                self.edit_history.push(change.clone());
+                let message = format!(
+                    "{label} confirmed | {} -> {}",
+                    change.old_value.display_label(),
+                    change.new_value.display_label()
+                );
                 scene_state.record_status(
                     command_id,
-                    format!(
-                        "Adapter Command: {label} | {} -> {}",
-                        change.old_value.display_label(),
-                        change.new_value.display_label()
-                    ),
+                    format!("Adapter Command: {label} | {} -> {}", change.old_value.display_label(), change.new_value.display_label()),
                 );
-                AdapterCommandResult::new(
-                    command_id,
-                    format!(
-                        "{label} confirmed | {} -> {}",
-                        change.old_value.display_label(),
-                        change.new_value.display_label()
-                    ),
-                )
+                self.record_command_result(command_id, message.clone())
             }
-            Err(message) => {
-                scene_state.record_status(command_id, format!("Diagnostic: {message}"));
-                AdapterCommandResult::new(command_id, format!("Diagnostic: {message}"))
-            }
+            Err(message) => self.record_property_edit_failure(scene_state, command_id, message),
         }
+    }
+
+    fn record_property_edit_failure(
+        &mut self,
+        scene_state: &mut SceneState,
+        command_id: &str,
+        message: impl Into<String>,
+    ) -> AdapterCommandResult {
+        let message = message.into();
+        scene_state.record_status(command_id, format!("Diagnostic: {message}"));
+        self.record_command_result(command_id, format!("Diagnostic: {message}"))
+    }
+
+    fn record_command_result(
+        &mut self,
+        command_id: &str,
+        message: impl Into<String>,
+    ) -> AdapterCommandResult {
+        let result = AdapterCommandResult::new(command_id, message);
+        self.last_result = Some(result.clone());
+        result
     }
 
     fn undo(&mut self, scene_state: &mut SceneState) -> AdapterCommandResult {
@@ -528,12 +688,12 @@ impl AdapterState {
                     ADAPTER_EDIT_UNDO_COMMAND,
                     "Adapter Command: adapter.edit.undo",
                 );
-                AdapterCommandResult::new(ADAPTER_EDIT_UNDO_COMMAND, "adapter undo confirmed")
+                self.record_command_result(ADAPTER_EDIT_UNDO_COMMAND, "adapter undo confirmed")
             }
             Err(message) => {
                 scene_state
                     .record_status(ADAPTER_EDIT_UNDO_COMMAND, format!("Diagnostic: {message}"));
-                AdapterCommandResult::new(
+                self.record_command_result(
                     ADAPTER_EDIT_UNDO_COMMAND,
                     format!("Diagnostic: {message}"),
                 )
@@ -556,12 +716,12 @@ impl AdapterState {
                     ADAPTER_EDIT_REDO_COMMAND,
                     "Adapter Command: adapter.edit.redo",
                 );
-                AdapterCommandResult::new(ADAPTER_EDIT_REDO_COMMAND, "adapter redo confirmed")
+                self.record_command_result(ADAPTER_EDIT_REDO_COMMAND, "adapter redo confirmed")
             }
             Err(message) => {
                 scene_state
                     .record_status(ADAPTER_EDIT_REDO_COMMAND, format!("Diagnostic: {message}"));
-                AdapterCommandResult::new(
+                self.record_command_result(
                     ADAPTER_EDIT_REDO_COMMAND,
                     format!("Diagnostic: {message}"),
                 )
@@ -619,6 +779,15 @@ impl AdapterState {
                 });
             }
         }
+        #[cfg(feature = "native-shell")]
+        {
+            if let Some(host) = &mut self.host {
+                return host.set_property(request).map_err(|error| {
+                    self.status = AdapterHostState::Failed;
+                    format!("{error}")
+                });
+            }
+        }
         let _ = request;
         Err("adapter not connected".to_string())
     }
@@ -647,6 +816,7 @@ impl AdapterState {
             diagnostics: Vec::new(),
             edit_history: AdapterEditHistory::default(),
             last_result: None,
+            config: AdapterLaunchConfig::default(),
         }
     }
 
@@ -677,6 +847,7 @@ impl Default for AdapterState {
             diagnostics: Vec::new(),
             edit_history: AdapterEditHistory::default(),
             last_result: None,
+            config: AdapterLaunchConfig::default(),
         }
     }
 }
@@ -733,8 +904,8 @@ impl AdapterCommand {
 #[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 pub(crate) fn adapter_command_for_inspector_edit(id: &str) -> Option<&'static str> {
     match id {
-        EDIT_UNDO_COMMAND => Some(ADAPTER_EDIT_UNDO_COMMAND),
-        EDIT_REDO_COMMAND => Some(ADAPTER_EDIT_REDO_COMMAND),
+        crate::inspector_state::EDIT_UNDO_COMMAND => Some(ADAPTER_EDIT_UNDO_COMMAND),
+        crate::inspector_state::EDIT_REDO_COMMAND => Some(ADAPTER_EDIT_REDO_COMMAND),
         _ => None,
     }
 }
@@ -746,10 +917,17 @@ struct AdapterEditHistory {
 }
 
 impl AdapterEditHistory {
-    #[cfg(test)]
-    fn push(&mut self, change: PropertyChange, _label: &str) {
+    fn push(&mut self, change: PropertyChange) {
         self.undo_stack.push(AdapterEditEntry { change });
         self.redo_stack.clear();
+    }
+
+    fn undo_count(&self) -> usize {
+        self.undo_stack.len()
+    }
+
+    fn redo_count(&self) -> usize {
+        self.redo_stack.len()
     }
 
     fn undo_candidate(&self) -> Option<&AdapterEditEntry> {
@@ -796,15 +974,14 @@ impl AdapterEditEntry {
     }
 }
 
-#[cfg(test)]
 fn adapter_property_change(
     scene_state: &SceneState,
     path: &PropertyPath,
     new_value: &PropertyValue,
 ) -> Result<PropertyChange, String> {
-    let SceneSource::Adapter(_) = scene_state.source() else {
+    if !scene_state.is_adapter_backed() {
         return Err("scene is not adapter-backed".to_string());
-    };
+    }
     let Some(snapshot) = scene_state.snapshot() else {
         return Err("scene not loaded".to_string());
     };
@@ -838,6 +1015,10 @@ mod tests {
         SceneObjectId, SceneObjectKind, ScenePatch, SceneSnapshot,
     };
 
+    use crate::editor_session::EditorSessionState;
+    use crate::project_config::AppProjectConfig;
+    use crate::project_state::PROJECT_CREATE_COMMAND;
+
     #[test]
     fn fake_transport_handshake_command_changes_status() {
         let mut state = state_with_lines(vec![response(
@@ -848,6 +1029,25 @@ mod tests {
         let result = state.execute_command_id(ADAPTER_HANDSHAKE_COMMAND, &mut scene);
         assert!(result.is_some());
         assert_eq!(state.status, AdapterHostState::Connected);
+    }
+
+    #[test]
+    fn adapter_load_scene_is_blocked_while_project_scene_is_dirty() {
+        let temp =
+            std::env::temp_dir().join(format!("elcarax-adapter-dirty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let mut editor = EditorSessionState::new(AppProjectConfig {
+            create_root: Some(temp.clone()),
+            ..AppProjectConfig::default()
+        });
+        let _ = editor
+            .session_mut()
+            .execute_project_command(PROJECT_CREATE_COMMAND, None);
+        editor.scene.mark_document_modified();
+        let mut adapter = AdapterState::default();
+        let result = adapter.execute_command_id(ADAPTER_LOAD_SCENE_COMMAND, &mut editor.scene);
+        assert!(result.is_some_and(|value| value.message().contains("Unsaved")));
+        let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
@@ -911,11 +1111,11 @@ mod tests {
             AdapterRequestId(1),
             accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
         )]);
-        let result = state.set_fixture_property(
+        let result = state.commit_inspector_property(
             &mut scene,
-            "test.adapter.set_fixture_health",
             "gameplay.health",
-            PropertyValue::I64(65),
+            PropertyEditKind::Integer,
+            "65",
             "Set Fixture Health",
         );
         assert!(result.message().contains("confirmed"));
@@ -931,6 +1131,8 @@ mod tests {
             request.message,
             elcarax_adapter_api::AdapterRequestMessage::SetProperty(_)
         ));
+        assert_eq!(state.undo_count(), 1);
+        assert_eq!(state.redo_count(), 0);
     }
 
     #[test]
@@ -940,11 +1142,11 @@ mod tests {
             AdapterRequestId(1),
             rejected_health_response(&scene),
         )]);
-        let result = state.set_fixture_property(
+        let result = state.commit_inspector_property(
             &mut scene,
-            "test.adapter.set_fixture_health",
             "gameplay.health",
-            PropertyValue::I64(65),
+            PropertyEditKind::Integer,
+            "65",
             "Set Fixture Health",
         );
         assert!(result.message().contains("Diagnostic:"));
@@ -968,11 +1170,11 @@ mod tests {
                 accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
             ),
         ]);
-        let _ = state.set_fixture_property(
+        let _ = state.commit_inspector_property(
             &mut scene,
-            "test.adapter.set_fixture_health",
             "gameplay.health",
-            PropertyValue::I64(65),
+            PropertyEditKind::Integer,
+            "65",
             "Set Fixture Health",
         );
         let _ = state.execute_command_id(ADAPTER_EDIT_UNDO_COMMAND, &mut scene);
@@ -986,11 +1188,11 @@ mod tests {
     fn disconnected_adapter_edit_fails_clearly() {
         let mut scene = adapter_fixture_scene();
         let mut state = AdapterState::default();
-        let result = state.set_fixture_property(
+        let result = state.commit_inspector_property(
             &mut scene,
-            "test.adapter.set_fixture_health",
             "gameplay.health",
-            PropertyValue::I64(65),
+            PropertyEditKind::Integer,
+            "65",
             "Set Fixture Health",
         );
         assert!(result.message().contains("adapter not connected"));
@@ -1026,6 +1228,7 @@ mod tests {
                 provides_diagnostics: true,
                 supports_property_writeback: false,
                 supports_viewport_preview: false,
+                supports_viewport_picking: false,
             },
         }
     }

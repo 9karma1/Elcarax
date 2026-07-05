@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use elcarax_adapter_api::ViewportEditorInput;
 use elcarax_commands::{
     CommandBindingRegistry, CommandId, CommandInvocation, CommandRegistry, CommandResult,
     CommandScope, KeyChord, KeyModifier, built_in_commands,
@@ -18,7 +19,8 @@ use elcarax_ui::{
 };
 
 use crate::adapter_state::{
-    ADAPTER_HANDSHAKE_COMMAND, AdapterState, adapter_command_for_inspector_edit,
+    ADAPTER_CONNECT_COMMAND, ADAPTER_HANDSHAKE_COMMAND, ADAPTER_LOAD_PROJECT_COMMAND,
+    ADAPTER_LOAD_SCENE_COMMAND, AdapterLaunchConfig, AdapterState,
 };
 use crate::asset_ui::asset_row_index_for_widget;
 use crate::editor_commands::{
@@ -26,7 +28,7 @@ use crate::editor_commands::{
     SHOW_READY_STATUS_COMMAND, SHOW_RENDERER_STATS_COMMAND, ToolbarSnapshot, command_availability,
     command_summary, palette_entries, shortcut_summary, toolbar_snapshot,
 };
-use crate::editor_session::EditorSessionState;
+use crate::editor_session::{EditorSessionState, EditorShellContext};
 use crate::inspector_ui::inspector_value_index_for_widget;
 use crate::project_config::AppProjectConfig;
 use crate::project_picker::{
@@ -41,7 +43,8 @@ use crate::scene_ui::{
 use crate::shell_layout::{
     MIN_PANEL_WIDTH, MIN_VIEWPORT_WIDTH, ShellLayout, default_shell_layout_path,
 };
-use crate::viewport_state::AppViewportState;
+use crate::viewport_state::VIEWPORT_REQUEST_FRAME_COMMAND;
+use crate::viewport_state::{AppViewportState, ViewportFrameRequestSize};
 
 pub fn run_native_shell() -> Result<()> {
     println!("Elcarax native shell: starting");
@@ -81,7 +84,10 @@ struct UiState {
     shell_layout: ShellLayout,
     shell_layout_path: std::path::PathBuf,
     panel_resize: Option<PanelResizeDrag>,
-    viewport_pan: Option<ViewportPanDrag>,
+    viewport_drag: Option<ViewportDrag>,
+    viewport_primary_down: bool,
+    viewport_secondary_down: bool,
+    viewport_middle_down: bool,
     last_pointer: Option<PointerPosition>,
     shell_cursor: PlatformCursor,
 }
@@ -100,9 +106,30 @@ enum PanelResizeDrag {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ViewportPanDrag {
-    last_x: f32,
-    last_y: f32,
+enum ViewportDrag {
+    Orbit { last_x: f32, last_y: f32 },
+    Pan { last_x: f32, last_y: f32 },
+}
+
+impl ViewportDrag {
+    const fn last_position(self) -> (f32, f32) {
+        match self {
+            Self::Orbit { last_x, last_y } | Self::Pan { last_x, last_y } => (last_x, last_y),
+        }
+    }
+
+    const fn at(self, x: f32, y: f32) -> Self {
+        match self {
+            Self::Orbit { .. } => Self::Orbit {
+                last_x: x,
+                last_y: y,
+            },
+            Self::Pan { .. } => Self::Pan {
+                last_x: x,
+                last_y: y,
+            },
+        }
+    }
 }
 
 impl NativeAppHandler for ShellState {
@@ -182,6 +209,9 @@ impl ShellState {
             ui.tree
                 .resize_root(bounds)
                 .map_err(|error| NativeAppError::Window(format!("failed to resize UI: {error}")))?;
+            apply_editor_snapshot_to_ui(ui)?;
+            request_adapter_viewport_frame(ui);
+            apply_editor_snapshot_to_ui(ui)?;
             ui.scene_dirty = true;
         }
         app.request_redraw();
@@ -272,11 +302,12 @@ fn build_ui_state(
     height: f32,
 ) -> std::result::Result<UiState, NativeAppError> {
     let context = UiContext::new(theme, Rect::new(0.0, 0.0, width, height));
-    let editor = EditorSessionState::new(AppProjectConfig::from_env_and_args(
-        &std::env::args().collect::<Vec<_>>(),
-    ));
-    let adapter_state = AdapterState::default();
-    let viewport_state = AppViewportState::default();
+    let project_config = AppProjectConfig::from_env_and_args(&std::env::args().collect::<Vec<_>>());
+    let adapter_config = AdapterLaunchConfig::from_project_config(&project_config);
+    let mut editor = EditorSessionState::new(project_config);
+    let mut adapter_state = AdapterState::new(adapter_config);
+    let mut viewport_state = AppViewportState::default();
+    auto_connect_adapter(&mut editor, &mut adapter_state, &mut viewport_state);
     let content = shell_content_from_editor_state(editor_snapshots(
         &editor.project.ui_snapshot(),
         &editor.assets.ui_snapshot(),
@@ -328,15 +359,110 @@ fn build_ui_state(
         shell_layout,
         shell_layout_path,
         panel_resize: None,
-        viewport_pan: None,
+        viewport_drag: None,
+        viewport_primary_down: false,
+        viewport_secondary_down: false,
+        viewport_middle_down: false,
         last_pointer: None,
         shell_cursor: PlatformCursor::Default,
     };
     apply_shell_layout(&mut ui)?;
     apply_editor_snapshot_to_ui(&mut ui)?;
+    request_adapter_viewport_frame(&mut ui);
+    apply_editor_snapshot_to_ui(&mut ui)?;
     repaint_ui_scene(&mut ui)?;
     ui.scene_dirty = false;
     Ok(ui)
+}
+
+fn auto_connect_adapter(
+    editor: &mut EditorSessionState,
+    adapter_state: &mut AdapterState,
+    viewport_state: &mut AppViewportState,
+) {
+    if !adapter_state.auto_connect_enabled() {
+        return;
+    }
+
+    for command_id in [
+        ADAPTER_CONNECT_COMMAND,
+        ADAPTER_HANDSHAKE_COMMAND,
+        ADAPTER_LOAD_PROJECT_COMMAND,
+        ADAPTER_LOAD_SCENE_COMMAND,
+    ] {
+        let Some(_result) = adapter_state.execute_command_id(command_id, &mut editor.scene) else {
+            return;
+        };
+        if command_id == ADAPTER_HANDSHAKE_COMMAND
+            && let Some((adapter_id, supports_preview)) = adapter_state.connected_viewport_info()
+        {
+            viewport_state.on_adapter_connected(&adapter_id, supports_preview);
+        }
+        if command_id == ADAPTER_LOAD_SCENE_COMMAND {
+            editor.inspector.on_scene_selection_changed();
+        }
+    }
+}
+
+fn viewport_frame_request_size(ui: &UiState) -> ViewportFrameRequestSize {
+    let content = ui.tree.viewport_paint().content_rect;
+    ViewportFrameRequestSize::from_content_size(content.width, content.height)
+}
+
+fn request_adapter_viewport_frame(ui: &mut UiState) {
+    if !ui.adapter_state.is_connected() || !ui.adapter_state.supports_viewport_preview() {
+        return;
+    }
+    let request_size = viewport_frame_request_size(ui);
+    let _ = ui.viewport_state.execute_command_id_with_size(
+        VIEWPORT_REQUEST_FRAME_COMMAND,
+        &mut ui.adapter_state,
+        request_size,
+    );
+}
+
+fn forward_viewport_editor_input(
+    ui: &mut UiState,
+    position: PointerPosition,
+    wheel_delta_y: f32,
+) -> std::result::Result<(), NativeAppError> {
+    let Some(input) = viewport_editor_input_at(ui, position, wheel_delta_y) else {
+        return Ok(());
+    };
+    ui.viewport_state.set_editor_input(input);
+    request_adapter_viewport_frame(ui);
+    apply_editor_snapshot_to_ui(ui)
+}
+
+fn viewport_editor_input_at(
+    ui: &UiState,
+    position: PointerPosition,
+    wheel_delta_y: f32,
+) -> Option<ViewportEditorInput> {
+    let content = ui.tree.viewport_paint().content_rect;
+    if content.width <= 0.0 || content.height <= 0.0 {
+        return None;
+    }
+    if position.x < content.x
+        || position.y < content.y
+        || position.x > content.x + content.width
+        || position.y > content.y + content.height
+    {
+        return None;
+    }
+
+    let request_size = viewport_frame_request_size(ui);
+    let pointer_x = ((position.x - content.x) / content.width) * request_size.width() as f32;
+    let pointer_y = ((position.y - content.y) / content.height) * request_size.height() as f32;
+    let mut input = ViewportEditorInput::pointer(
+        pointer_x,
+        pointer_y,
+        ui.viewport_primary_down,
+        ui.viewport_secondary_down,
+        ui.viewport_middle_down,
+    );
+    input.wheel_delta_y = wheel_delta_y;
+    Some(input)
 }
 
 fn body_width_for_bounds(bounds: Rect) -> f32 {
@@ -396,37 +522,85 @@ fn handle_viewport_interaction(
     match input {
         UiInputEvent::PointerMoved(position) => {
             ui.last_pointer = Some(*position);
-            if let Some(drag) = ui.viewport_pan {
-                let delta_x = position.x - drag.last_x;
-                let delta_y = position.y - drag.last_y;
-                ui.viewport_state.pan_camera_by(delta_x, delta_y);
-                ui.viewport_pan = Some(ViewportPanDrag {
-                    last_x: position.x,
-                    last_y: position.y,
-                });
+            if let Some(drag) = ui.viewport_drag {
+                let (last_x, last_y) = drag.last_position();
+                let delta_x = position.x - last_x;
+                let delta_y = position.y - last_y;
+                match drag {
+                    ViewportDrag::Orbit { .. } => {
+                        ui.viewport_state.orbit_camera_by(delta_x, delta_y);
+                    }
+                    ViewportDrag::Pan { .. } => {
+                        ui.viewport_state.pan_camera_by(delta_x, delta_y);
+                    }
+                }
+                ui.viewport_drag = Some(drag.at(position.x, position.y));
+                request_adapter_viewport_frame(ui);
                 apply_editor_snapshot_to_ui(ui)?;
                 return Ok(true);
             }
         }
         UiInputEvent::PointerButtonPressed(button) => {
-            let pan_button = matches!(button, PointerButton::Middle)
-                || (matches!(button, PointerButton::Primary) && modifiers.alt);
-            if !pan_button {
+            match button {
+                PointerButton::Primary => ui.viewport_primary_down = true,
+                PointerButton::Secondary => ui.viewport_secondary_down = true,
+                PointerButton::Middle => ui.viewport_middle_down = true,
+                PointerButton::Back | PointerButton::Forward | PointerButton::Other(_) => {}
+            }
+            let drag_kind = if matches!(button, PointerButton::Primary) && modifiers.alt {
+                Some(ViewportDrag::Orbit {
+                    last_x: 0.0,
+                    last_y: 0.0,
+                })
+            } else if matches!(button, PointerButton::Middle) {
+                Some(ViewportDrag::Pan {
+                    last_x: 0.0,
+                    last_y: 0.0,
+                })
+            } else {
+                None
+            };
+            let Some(position) = ui.last_pointer.or(ui.tree.pointer_position()) else {
                 return Ok(false);
+            };
+            if !viewport_under_pointer(ui, position) {
+                return Ok(false);
+            }
+            if let Some(drag_kind) = drag_kind {
+                ui.viewport_drag = Some(drag_kind.at(position.x, position.y));
+                return Ok(true);
+            }
+            if matches!(button, PointerButton::Primary) {
+                forward_viewport_editor_input(ui, position, 0.0)?;
+                return Ok(true);
+            }
+        }
+        UiInputEvent::PointerButtonReleased(button) => {
+            match button {
+                PointerButton::Primary => ui.viewport_primary_down = false,
+                PointerButton::Secondary => ui.viewport_secondary_down = false,
+                PointerButton::Middle => ui.viewport_middle_down = false,
+                PointerButton::Back | PointerButton::Forward | PointerButton::Other(_) => {}
+            }
+            if ui.viewport_drag.take().is_some() {
+                return Ok(true);
             }
             let Some(position) = ui.last_pointer.or(ui.tree.pointer_position()) else {
                 return Ok(false);
             };
             if viewport_under_pointer(ui, position) {
-                ui.viewport_pan = Some(ViewportPanDrag {
-                    last_x: position.x,
-                    last_y: position.y,
-                });
+                forward_viewport_editor_input(ui, position, 0.0)?;
                 return Ok(true);
             }
         }
-        UiInputEvent::PointerButtonReleased(_) if ui.viewport_pan.take().is_some() => {
-            return Ok(true);
+        UiInputEvent::MouseWheel { delta_y, .. } => {
+            let Some(position) = ui.last_pointer.or(ui.tree.pointer_position()) else {
+                return Ok(false);
+            };
+            if viewport_under_pointer(ui, position) {
+                forward_viewport_editor_input(ui, position, *delta_y)?;
+                return Ok(true);
+            }
         }
         _ => {}
     }
@@ -532,8 +706,16 @@ fn apply_panel_resize_delta(
 }
 
 fn execute_project_open(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
-    let result = match resolve_open_project_path(ui.editor.project.config()) {
-        ProjectPathResolution::Resolved(path) => ui.editor.session_mut().open_project_at(path),
+    let project_config = ui.editor.project.config().clone();
+    let result = match resolve_open_project_path(&project_config) {
+        ProjectPathResolution::Resolved(path) => {
+            let adapter = &mut ui.adapter_state;
+            let viewport = &mut ui.viewport_state;
+            let mut shell = EditorShellContext { adapter, viewport };
+            ui.editor
+                .session_mut()
+                .open_project_at(path, Some(&mut shell))
+        }
         ProjectPathResolution::Cancelled => {
             return set_status_text(ui, "Open project cancelled".to_string());
         }
@@ -544,8 +726,16 @@ fn execute_project_open(ui: &mut UiState) -> std::result::Result<(), NativeAppEr
 }
 
 fn execute_project_create(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
-    let result = match resolve_create_project_root(ui.editor.project.config()) {
-        ProjectPathResolution::Resolved(root) => ui.editor.session_mut().create_project_at(root),
+    let project_config = ui.editor.project.config().clone();
+    let result = match resolve_create_project_root(&project_config) {
+        ProjectPathResolution::Resolved(root) => {
+            let adapter = &mut ui.adapter_state;
+            let viewport = &mut ui.viewport_state;
+            let mut shell = EditorShellContext { adapter, viewport };
+            ui.editor
+                .session_mut()
+                .create_project_at(root, Some(&mut shell))
+        }
         ProjectPathResolution::Cancelled => {
             return set_status_text(ui, "Create project cancelled".to_string());
         }
@@ -715,16 +905,26 @@ fn apply_command_invocation(
         return Ok(());
     }
     if invocation.id.as_str() == PROJECT_CLOSE_COMMAND {
-        let result = ui.editor.session_mut().close_project();
+        let adapter = &mut ui.adapter_state;
+        let viewport = &mut ui.viewport_state;
+        let mut shell = EditorShellContext { adapter, viewport };
+        let result = ui
+            .editor
+            .session_mut()
+            .close_project(Some(&mut shell));
         set_status_text(ui, result.message().to_string())?;
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
     }
-    if let Some(result) = ui
-        .editor
-        .session_mut()
-        .execute_project_command(invocation.id.as_str())
-    {
+    let project_result = {
+        let adapter = &mut ui.adapter_state;
+        let viewport = &mut ui.viewport_state;
+        let mut shell = EditorShellContext { adapter, viewport };
+        ui.editor
+            .session_mut()
+            .execute_project_command(invocation.id.as_str(), Some(&mut shell))
+    };
+    if let Some(result) = project_result {
         set_status_text(ui, result.message().to_string())?;
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
@@ -789,6 +989,16 @@ fn apply_command_invocation(
         }
         ui.editor.inspector.on_scene_selection_changed();
         apply_editor_snapshot_to_ui(ui)?;
+        if invocation.id.as_str() == ADAPTER_LOAD_SCENE_COMMAND {
+            request_adapter_viewport_frame(ui);
+            apply_editor_snapshot_to_ui(ui)?;
+        }
+        return Ok(());
+    }
+    if invocation.id.as_str() == VIEWPORT_REQUEST_FRAME_COMMAND {
+        request_adapter_viewport_frame(ui);
+        apply_editor_snapshot_to_ui(ui)?;
+        ui.scene_dirty = true;
         return Ok(());
     }
     if ui
@@ -1042,13 +1252,35 @@ fn apply_ui_events(
         if let UiEvent::ViewportZoom { factor, .. } = event {
             #[cfg(feature = "native-shell")]
             ui.viewport_state.zoom_camera_by(*factor);
+            request_adapter_viewport_frame(ui);
             apply_editor_snapshot_to_ui(ui)?;
             changed = true;
             continue;
         }
-        if let UiEvent::ViewportClicked { u, v, .. } = event
-            && let Some(snapshot) = ui.editor.scene.snapshot()
-        {
+        if let UiEvent::ViewportClicked { u, v, .. } = event {
+            if ui.adapter_state.is_connected() && ui.adapter_state.supports_viewport_picking() {
+                match ui
+                    .adapter_state
+                    .pick_viewport_object(ui.viewport_state.viewport_id(), *u, *v)
+                {
+                    Ok(Some(object_id)) => {
+                        if ui.editor.scene.select_object(object_id) {
+                            ui.editor.inspector.on_scene_selection_changed();
+                            apply_editor_snapshot_to_ui(ui)?;
+                            changed = true;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        set_status_text(ui, format!("Viewport pick: {error}"))?;
+                        changed = true;
+                    }
+                }
+                continue;
+            }
+            let Some(snapshot) = ui.editor.scene.snapshot() else {
+                continue;
+            };
             use elcarax_scene_model::{ViewportPickCoord, pick_object_at};
             if let Some(object_id) = pick_object_at(snapshot, ViewportPickCoord { u: *u, v: *v })
                 && ui.editor.scene.select_object(object_id)
@@ -1126,14 +1358,16 @@ fn commit_inspector_row(
     if path.is_empty() {
         return Ok(());
     }
-    let result = ui.editor.inspector.commit_inspector_property(
-        &mut ui.editor.scene,
-        &mut ui.editor.edit_history,
-        path.as_str(),
-        edit_kind,
-        text.as_str(),
-        label.as_str(),
-    );
+    let result = ui
+        .editor
+        .session_mut()
+        .commit_inspector_property(
+            &mut ui.adapter_state,
+            path.as_str(),
+            edit_kind,
+            text.as_str(),
+            label.as_str(),
+        );
     set_status_text(ui, result.message().to_string())?;
     apply_editor_snapshot_to_ui(ui)?;
     Ok(())
@@ -1143,22 +1377,10 @@ fn execute_editor_edit_command(
     ui: &mut UiState,
     command_id: &str,
 ) -> std::result::Result<bool, NativeAppError> {
-    if ui.editor.scene.adapter_id().is_some()
-        && let Some(adapter_command) = adapter_command_for_inspector_edit(command_id)
-    {
-        return Ok(ui
-            .adapter_state
-            .execute_command_id(adapter_command, &mut ui.editor.scene)
-            .is_some());
-    }
     Ok(ui
         .editor
-        .inspector
-        .execute_edit_command_id(
-            command_id,
-            &mut ui.editor.scene,
-            &mut ui.editor.edit_history,
-        )
+        .session_mut()
+        .execute_edit_command(&mut ui.adapter_state, command_id)
         .is_some())
 }
 

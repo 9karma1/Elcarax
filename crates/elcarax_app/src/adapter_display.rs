@@ -50,11 +50,12 @@ fn state_label(state: AdapterHostState) -> &'static str {
 
 fn capabilities_summary(capabilities: &AdapterCapabilities) -> String {
     format!(
-        "Capabilities: project={} scene={} diagnostics={} writeback={} viewport={}",
+        "Capabilities: project={} scene={} diagnostics={} writeback={} viewport={} picking={}",
         capabilities.provides_project_info,
         capabilities.provides_scene_snapshot,
         capabilities.provides_diagnostics,
         capabilities.supports_property_writeback,
-        capabilities.supports_viewport_preview
+        capabilities.supports_viewport_preview,
+        capabilities.supports_viewport_picking
     )
 }

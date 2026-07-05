@@ -13,8 +13,9 @@ use elcarax_adapter_api::{
     AdapterResponse, AdapterResponseMessage, AdapterVersion, ErrorResponse, GetDiagnosticsRequest,
     GetDiagnosticsResponse, GetSceneSnapshotRequest, GetSceneSnapshotResponse,
     GetViewportFrameRequest, GetViewportFrameResponse, HandshakeRequest, LoadProjectRequest,
-    LoadProjectResponse, SetPropertyRequest, SetPropertyResponse, ShutdownRequest,
-    ShutdownResponse, decode_adapter_line, encode_request_line,
+    LoadProjectResponse, PickViewportObjectRequest, PickViewportObjectResponse, SetPropertyRequest,
+    SetPropertyResponse, ShutdownRequest, ShutdownResponse, decode_adapter_line,
+    encode_request_line,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,6 +270,13 @@ impl AdapterHost {
         self.session_mut_or_failed()?.get_viewport_frame(request)
     }
 
+    pub fn pick_viewport_object(
+        &mut self,
+        request: PickViewportObjectRequest,
+    ) -> Result<PickViewportObjectResponse, AdapterHostError> {
+        self.session_mut_or_failed()?.pick_viewport_object(request)
+    }
+
     pub fn shutdown(&mut self) -> Result<ShutdownResponse, AdapterHostError> {
         let Some(session) = self.session.as_mut() else {
             self.state = AdapterHostState::Stopped;
@@ -422,6 +430,17 @@ where
         let response = self.send(AdapterRequestMessage::GetViewportFrame(request))?;
         match response {
             AdapterResponseMessage::GetViewportFrame(response) => Ok(response),
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
+    }
+
+    pub fn pick_viewport_object(
+        &mut self,
+        request: PickViewportObjectRequest,
+    ) -> Result<PickViewportObjectResponse, AdapterHostError> {
+        let response = self.send(AdapterRequestMessage::PickViewportObject(request))?;
+        match response {
+            AdapterResponseMessage::PickViewportObject(response) => Ok(response),
             other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
         }
     }
@@ -709,6 +728,38 @@ mod tests {
         let diagnostics = must(session.get_diagnostics(GetDiagnosticsRequest));
         assert_eq!(diagnostics.diagnostics.len(), 1);
         assert_eq!(session.logs().len(), 1);
+    }
+
+    #[test]
+    fn fake_transport_pick_viewport_object_succeeds() {
+        use elcarax_adapter_api::{
+            AdapterViewportId, PickViewportObjectRequest, PickViewportObjectResponse,
+            ViewportPickResponseStatus,
+        };
+
+        let snapshot = reference_scene_snapshot();
+        let player = match snapshot.object_by_name("Player") {
+            Some(player) => player,
+            None => panic!("player should exist"),
+        };
+        let response = response_line(
+            AdapterRequestId(1),
+            AdapterResponseMessage::PickViewportObject(PickViewportObjectResponse {
+                viewport_id: AdapterViewportId(1),
+                object_id: Some(player.id),
+                diagnostics: Vec::new(),
+                status: ViewportPickResponseStatus::Picked,
+            }),
+        );
+        let mut session = AdapterSession::new(FakeAdapterTransport::new(vec![must(response)]));
+        let response = must(session.pick_viewport_object(PickViewportObjectRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            u: 0.5,
+            v: 0.5,
+        }));
+        assert_eq!(response.status, ViewportPickResponseStatus::Picked);
+        assert_eq!(response.object_id, Some(player.id));
     }
 
     fn must<T, E: fmt::Display>(value: Result<T, E>) -> T {

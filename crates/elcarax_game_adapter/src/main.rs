@@ -6,12 +6,15 @@ use elcarax_adapter_api::{
     AdapterName, AdapterRequest, AdapterRequestMessage, AdapterResponse, AdapterResponseMessage,
     AdapterVersion, ErrorResponse, GetDiagnosticsResponse, GetSceneSnapshotResponse,
     GetViewportFrameRequest, GetViewportFrameResponse, HandshakeResponse, LoadProjectResponse,
-    ProtocolVersion, SetPropertyRequest, SetPropertyResponse, SetPropertyStatus, ShutdownResponse,
-    ViewportFrameResponseStatus, decode_request_line, encode_event_line, encode_response_line,
+    PickViewportObjectRequest, PickViewportObjectResponse, ProtocolVersion, SetPropertyRequest,
+    SetPropertyResponse, SetPropertyStatus, ShutdownResponse, ViewportCameraInput,
+    ViewportFrameResponseStatus, ViewportPickResponseStatus, decode_request_line, encode_event_line,
+    encode_response_line,
 };
-use elcarax_core::{ElcaraxError, Result, ViewportFrameFormat};
+use elcarax_core::{ElcaraxError, Result, ViewportCamera, ViewportFrameFormat};
 use elcarax_scene_model::{
-    PropertyEditError, ScenePatch, SceneSnapshot, prepare_property_change, reference_scene_snapshot,
+    PropertyEditError, ScenePatch, SceneSnapshot, ViewportPickCoord, pick_object_at,
+    prepare_property_change, reference_scene_snapshot,
 };
 
 fn main() -> Result<()> {
@@ -53,6 +56,7 @@ struct MockAdapter {
     scene: SceneSnapshot,
     project_loaded: bool,
     diagnostics: Vec<AdapterDiagnostic>,
+    viewport_camera: ViewportCamera,
 }
 
 impl MockAdapter {
@@ -64,6 +68,20 @@ impl MockAdapter {
                 "mock-adapter",
                 "Reference stdio adapter ready with deterministic scene snapshot",
             )],
+            viewport_camera: ViewportCamera::default_editor(),
+        }
+    }
+
+    fn apply_camera_input(&mut self, input: Option<ViewportCameraInput>) {
+        let Some(input) = input else {
+            return;
+        };
+        self.viewport_camera.pan_by(
+            input.pan_delta_x + input.orbit_delta_x,
+            input.pan_delta_y + input.orbit_delta_y,
+        );
+        if input.dolly_factor != 1.0 {
+            self.viewport_camera.zoom_by(input.dolly_factor);
         }
     }
 
@@ -120,6 +138,9 @@ impl MockAdapter {
             }
             AdapterRequestMessage::GetViewportFrame(request) => {
                 AdapterResponseMessage::GetViewportFrame(self.viewport_frame(request))
+            }
+            AdapterRequestMessage::PickViewportObject(request) => {
+                AdapterResponseMessage::PickViewportObject(self.pick_viewport_object(request))
             }
             AdapterRequestMessage::GetDiagnostics(_) => {
                 AdapterResponseMessage::GetDiagnostics(GetDiagnosticsResponse {
@@ -185,7 +206,7 @@ impl MockAdapter {
         }
     }
 
-    fn viewport_frame(&self, request: GetViewportFrameRequest) -> GetViewportFrameResponse {
+    fn viewport_frame(&mut self, request: GetViewportFrameRequest) -> GetViewportFrameResponse {
         let viewport_id = request.viewport_id;
         if request.format != ViewportFrameFormat::Rgba8Unorm {
             return GetViewportFrameResponse::failed(
@@ -194,12 +215,16 @@ impl MockAdapter {
                 "only Rgba8Unorm is supported",
             );
         }
-        if request.width == 0 || request.height == 0 || request.width > 512 || request.height > 512
+        const MAX_VIEWPORT_SIZE: u32 = 1024;
+        if request.width == 0
+            || request.height == 0
+            || request.width > MAX_VIEWPORT_SIZE
+            || request.height > MAX_VIEWPORT_SIZE
         {
             return GetViewportFrameResponse::failed(
                 viewport_id,
                 ViewportFrameResponseStatus::InvalidSize,
-                "viewport size must be between 1 and 512 pixels",
+                format!("viewport size must be between 1 and {MAX_VIEWPORT_SIZE} pixels"),
             );
         }
         if !self.project_loaded {
@@ -209,9 +234,15 @@ impl MockAdapter {
                 "load project before requesting viewport frame",
             );
         }
-        let width = request.width.min(128);
-        let height = request.height.min(128);
-        let pixels = procedural_viewport_rgba(width, height);
+        self.apply_camera_input(request.camera_input);
+        let width = request.width;
+        let height = request.height;
+        let pixels = procedural_viewport_rgba(
+            width,
+            height,
+            self.viewport_camera,
+            request.editor_input,
+        );
         GetViewportFrameResponse {
             viewport_id,
             width,
@@ -225,22 +256,79 @@ impl MockAdapter {
             status: ViewportFrameResponseStatus::Available,
         }
     }
+
+    fn pick_viewport_object(
+        &self,
+        request: PickViewportObjectRequest,
+    ) -> PickViewportObjectResponse {
+        if !self.project_loaded {
+            return PickViewportObjectResponse::failed(
+                request.viewport_id,
+                ViewportPickResponseStatus::NoSceneLoaded,
+                "load project before picking viewport objects",
+            );
+        }
+        if !(0.0..=1.0).contains(&request.u) || !(0.0..=1.0).contains(&request.v) {
+            return PickViewportObjectResponse::failed(
+                request.viewport_id,
+                ViewportPickResponseStatus::InvalidCoordinate,
+                "viewport pick coordinates must be normalized between 0 and 1",
+            );
+        }
+        let object_id = pick_object_at(
+            &self.scene,
+            ViewportPickCoord {
+                u: request.u,
+                v: request.v,
+            },
+        );
+        PickViewportObjectResponse {
+            viewport_id: request.viewport_id,
+            object_id,
+            diagnostics: Vec::new(),
+            status: if object_id.is_some() {
+                ViewportPickResponseStatus::Picked
+            } else {
+                ViewportPickResponseStatus::Missed
+            },
+        }
+    }
 }
 
-fn procedural_viewport_rgba(width: u32, height: u32) -> Vec<u8> {
+fn procedural_viewport_rgba(
+    width: u32,
+    height: u32,
+    camera: ViewportCamera,
+    editor_input: Option<elcarax_adapter_api::ViewportEditorInput>,
+) -> Vec<u8> {
     let mut pixels = vec![0_u8; (width * height * 4) as usize];
+    let pan_x = camera.pan_x.round() as i32;
+    let pan_y = camera.pan_y.round() as i32;
+    let zoom = camera.zoom.max(ViewportCamera::MIN_ZOOM);
+    let pointer = editor_input.map(|input| (input.pointer_x.round() as i32, input.pointer_y.round() as i32));
     for y in 0..height {
         for x in 0..width {
+            let sample_x = ((x as f32 / zoom).round() as i32).saturating_sub(pan_x);
+            let sample_y = ((y as f32 / zoom).round() as i32).saturating_sub(pan_y);
+            let sample_x = sample_x.unsigned_abs();
+            let sample_y = sample_y.unsigned_abs();
             let index = ((y * width + x) * 4) as usize;
-            let checker = ((x / 8) + (y / 8)) % 2 == 0;
-            let gradient = ((x + y) % 256) as u8;
-            pixels[index] = if checker {
+            let checker = ((sample_x / 8) + (sample_y / 8)).is_multiple_of(2);
+            let gradient = ((sample_x + sample_y) % 256) as u8;
+            let near_pointer = pointer.is_some_and(|(px, py)| {
+                let dx = (x as i32 - px).abs();
+                let dy = (y as i32 - py).abs();
+                dx <= 2 && dy <= 2
+            });
+            pixels[index] = if near_pointer {
+                220
+            } else if checker {
                 40 + gradient / 4
             } else {
                 90 + gradient / 3
             };
-            pixels[index + 1] = 50 + (gradient / 2);
-            pixels[index + 2] = 120 + (gradient / 5);
+            pixels[index + 1] = if near_pointer { 180 } else { 50 + (gradient / 2) };
+            pixels[index + 2] = if near_pointer { 80 } else { 120 + (gradient / 5) };
             pixels[index + 3] = 255;
         }
     }
@@ -296,7 +384,7 @@ mod tests {
     use super::*;
     use elcarax_adapter_api::{
         AdapterEditSource, AdapterViewportId, GetSceneSnapshotRequest, GetViewportFrameRequest,
-        ViewportFrameResponseStatus,
+        ViewportCameraInput, ViewportEditorInput, ViewportFrameResponseStatus,
     };
     use elcarax_core::ViewportFrameFormat;
     use elcarax_scene_model::{PropertyPath, PropertyValue};
@@ -311,6 +399,8 @@ mod tests {
             width: 16,
             height: 16,
             format: ViewportFrameFormat::Rgba8Unorm,
+            camera_input: None,
+            editor_input: None,
         });
         assert_eq!(response.status, ViewportFrameResponseStatus::Available);
         assert_eq!(response.width, 16);
@@ -328,8 +418,56 @@ mod tests {
             width: 0,
             height: 16,
             format: ViewportFrameFormat::Rgba8Unorm,
+            camera_input: None,
+            editor_input: None,
         });
         assert_eq!(response.status, ViewportFrameResponseStatus::InvalidSize);
+    }
+
+    #[test]
+    fn camera_input_changes_viewport_frame() {
+        let mut adapter = MockAdapter::new();
+        adapter.project_loaded = true;
+        let base = adapter.viewport_frame(GetViewportFrameRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            width: 16,
+            height: 16,
+            format: ViewportFrameFormat::Rgba8Unorm,
+            camera_input: None,
+            editor_input: None,
+        });
+        let shifted = adapter.viewport_frame(GetViewportFrameRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            width: 16,
+            height: 16,
+            format: ViewportFrameFormat::Rgba8Unorm,
+            camera_input: Some(ViewportCameraInput {
+                pan_delta_x: 16.0,
+                pan_delta_y: 0.0,
+                ..ViewportCameraInput::neutral()
+            }),
+            editor_input: None,
+        });
+        assert_ne!(base.pixels, shifted.pixels);
+    }
+
+    #[test]
+    fn editor_input_highlights_pointer_pixel() {
+        let mut adapter = MockAdapter::new();
+        adapter.project_loaded = true;
+        let response = adapter.viewport_frame(GetViewportFrameRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            width: 16,
+            height: 16,
+            format: ViewportFrameFormat::Rgba8Unorm,
+            camera_input: None,
+            editor_input: Some(ViewportEditorInput::pointer(8.0, 8.0, false, false, false)),
+        });
+        let index = ((8 * 16 + 8) * 4) as usize;
+        assert_eq!(response.pixels[index], 220);
     }
 
     #[test]
@@ -342,10 +480,42 @@ mod tests {
             width: 8,
             height: 8,
             format: ViewportFrameFormat::Rgba8Unorm,
+            camera_input: None,
+            editor_input: None,
         };
         let first = adapter.viewport_frame(request.clone());
         let second = adapter.viewport_frame(request);
         assert_eq!(first.pixels, second.pixels);
+    }
+
+    #[test]
+    fn viewport_pick_selects_reference_object() {
+        let mut adapter = MockAdapter::new();
+        adapter.project_loaded = true;
+        let response = adapter.pick_viewport_object(PickViewportObjectRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            u: 0.5,
+            v: 0.5,
+        });
+        assert_eq!(response.status, ViewportPickResponseStatus::Picked);
+        assert!(response.object_id.is_some());
+    }
+
+    #[test]
+    fn viewport_pick_rejects_invalid_coordinates() {
+        let mut adapter = MockAdapter::new();
+        adapter.project_loaded = true;
+        let response = adapter.pick_viewport_object(PickViewportObjectRequest {
+            viewport_id: AdapterViewportId(1),
+            scene_id: None,
+            u: 1.5,
+            v: 0.5,
+        });
+        assert_eq!(
+            response.status,
+            ViewportPickResponseStatus::InvalidCoordinate
+        );
     }
 
     #[test]

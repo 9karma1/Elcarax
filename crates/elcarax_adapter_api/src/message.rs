@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     GetViewportFrameRequest, GetViewportFrameResponse, HandshakeRequest, HandshakeResponse,
-    LoadProjectRequest, LoadProjectResponse, ProtocolVersion,
+    LoadProjectRequest, LoadProjectResponse, PickViewportObjectRequest, PickViewportObjectResponse,
+    ProtocolVersion,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -44,6 +45,7 @@ pub enum AdapterRequestMessage {
     SetProperty(SetPropertyRequest),
     GetDiagnostics(GetDiagnosticsRequest),
     GetViewportFrame(GetViewportFrameRequest),
+    PickViewportObject(PickViewportObjectRequest),
     Shutdown(ShutdownRequest),
 }
 
@@ -97,6 +99,7 @@ pub enum AdapterResponseMessage {
     SetProperty(SetPropertyResponse),
     GetDiagnostics(GetDiagnosticsResponse),
     GetViewportFrame(GetViewportFrameResponse),
+    PickViewportObject(PickViewportObjectResponse),
     Shutdown(ShutdownResponse),
     Error(ErrorResponse),
 }
@@ -311,7 +314,10 @@ mod tests {
 
     #[test]
     fn viewport_frame_request_round_trips() -> Result<(), serde_json::Error> {
-        use crate::{AdapterViewportId, GetViewportFrameRequest, ViewportFrameResponseStatus};
+        use crate::{
+            AdapterViewportId, GetViewportFrameRequest, ViewportCameraInput, ViewportEditorInput,
+            ViewportFrameResponseStatus,
+        };
         use elcarax_core::ViewportFrameFormat;
 
         let request = AdapterRequest::new(
@@ -322,6 +328,21 @@ mod tests {
                 width: 64,
                 height: 48,
                 format: ViewportFrameFormat::Rgba8Unorm,
+                camera_input: Some(ViewportCameraInput {
+                    orbit_delta_x: 12.0,
+                    orbit_delta_y: -3.0,
+                    pan_delta_x: 0.0,
+                    pan_delta_y: 4.0,
+                    dolly_factor: 0.95,
+                }),
+                editor_input: Some(ViewportEditorInput {
+                    pointer_x: 24.0,
+                    pointer_y: 18.0,
+                    primary_down: true,
+                    secondary_down: false,
+                    middle_down: false,
+                    wheel_delta_y: -1.0,
+                }),
             }),
         );
         let line = encode_request_line(&request)?;
@@ -366,6 +387,41 @@ mod tests {
         };
         assert_eq!(decoded.status, ViewportFrameResponseStatus::InvalidSize);
         assert_eq!(decoded.diagnostics.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn viewport_pick_request_response_round_trips() -> Result<(), serde_json::Error> {
+        use crate::{
+            AdapterViewportId, PickViewportObjectRequest, PickViewportObjectResponse,
+            ViewportPickResponseStatus,
+        };
+
+        let request = AdapterRequest::new(
+            AdapterRequestId::new(13),
+            AdapterRequestMessage::PickViewportObject(PickViewportObjectRequest {
+                viewport_id: AdapterViewportId(1),
+                scene_id: Some(7),
+                u: 0.5,
+                v: 0.5,
+            }),
+        );
+        let line = encode_request_line(&request)?;
+        assert_eq!(decode_request_line(&line)?, request);
+
+        let snapshot = reference_scene_snapshot();
+        let player = player(&snapshot);
+        let response = AdapterResponse::new(
+            request.request_id,
+            AdapterResponseMessage::PickViewportObject(PickViewportObjectResponse {
+                viewport_id: AdapterViewportId(1),
+                object_id: Some(player.id),
+                diagnostics: Vec::new(),
+                status: ViewportPickResponseStatus::Picked,
+            }),
+        );
+        let line = encode_response_line(&response)?;
+        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
         Ok(())
     }
 

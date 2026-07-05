@@ -20,5 +20,6 @@ pub use protocol::{
 };
 pub use viewport::{
     AdapterViewportId, GetViewportFrameRequest, GetViewportFrameResponse,
-    ViewportFrameResponseStatus,
+    PickViewportObjectRequest, PickViewportObjectResponse, ViewportCameraInput,
+    ViewportEditorInput, ViewportFrameResponseStatus, ViewportPickResponseStatus,
 };

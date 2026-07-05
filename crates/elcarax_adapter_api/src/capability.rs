@@ -7,6 +7,7 @@ pub struct AdapterCapabilities {
     pub provides_diagnostics: bool,
     pub supports_property_writeback: bool,
     pub supports_viewport_preview: bool,
+    pub supports_viewport_picking: bool,
 }
 
 impl AdapterCapabilities {
@@ -17,6 +18,7 @@ impl AdapterCapabilities {
             provides_diagnostics: false,
             supports_property_writeback: false,
             supports_viewport_preview: false,
+            supports_viewport_picking: false,
         }
     }
 
@@ -27,6 +29,7 @@ impl AdapterCapabilities {
             provides_diagnostics: true,
             supports_property_writeback: true,
             supports_viewport_preview: true,
+            supports_viewport_picking: true,
         }
     }
 

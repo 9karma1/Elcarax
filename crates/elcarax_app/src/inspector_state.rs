@@ -96,6 +96,11 @@ impl InspectorState {
         self.last_command_result = None;
     }
 
+    pub(crate) fn set_last_command_result(&mut self, result: InspectorCommandResult) {
+        self.suppressed = false;
+        self.last_command_result = Some(result);
+    }
+
     pub(crate) fn ui_snapshot(&self, scene: &SceneState) -> InspectorUiSnapshot {
         self.ui_snapshot_at(scene, 0)
     }
@@ -296,7 +301,7 @@ fn execute_set_property(
 }
 
 impl InspectorCommandResult {
-    fn new(command_id: &str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(command_id: &str, message: impl Into<String>) -> Self {
         Self {
             command_id: command_id.to_string(),
             message: message.into(),

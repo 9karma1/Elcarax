@@ -13,6 +13,10 @@ workspace = true
 default = []
 native-shell = ["dep:pollster", "elcarax_platform/native"]
 
+[[bin]]
+name = "Elcarax"
+path = "src/main.rs"
+
 [dependencies]
 elcarax_adapter_api = { path = "../elcarax_adapter_api" }
 elcarax_adapter_host = { path = "../elcarax_adapter_host" }

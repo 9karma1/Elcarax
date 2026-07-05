@@ -244,14 +244,26 @@ pub(crate) fn command_availability(
             }
         }
         EDIT_UNDO_COMMAND => {
-            if editor.edit_history.undo_count() > 0 {
+            if editor.scene.is_adapter_backed() {
+                if adapter.undo_count() > 0 {
+                    CommandAvailability::enabled()
+                } else {
+                    CommandAvailability::disabled("Nothing to undo")
+                }
+            } else if editor.edit_history.undo_count() > 0 {
                 CommandAvailability::enabled()
             } else {
                 CommandAvailability::disabled("Nothing to undo")
             }
         }
         EDIT_REDO_COMMAND => {
-            if editor.edit_history.redo_count() > 0 {
+            if editor.scene.is_adapter_backed() {
+                if adapter.redo_count() > 0 {
+                    CommandAvailability::enabled()
+                } else {
+                    CommandAvailability::disabled("Nothing to redo")
+                }
+            } else if editor.edit_history.redo_count() > 0 {
                 CommandAvailability::enabled()
             } else {
                 CommandAvailability::disabled("Nothing to redo")
@@ -504,7 +516,7 @@ mod tests {
         });
         let _ = editor
             .session_mut()
-            .execute_project_command(PROJECT_CREATE_COMMAND);
+            .execute_project_command(PROJECT_CREATE_COMMAND, None);
         let (registry, bindings) = registry_and_bindings();
         let snapshot = toolbar_snapshot(
             &registry,
@@ -530,7 +542,7 @@ mod tests {
         });
         let _ = editor
             .session_mut()
-            .execute_project_command(PROJECT_CREATE_COMMAND);
+            .execute_project_command(PROJECT_CREATE_COMMAND, None);
         if let Some(snapshot) = editor.scene.snapshot_mut() {
             let schema = ObjectSchema::new("DirtyMarker");
             let object = SceneObject::new("Dirty Root", SceneObjectKind::World, schema.type_id);
@@ -557,5 +569,89 @@ mod tests {
         );
         assert!(!clean.has_unsaved_scene);
         let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn adapter_backed_scene_uses_adapter_undo_availability() {
+        use elcarax_adapter_api::{
+            AdapterId, AdapterRequestId, AdapterResponseMessage, SetPropertyResponse,
+            SetPropertyStatus,
+        };
+        use elcarax_adapter_host::{AdapterSession, FakeAdapterTransport, response_line};
+        use elcarax_scene_model::{
+            PropertyEditKind, PropertyGroup, PropertyKind, PropertyPath, PropertySchema,
+            PropertyValue, SceneName, SceneObject, SceneObjectKind, ScenePatch, SceneSnapshot,
+        };
+
+        use crate::adapter_state::AdapterState;
+
+        let health_path = match PropertyPath::parse("gameplay.health") {
+            Ok(path) => path,
+            Err(error) => panic!("fixture path should parse: {error}"),
+        };
+        let schema = ObjectSchema::new("Actor").with_property(PropertySchema::editable(
+            health_path.clone(),
+            "Health",
+            PropertyKind::I64,
+            PropertyGroup::new("Gameplay"),
+        ));
+        let mut object =
+            SceneObject::new("Fixture Actor", SceneObjectKind::Character, schema.type_id);
+        object.set_property(health_path.clone(), PropertyValue::I64(100));
+        let object_id = object.id;
+        let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
+        snapshot.add_schema(schema);
+        snapshot.add_root_object(object);
+        let mut editor = EditorSessionState::default();
+        editor.scene.load_external_snapshot(
+            snapshot,
+            AdapterId::new("fixture-adapter"),
+            "test",
+            "Loaded adapter scene",
+        );
+        assert!(editor.scene.select_object(object_id));
+        let scene_id = editor
+            .scene
+            .snapshot()
+            .map(|value| value.scene_id())
+            .unwrap_or_else(|| panic!("adapter fixture scene should be loaded"));
+        let response = match response_line(
+            AdapterRequestId(1),
+            AdapterResponseMessage::SetProperty(SetPropertyResponse {
+                status: SetPropertyStatus::Accepted,
+                scene_id,
+                object_id,
+                path: health_path.clone(),
+                old_value: Some(PropertyValue::I64(100)),
+                confirmed_new_value: Some(PropertyValue::I64(65)),
+                patch: Some(ScenePatch::property_updated(
+                    object_id,
+                    health_path,
+                    PropertyValue::I64(65),
+                )),
+                diagnostics: Vec::new(),
+            }),
+        ) {
+            Ok(line) => line,
+            Err(error) => panic!("response should serialize: {error}"),
+        };
+        let mut adapter = AdapterState::default();
+        adapter.attach_fake_session_for_tests(AdapterSession::new(FakeAdapterTransport::new(vec![
+            response,
+        ])));
+        let _ = adapter.commit_inspector_property(
+            &mut editor.scene,
+            "gameplay.health",
+            PropertyEditKind::Integer,
+            "65",
+            "Set Fixture Health",
+        );
+        let availability = command_availability(
+            EDIT_UNDO_COMMAND,
+            &editor,
+            &adapter,
+            &AppViewportState::default(),
+        );
+        assert!(availability.is_enabled());
     }
 }
