@@ -908,10 +908,7 @@ fn apply_command_invocation(
         let adapter = &mut ui.adapter_state;
         let viewport = &mut ui.viewport_state;
         let mut shell = EditorShellContext { adapter, viewport };
-        let result = ui
-            .editor
-            .session_mut()
-            .close_project(Some(&mut shell));
+        let result = ui.editor.session_mut().close_project(Some(&mut shell));
         set_status_text(ui, result.message().to_string())?;
         apply_editor_snapshot_to_ui(ui)?;
         return Ok(());
@@ -1358,16 +1355,13 @@ fn commit_inspector_row(
     if path.is_empty() {
         return Ok(());
     }
-    let result = ui
-        .editor
-        .session_mut()
-        .commit_inspector_property(
-            &mut ui.adapter_state,
-            path.as_str(),
-            edit_kind,
-            text.as_str(),
-            label.as_str(),
-        );
+    let result = ui.editor.session_mut().commit_inspector_property(
+        &mut ui.adapter_state,
+        path.as_str(),
+        edit_kind,
+        text.as_str(),
+        label.as_str(),
+    );
     set_status_text(ui, result.message().to_string())?;
     apply_editor_snapshot_to_ui(ui)?;
     Ok(())

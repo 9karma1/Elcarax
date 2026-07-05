@@ -8,8 +8,8 @@ use elcarax_adapter_api::{
     GetViewportFrameRequest, GetViewportFrameResponse, HandshakeResponse, LoadProjectResponse,
     PickViewportObjectRequest, PickViewportObjectResponse, ProtocolVersion, SetPropertyRequest,
     SetPropertyResponse, SetPropertyStatus, ShutdownResponse, ViewportCameraInput,
-    ViewportFrameResponseStatus, ViewportPickResponseStatus, decode_request_line, encode_event_line,
-    encode_response_line,
+    ViewportFrameResponseStatus, ViewportPickResponseStatus, decode_request_line,
+    encode_event_line, encode_response_line,
 };
 use elcarax_core::{ElcaraxError, Result, ViewportCamera, ViewportFrameFormat};
 use elcarax_scene_model::{
@@ -237,12 +237,8 @@ impl MockAdapter {
         self.apply_camera_input(request.camera_input);
         let width = request.width;
         let height = request.height;
-        let pixels = procedural_viewport_rgba(
-            width,
-            height,
-            self.viewport_camera,
-            request.editor_input,
-        );
+        let pixels =
+            procedural_viewport_rgba(width, height, self.viewport_camera, request.editor_input);
         GetViewportFrameResponse {
             viewport_id,
             width,
@@ -305,7 +301,12 @@ fn procedural_viewport_rgba(
     let pan_x = camera.pan_x.round() as i32;
     let pan_y = camera.pan_y.round() as i32;
     let zoom = camera.zoom.max(ViewportCamera::MIN_ZOOM);
-    let pointer = editor_input.map(|input| (input.pointer_x.round() as i32, input.pointer_y.round() as i32));
+    let pointer = editor_input.map(|input| {
+        (
+            input.pointer_x.round() as i32,
+            input.pointer_y.round() as i32,
+        )
+    });
     for y in 0..height {
         for x in 0..width {
             let sample_x = ((x as f32 / zoom).round() as i32).saturating_sub(pan_x);
@@ -327,8 +328,16 @@ fn procedural_viewport_rgba(
             } else {
                 90 + gradient / 3
             };
-            pixels[index + 1] = if near_pointer { 180 } else { 50 + (gradient / 2) };
-            pixels[index + 2] = if near_pointer { 80 } else { 120 + (gradient / 5) };
+            pixels[index + 1] = if near_pointer {
+                180
+            } else {
+                50 + (gradient / 2)
+            };
+            pixels[index + 2] = if near_pointer {
+                80
+            } else {
+                120 + (gradient / 5)
+            };
             pixels[index + 3] = 255;
         }
     }

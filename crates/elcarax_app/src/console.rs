@@ -284,7 +284,10 @@ fn dispatch_session_command(session: &mut EditorSessionState, command_id: &str) 
             .map(|outcome| outcome.status_message())
             .unwrap_or_else(|| "missing scene save result".to_string());
     }
-    if let Some(result) = session.session_mut().execute_project_command(command_id, None) {
+    if let Some(result) = session
+        .session_mut()
+        .execute_project_command(command_id, None)
+    {
         return result.message().to_string();
     }
     if let Some(result) = session

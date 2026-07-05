@@ -636,9 +636,9 @@ mod tests {
             Err(error) => panic!("response should serialize: {error}"),
         };
         let mut adapter = AdapterState::default();
-        adapter.attach_fake_session_for_tests(AdapterSession::new(FakeAdapterTransport::new(vec![
-            response,
-        ])));
+        adapter.attach_fake_session_for_tests(AdapterSession::new(FakeAdapterTransport::new(
+            vec![response],
+        )));
         let _ = adapter.commit_inspector_property(
             &mut editor.scene,
             "gameplay.health",

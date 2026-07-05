@@ -30,8 +30,8 @@ use elcarax_core::{ViewportError, ViewportFrame};
 #[cfg(feature = "native-shell")]
 use elcarax_scene_model::SceneObjectId;
 use elcarax_scene_model::{
-    PropertyChange, PropertyEditKind, PropertyPath, PropertyValue, ScenePatch,
-    parse_property_text, prepare_property_change,
+    PropertyChange, PropertyEditKind, PropertyPath, PropertyValue, ScenePatch, parse_property_text,
+    prepare_property_change,
 };
 
 use crate::inspector_state::EDIT_SET_PROPERTY_COMMAND;
@@ -611,13 +611,7 @@ impl AdapterState {
                 );
             }
         };
-        self.commit_property_edit(
-            scene_state,
-            EDIT_SET_PROPERTY_COMMAND,
-            &path,
-            value,
-            label,
-        )
+        self.commit_property_edit(scene_state, EDIT_SET_PROPERTY_COMMAND, &path, value, label)
     }
 
     fn commit_property_edit(
@@ -644,7 +638,11 @@ impl AdapterState {
                 );
                 scene_state.record_status(
                     command_id,
-                    format!("Adapter Command: {label} | {} -> {}", change.old_value.display_label(), change.new_value.display_label()),
+                    format!(
+                        "Adapter Command: {label} | {} -> {}",
+                        change.old_value.display_label(),
+                        change.new_value.display_label()
+                    ),
                 );
                 self.record_command_result(command_id, message.clone())
             }

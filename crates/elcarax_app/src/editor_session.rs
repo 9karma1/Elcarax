@@ -11,7 +11,6 @@ use crate::adapter_state::{
 };
 use crate::asset_state::{ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, AssetState};
 use crate::inspector_state::{EDIT_SET_PROPERTY_COMMAND, InspectorCommandResult, InspectorState};
-use crate::viewport_state::{AppViewportState, VIEWPORT_CLEAR_COMMAND};
 use crate::project_config::AppProjectConfig;
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
@@ -20,6 +19,7 @@ use crate::project_state::{
 use crate::scene_state::{
     SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND, SceneCommandResult, SceneState, UNSAVED_SCENE_MESSAGE,
 };
+use crate::viewport_state::{AppViewportState, VIEWPORT_CLEAR_COMMAND};
 
 pub(crate) const SWITCH_PROJECT_COMMANDS: [&str; 3] = [
     PROJECT_OPEN_COMMAND,
@@ -497,8 +497,7 @@ mod tests {
         use elcarax_adapter_host::{AdapterSession, FakeAdapterTransport, response_line};
         use elcarax_scene_model::{
             PropertyEditKind, PropertyGroup, PropertyKind, PropertyPath, PropertySchema,
-            PropertyValue, SceneName, SceneObject, SceneObjectKind, ScenePatch,
-            SceneSnapshot,
+            PropertyValue, SceneName, SceneObject, SceneObjectKind, ScenePatch, SceneSnapshot,
         };
 
         use crate::adapter_state::AdapterState;
@@ -554,9 +553,9 @@ mod tests {
             Err(error) => panic!("response should serialize: {error}"),
         };
         let mut adapter = AdapterState::default();
-        adapter.attach_fake_session_for_tests(AdapterSession::new(FakeAdapterTransport::new(vec![
-            response,
-        ])));
+        adapter.attach_fake_session_for_tests(AdapterSession::new(FakeAdapterTransport::new(
+            vec![response],
+        )));
         let result = session.session_mut().commit_inspector_property(
             &mut adapter,
             "gameplay.health",
