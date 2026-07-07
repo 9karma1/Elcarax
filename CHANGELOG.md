@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Viewport interaction no longer reloads adapter scenes on pointer hover; local `ViewportCamera` stays aligned with pan/zoom/orbit for pick UV math; adapter pick misses no longer fall through to local geometric pick
 - `adapter.load_scene` respects unsaved project scene guards; `EditorSession` releases adapter/viewport bindings on project open/close/switch via `EditorShellContext`
 - Mock game adapter honors viewport `camera_input` / `editor_input`, supports frames up to 1024px, and renders at the requested resolution
+- [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/INSTALL.md](docs/INSTALL.md) for contributor workflow and source/git install instructions (crates.io publishing not yet available)
 
 ### Changed
 

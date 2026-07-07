@@ -39,6 +39,8 @@ This is not a full editor yet. Docking, hierarchy drag/drop, component add/remov
 - Windows, macOS, or Linux for console/library validation
 - A desktop session for the manual `native-shell` smoke test
 
+See [docs/INSTALL.md](docs/INSTALL.md) for clone, build, and `cargo install --git` instructions. Crates are not on crates.io yet.
+
 Install the pinned Rust toolchain:
 
 ```bash
@@ -136,6 +138,8 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 
 ## Documentation
 
+- [docs/INSTALL.md](docs/INSTALL.md) — build from source and install the `Elcarax` binary
+- [CONTRIBUTING.md](CONTRIBUTING.md) — development workflow and pull request guidelines
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [ROADMAP.md](ROADMAP.md) — planned work
 - [STATUS.md](STATUS.md) — current capability snapshot
