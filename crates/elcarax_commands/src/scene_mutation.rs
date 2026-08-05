@@ -384,11 +384,8 @@ mod tests {
                 PropertySchema::editable(path.clone(), "Position", PropertyKind::Vec3),
             ),
         );
-        let component =
-            ComponentInstance::new(components::TRANSFORM, "Transform").with_property(
-                path.clone(),
-                PropertyValue::Vec3([0.0, 0.0, 0.0]),
-            );
+        let component = ComponentInstance::new(components::TRANSFORM, "Transform")
+            .with_property(path.clone(), PropertyValue::Vec3([0.0, 0.0, 0.0]));
         let component_id = component.id;
         let object = SceneObject::new(
             "Camera",

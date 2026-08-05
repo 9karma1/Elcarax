@@ -34,9 +34,8 @@ impl SessionEditService {
         let Some(object_id) = scene.selection().selected() else {
             return Err(InspectorDiagnostic::NoObjectSelected.message().to_string());
         };
-        let change =
-            prepare_property_change(snapshot, object_id, component_id, path, &new_value)
-                .map_err(|error| error.message())?;
+        let change = prepare_property_change(snapshot, object_id, component_id, path, &new_value)
+            .map_err(|error| error.message())?;
         let old_label = change.old_value.display_label();
         let new_label = change.new_value.display_label();
 

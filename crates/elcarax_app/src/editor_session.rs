@@ -476,9 +476,9 @@ mod tests {
         };
         use elcarax_adapter_host::{AdapterSession, FakeAdapterTransport, response_line};
         use elcarax_scene_model::{
-            ComponentInstance, ComponentSchema, components, kinds, PropertyEditKind, PropertyKind,
-            PropertyPath, PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectKind,
-            ScenePatch, SceneSnapshot,
+            ComponentInstance, ComponentSchema, PropertyEditKind, PropertyKind, PropertyPath,
+            PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectKind, ScenePatch,
+            SceneSnapshot, components, kinds,
         };
 
         use crate::adapter_state::AdapterState;

@@ -742,9 +742,9 @@ mod tests {
     use elcarax_adapter_host::{FakeAdapterTransport, event_line, response_line};
     use elcarax_commands::CommandHistory;
     use elcarax_scene_model::{
-        ComponentInstance, ComponentSchema, ComponentTypeName, components, kinds,
-        ObjectSchema, PropertyKind, PropertySchema, PropertyValue, SceneName,
-        SceneObject, SceneObjectId, SceneObjectKind, ScenePatch, SceneSnapshot,
+        ComponentInstance, ComponentSchema, ComponentTypeName, ObjectSchema, PropertyKind,
+        PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectId, SceneObjectKind,
+        ScenePatch, SceneSnapshot, components, kinds,
     };
 
     use crate::edit_service::SessionEditService;
@@ -843,7 +843,12 @@ mod tests {
         let component_id = fixture_health_component_id(&scene);
         let mut state = state_with_lines(vec![response(
             AdapterRequestId(1),
-            accepted_health_response(&scene, component_id, PropertyValue::I64(100), PropertyValue::I64(65)),
+            accepted_health_response(
+                &scene,
+                component_id,
+                PropertyValue::I64(100),
+                PropertyValue::I64(65),
+            ),
         )]);
         let mut history = CommandHistory::new();
         let result = SessionEditService::commit_property(
@@ -1075,11 +1080,7 @@ mod tests {
         let health_path = path("health");
         let schema = ObjectSchema::new("Actor").with_component(
             ComponentSchema::new(components::GAMEPLAY, "Gameplay").with_property(
-                PropertySchema::editable(
-                    health_path.clone(),
-                    "Health",
-                    PropertyKind::I64,
-                ),
+                PropertySchema::editable(health_path.clone(), "Health", PropertyKind::I64),
             ),
         );
         let component = ComponentInstance::new(components::GAMEPLAY, "Gameplay")
@@ -1110,9 +1111,7 @@ mod tests {
         (snapshot.scene_id(), actor.id)
     }
 
-    fn fixture_health_component_id(
-        scene: &SceneState,
-    ) -> elcarax_scene_model::ComponentInstanceId {
+    fn fixture_health_component_id(scene: &SceneState) -> elcarax_scene_model::ComponentInstanceId {
         let snapshot = match scene.snapshot() {
             Some(snapshot) => snapshot,
             None => panic!("scene should be loaded"),

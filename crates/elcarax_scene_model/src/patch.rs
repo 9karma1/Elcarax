@@ -319,12 +319,11 @@ fn apply_component_added(
     snapshot: &mut SceneSnapshot,
     added: &ComponentAdded,
 ) -> Result<(), ScenePatchError> {
-    let object = snapshot
-        .objects_mut()
-        .get_mut(&added.object_id)
-        .ok_or(ScenePatchError::ObjectNotFound {
+    let object = snapshot.objects_mut().get_mut(&added.object_id).ok_or(
+        ScenePatchError::ObjectNotFound {
             object_id: added.object_id,
-        })?;
+        },
+    )?;
     if object.component(added.component.id).is_some() {
         return Err(ScenePatchError::ComponentAlreadyExists {
             object_id: added.object_id,

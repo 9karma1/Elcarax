@@ -193,7 +193,8 @@ impl ComponentInstanceDocument {
 
     fn into_component(self) -> Result<ComponentInstance, SceneIoError> {
         let id = required_id::<crate::component::ComponentInstanceMarker>(self.id, "component_id")?;
-        let mut component = ComponentInstance::with_stable_id(id, self.type_name, self.display_name);
+        let mut component =
+            ComponentInstance::with_stable_id(id, self.type_name, self.display_name);
         component.properties = properties_from_document(self.properties)?;
         Ok(component)
     }
@@ -335,9 +336,17 @@ mod tests {
         let schema = ObjectSchema::new("World");
         let type_id = schema.type_id;
         snapshot.add_schema(schema);
-        let root = SceneObject::new("World", SceneObjectKind::new(crate::kind::well_known::WORLD), type_id);
+        let root = SceneObject::new(
+            "World",
+            SceneObjectKind::new(crate::kind::well_known::WORLD),
+            type_id,
+        );
         let root_id = root.id;
-        let child = SceneObject::new("Child", SceneObjectKind::new(crate::kind::well_known::MESH), type_id);
+        let child = SceneObject::new(
+            "Child",
+            SceneObjectKind::new(crate::kind::well_known::MESH),
+            type_id,
+        );
         let child_id = child.id;
         snapshot.add_root_object(root);
         if let Err(error) = snapshot.attach_child(root_id, child) {

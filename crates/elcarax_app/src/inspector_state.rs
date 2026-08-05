@@ -315,9 +315,9 @@ mod tests {
     use super::*;
     use elcarax_commands::CommandHistory;
     use elcarax_scene_model::{
-        ComponentInstance, ComponentSchema, ComponentTypeName, components, kinds,
-        ObjectSchema, PropertyKind, PropertySchema, PropertyValue, SceneObject,
-        SceneObjectKind, SceneSnapshot,
+        ComponentInstance, ComponentSchema, ComponentTypeName, ObjectSchema, PropertyKind,
+        PropertySchema, PropertyValue, SceneObject, SceneObjectKind, SceneSnapshot, components,
+        kinds,
     };
 
     #[test]

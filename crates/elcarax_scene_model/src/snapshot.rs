@@ -300,9 +300,9 @@ impl SceneSnapshot {
             .objects
             .get_mut(&object_id)
             .ok_or_else(|| ElcaraxError::not_found(format!("scene object {}", object_id.get())))?;
-        object.set_property(component_id, path, value).map_err(|_| {
-            ElcaraxError::not_found(format!("scene component {}", component_id.get()))
-        })
+        object
+            .set_property(component_id, path, value)
+            .map_err(|_| ElcaraxError::not_found(format!("scene component {}", component_id.get())))
     }
 
     pub fn property(
@@ -537,9 +537,7 @@ impl SceneSnapshot {
         }
         let syncs_display_name = is_display_name_property(&component.type_name, path);
         component.properties.insert(path.clone(), value.clone());
-        if syncs_display_name
-            && let PropertyValue::String(name) = value
-        {
+        if syncs_display_name && let PropertyValue::String(name) = value {
             object.display_name = name;
         }
         Ok(())

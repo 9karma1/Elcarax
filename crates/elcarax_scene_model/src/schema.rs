@@ -201,10 +201,7 @@ pub struct ComponentSchema {
 }
 
 impl ComponentSchema {
-    pub fn new(
-        type_name: impl Into<ComponentTypeName>,
-        display_name: impl Into<String>,
-    ) -> Self {
+    pub fn new(type_name: impl Into<ComponentTypeName>, display_name: impl Into<String>) -> Self {
         Self {
             type_name: type_name.into(),
             display_name: display_name.into(),

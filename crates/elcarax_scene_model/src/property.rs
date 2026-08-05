@@ -81,7 +81,9 @@ pub enum PropertyValue {
     Vec2([f32; 2]),
     Vec3([f32; 3]),
     ColorRgba([f32; 4]),
-    Enum { variant: String },
+    Enum {
+        variant: String,
+    },
     AssetRef(String),
     ObjectRef(u64),
     List(Vec<PropertyValue>),

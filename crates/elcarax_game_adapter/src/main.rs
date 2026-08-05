@@ -603,10 +603,8 @@ mod tests {
     #[test]
     fn set_type_mismatch_fails() {
         let mut adapter = MockAdapter::new();
-        let response = adapter.set_property(request(
-            "health",
-            PropertyValue::String("high".to_string()),
-        ));
+        let response =
+            adapter.set_property(request("health", PropertyValue::String("high".to_string())));
         assert_eq!(response.status, SetPropertyStatus::TypeMismatch);
     }
 
@@ -642,7 +640,7 @@ mod tests {
         assert!(output.contains("65"));
     }
 
-    use elcarax_scene_model::{components, ComponentTypeName};
+    use elcarax_scene_model::{ComponentTypeName, components};
 
     fn request(path: &str, new_value: PropertyValue) -> SetPropertyRequest {
         let snapshot = reference_scene_snapshot();

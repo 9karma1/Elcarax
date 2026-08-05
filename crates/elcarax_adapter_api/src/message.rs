@@ -278,9 +278,7 @@ pub fn decode_adapter_line(line: &str) -> Result<AdapterLine, serde_json::Error>
 mod tests {
     use super::*;
     use crate::{AdapterCapabilities, AdapterId, AdapterName, AdapterVersion};
-    use elcarax_scene_model::{
-        components, reference_scene_snapshot, ComponentTypeName,
-    };
+    use elcarax_scene_model::{ComponentTypeName, components, reference_scene_snapshot};
 
     #[test]
     fn handshake_request_response_round_trip() -> Result<(), serde_json::Error> {
@@ -554,10 +552,11 @@ mod tests {
 
     fn rejected_response(snapshot: &SceneSnapshot) -> AdapterResponse {
         let player = player(snapshot);
-        let references = match player.component_by_type(&ComponentTypeName::new(components::REFERENCES)) {
-            Some(component) => component,
-            None => panic!("references component should exist"),
-        };
+        let references =
+            match player.component_by_type(&ComponentTypeName::new(components::REFERENCES)) {
+                Some(component) => component,
+                None => panic!("references component should exist"),
+            };
         AdapterResponse::new(
             AdapterRequestId::new(10),
             AdapterResponseMessage::SetProperty(SetPropertyResponse {

@@ -122,10 +122,14 @@ mod tests {
         let _ = fs::create_dir_all(&temp);
         let path = temp.join("roundtrip.elcarax.scene.toml");
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Roundtrip"));
-        let object = SceneObject::new("Root", SceneObjectKind::new(crate::kind::well_known::WORLD), {
-            use crate::ObjectSchema;
-            ObjectSchema::new("World").type_id
-        });
+        let object = SceneObject::new(
+            "Root",
+            SceneObjectKind::new(crate::kind::well_known::WORLD),
+            {
+                use crate::ObjectSchema;
+                ObjectSchema::new("World").type_id
+            },
+        );
         snapshot.add_root_object(object);
         if let Err(error) = write_scene_file(&path, &snapshot) {
             panic!("write scene should succeed: {error}");

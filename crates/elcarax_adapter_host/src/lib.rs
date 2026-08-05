@@ -591,7 +591,7 @@ mod tests {
         SetPropertyResponse, SetPropertyStatus, decode_request_line,
     };
     use elcarax_scene_model::{
-        components, ComponentTypeName, PropertyPath, PropertyValue, ScenePatch,
+        ComponentTypeName, PropertyPath, PropertyValue, ScenePatch, components,
         reference_scene_snapshot,
     };
 
@@ -634,7 +634,8 @@ mod tests {
             Some(player) => player,
             None => panic!("player should exist"),
         };
-        let gameplay = match player.component_by_type(&ComponentTypeName::new(components::GAMEPLAY)) {
+        let gameplay = match player.component_by_type(&ComponentTypeName::new(components::GAMEPLAY))
+        {
             Some(component) => component,
             None => panic!("gameplay component should exist"),
         };

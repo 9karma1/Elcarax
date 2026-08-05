@@ -29,8 +29,11 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
                 .with_property(read_only("color", "Color", PropertyKind::ColorRgba)),
         )
         .with_component(
-            ComponentSchema::new(components::TRANSFORM, "Transform")
-                .with_property(read_only("rotation", "Rotation", PropertyKind::Vec3)),
+            ComponentSchema::new(components::TRANSFORM, "Transform").with_property(read_only(
+                "rotation",
+                "Rotation",
+                PropertyKind::Vec3,
+            )),
         );
     let mut directional_light = object(2, "Directional Light", kinds::LIGHT)
         .with_component(
@@ -55,8 +58,11 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
                 .with_property(read_only("rotation", "Rotation", PropertyKind::Vec3)),
         )
         .with_component(
-            ComponentSchema::new(components::CAMERA, "Camera")
-                .with_property(read_only("field_of_view", "Field Of View", PropertyKind::F64)),
+            ComponentSchema::new(components::CAMERA, "Camera").with_property(read_only(
+                "field_of_view",
+                "Field Of View",
+                PropertyKind::F64,
+            )),
         );
     let mut main_camera = object(3, "Main Camera", kinds::CAMERA)
         .with_component(
@@ -71,27 +77,31 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
     main_camera.type_id = camera_schema.type_id;
     snapshot.add_schema(camera_schema);
 
-    let player_schema = ObjectSchema::new("Character")
-        .with_component(
-            ComponentSchema::new(components::GENERAL, "General")
-                .with_property(editable("name", "Name", PropertyKind::String)),
-        )
-        .with_component(
-            ComponentSchema::new(components::TRANSFORM, "Transform")
-                .with_property(editable("position", "Position", PropertyKind::Vec3))
-                .with_property(editable("rotation", "Rotation", PropertyKind::Vec3))
-                .with_property(editable("scale", "Scale", PropertyKind::Vec3)),
-        )
-        .with_component(
-            ComponentSchema::new(components::GAMEPLAY, "Gameplay")
-                .with_property(editable("health", "Health", PropertyKind::I64))
-                .with_property(editable("speed", "Speed", PropertyKind::F64))
-                .with_property(editable_enum("stance", "Stance", &["Idle", "Run", "Jump"])),
-        )
-        .with_component(
-            ComponentSchema::new(components::REFERENCES, "References")
-                .with_property(read_only("mesh", "Mesh", PropertyKind::AssetRef)),
-        );
+    let player_schema =
+        ObjectSchema::new("Character")
+            .with_component(
+                ComponentSchema::new(components::GENERAL, "General").with_property(editable(
+                    "name",
+                    "Name",
+                    PropertyKind::String,
+                )),
+            )
+            .with_component(
+                ComponentSchema::new(components::TRANSFORM, "Transform")
+                    .with_property(editable("position", "Position", PropertyKind::Vec3))
+                    .with_property(editable("rotation", "Rotation", PropertyKind::Vec3))
+                    .with_property(editable("scale", "Scale", PropertyKind::Vec3)),
+            )
+            .with_component(
+                ComponentSchema::new(components::GAMEPLAY, "Gameplay")
+                    .with_property(editable("health", "Health", PropertyKind::I64))
+                    .with_property(editable("speed", "Speed", PropertyKind::F64))
+                    .with_property(editable_enum("stance", "Stance", &["Idle", "Run", "Jump"])),
+            )
+            .with_component(
+                ComponentSchema::new(components::REFERENCES, "References")
+                    .with_property(read_only("mesh", "Mesh", PropertyKind::AssetRef)),
+            );
     let mut player = object(4, "Player", kinds::CHARACTER)
         .with_component(
             component(4, 1, components::GENERAL, "General")
@@ -124,15 +134,19 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
     player.property_summary = Some("Health: 100 | Speed: 6.5".to_string());
     snapshot.add_schema(player_schema);
 
-    let cube_schema = ObjectSchema::new("Cube")
-        .with_component(
-            ComponentSchema::new(components::TRANSFORM, "Transform")
-                .with_property(read_only("position", "Position", PropertyKind::Vec3)),
-        )
-        .with_component(
-            ComponentSchema::new(components::REFERENCES, "References")
-                .with_property(read_only("material", "Material", PropertyKind::AssetRef)),
-        );
+    let cube_schema =
+        ObjectSchema::new("Cube")
+            .with_component(
+                ComponentSchema::new(components::TRANSFORM, "Transform").with_property(read_only(
+                    "position",
+                    "Position",
+                    PropertyKind::Vec3,
+                )),
+            )
+            .with_component(
+                ComponentSchema::new(components::REFERENCES, "References")
+                    .with_property(read_only("material", "Material", PropertyKind::AssetRef)),
+            );
     let mut cube = object(9, "Cube", kinds::CUBE)
         .with_component(
             component(9, 1, components::TRANSFORM, "Transform")

@@ -357,8 +357,8 @@ mod tests {
     use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
     use elcarax_project::{ProjectCreateRequest, create_project};
     use elcarax_scene_model::{
-        ComponentInstance, ComponentSchema, components, kinds, ObjectSchema, PropertyKind,
-        PropertyPath, PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectKind,
+        ComponentInstance, ComponentSchema, ObjectSchema, PropertyKind, PropertyPath,
+        PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectKind, components, kinds,
     };
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
     use std::fs;

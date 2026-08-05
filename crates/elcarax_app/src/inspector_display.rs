@@ -17,7 +17,8 @@ pub(crate) struct InspectorUiSnapshot {
     pub(crate) row_widgets: [InspectorValueWidget; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_editable: [bool; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_property_paths: [String; MAX_VISIBLE_INSPECTOR_ROWS],
-    pub(crate) row_component_ids: [Option<elcarax_scene_model::ComponentInstanceId>; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub(crate) row_component_ids:
+        [Option<elcarax_scene_model::ComponentInstanceId>; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_edit_kinds: [PropertyEditKind; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_command_ids: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) property_count: usize,
@@ -261,7 +262,8 @@ fn empty_editable_rows() -> [bool; MAX_VISIBLE_INSPECTOR_ROWS] {
     [false; MAX_VISIBLE_INSPECTOR_ROWS]
 }
 
-fn empty_component_ids() -> [Option<elcarax_scene_model::ComponentInstanceId>; MAX_VISIBLE_INSPECTOR_ROWS] {
+fn empty_component_ids()
+-> [Option<elcarax_scene_model::ComponentInstanceId>; MAX_VISIBLE_INSPECTOR_ROWS] {
     [None; MAX_VISIBLE_INSPECTOR_ROWS]
 }
 
@@ -285,8 +287,9 @@ mod tests {
     use super::*;
     use crate::scene_state::SceneState;
     use elcarax_scene_model::{
-        ComponentInstance, ComponentSchema, ObjectSchema, PropertyKind, PropertyPath, PropertySchema,
-        PropertyValue, SceneName, SceneObject, SceneObjectKind, SceneSnapshot, components, kinds,
+        ComponentInstance, ComponentSchema, ObjectSchema, PropertyKind, PropertyPath,
+        PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectKind, SceneSnapshot,
+        components, kinds,
     };
 
     #[test]
