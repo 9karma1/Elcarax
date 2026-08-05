@@ -67,6 +67,7 @@ impl InspectorState {
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
+        component_id: elcarax_scene_model::ComponentInstanceId,
         path: &str,
         edit_kind: PropertyEditKind,
         text: &str,
@@ -90,7 +91,13 @@ impl InspectorState {
             }
         };
         let result = SessionEditService::commit_property_result(
-            scene, history, adapter, &path, value, label,
+            scene,
+            history,
+            adapter,
+            component_id,
+            &path,
+            value,
+            label,
         );
         self.last_command_result = Some(result.clone());
         result
@@ -180,11 +187,13 @@ impl InspectorState {
     }
 
     #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
     fn set_fixture_property(
         &mut self,
         scene: &mut SceneState,
         history: &mut CommandHistory,
         command_id: &str,
+        component_id: elcarax_scene_model::ComponentInstanceId,
         path: &str,
         new_value: PropertyValue,
         label: &str,
@@ -200,7 +209,15 @@ impl InspectorState {
                 );
             }
         };
-        match SessionEditService::commit_property(scene, history, None, &path, new_value, label) {
+        match SessionEditService::commit_property(
+            scene,
+            history,
+            None,
+            component_id,
+            &path,
+            new_value,
+            label,
+        ) {
             Ok(message) => self.edit_success(scene, command_id, message),
             Err(error) => self.edit_error(scene, command_id, error),
         }
@@ -298,18 +315,20 @@ mod tests {
     use super::*;
     use elcarax_commands::CommandHistory;
     use elcarax_scene_model::{
-        ObjectSchema, PropertyGroup, PropertyKind, PropertySchema, PropertyValue, SceneObject,
+        ComponentInstance, ComponentSchema, ComponentTypeName, components, kinds,
+        ObjectSchema, PropertyKind, PropertySchema, PropertyValue, SceneObject,
         SceneObjectKind, SceneSnapshot,
     };
 
     #[test]
     fn fixture_property_edit_updates_inspector_and_undo_stack() {
-        let (mut scene, mut history, mut inspector) = fixture();
+        let (mut scene, mut history, mut inspector, component_id) = fixture();
         let result = inspector.set_fixture_property(
             &mut scene,
             &mut history,
             "test.set_health",
-            "gameplay.health",
+            component_id,
+            "health",
             PropertyValue::I64(75),
             "Set Health",
         );
@@ -319,12 +338,13 @@ mod tests {
 
     #[test]
     fn undo_restores_old_property_value() {
-        let (mut scene, mut history, mut inspector) = fixture();
+        let (mut scene, mut history, mut inspector, component_id) = fixture();
         let _ = inspector.set_fixture_property(
             &mut scene,
             &mut history,
             "test.set_health",
-            "gameplay.health",
+            component_id,
+            "health",
             PropertyValue::I64(75),
             "Set Health",
         );
@@ -339,12 +359,13 @@ mod tests {
 
     #[test]
     fn redo_restores_new_property_value() {
-        let (mut scene, mut history, mut inspector) = fixture();
+        let (mut scene, mut history, mut inspector, component_id) = fixture();
         let _ = inspector.set_fixture_property(
             &mut scene,
             &mut history,
             "test.set_health",
-            "gameplay.health",
+            component_id,
+            "health",
             PropertyValue::I64(75),
             "Set Health",
         );
@@ -361,13 +382,14 @@ mod tests {
 
     #[test]
     fn failed_edit_without_selection_does_not_push_undo_entry() {
-        let (mut scene, mut history, mut inspector) = fixture();
+        let (mut scene, mut history, mut inspector, component_id) = fixture();
         let _ = scene.execute_command_id(crate::scene_state::SCENE_CLEAR_SELECTION_COMMAND);
         let result = inspector.set_fixture_property(
             &mut scene,
             &mut history,
             "test.set_health",
-            "gameplay.health",
+            component_id,
+            "health",
             PropertyValue::I64(75),
             "Set Health",
         );
@@ -375,19 +397,30 @@ mod tests {
         assert_eq!(history.undo_count(), 0);
     }
 
-    fn fixture() -> (SceneState, CommandHistory, InspectorState) {
-        let path = match PropertyPath::parse("gameplay.health") {
+    fn fixture() -> (
+        SceneState,
+        CommandHistory,
+        InspectorState,
+        elcarax_scene_model::ComponentInstanceId,
+    ) {
+        let path = match PropertyPath::parse("health") {
             Ok(path) => path,
             Err(error) => panic!("path should parse: {error}"),
         };
-        let schema = ObjectSchema::new("Actor").with_property(PropertySchema::editable(
-            path.clone(),
-            "Health",
-            PropertyKind::I64,
-            PropertyGroup::new("Gameplay"),
-        ));
-        let mut object = SceneObject::new("Actor", SceneObjectKind::Character, schema.type_id);
-        object.set_property(path, PropertyValue::I64(100));
+        let schema = ObjectSchema::new("Actor").with_component(
+            ComponentSchema::new(components::GAMEPLAY, "Gameplay").with_property(
+                PropertySchema::editable(path.clone(), "Health", PropertyKind::I64),
+            ),
+        );
+        let component = ComponentInstance::new(components::GAMEPLAY, "Gameplay")
+            .with_property(path, PropertyValue::I64(100));
+        let component_id = component.id;
+        let object = SceneObject::new(
+            "Actor",
+            SceneObjectKind::new(kinds::CHARACTER),
+            schema.type_id,
+        )
+        .with_component(component);
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::empty();
         snapshot.add_schema(schema);
@@ -395,7 +428,12 @@ mod tests {
         let mut scene = SceneState::default();
         scene.load_fixture_snapshot(snapshot);
         assert!(scene.select_object(object_id));
-        (scene, CommandHistory::new(), InspectorState::default())
+        (
+            scene,
+            CommandHistory::new(),
+            InspectorState::default(),
+            component_id,
+        )
     }
 
     fn health(scene: &SceneState) -> PropertyValue {
@@ -407,11 +445,16 @@ mod tests {
             Some(actor) => actor,
             None => panic!("actor should exist"),
         };
-        let path = match PropertyPath::parse("gameplay.health") {
+        let component = match actor.component_by_type(&ComponentTypeName::new(components::GAMEPLAY))
+        {
+            Some(component) => component,
+            None => panic!("gameplay component should exist"),
+        };
+        let path = match PropertyPath::parse("health") {
             Ok(path) => path,
             Err(error) => panic!("path should parse: {error}"),
         };
-        match actor.property(&path) {
+        match component.property(&path) {
             Some(value) => value.clone(),
             None => panic!("health should exist"),
         }

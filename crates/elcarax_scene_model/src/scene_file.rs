@@ -5,9 +5,10 @@ use elcarax_core::Id;
 use serde::{Deserialize, Serialize};
 
 use crate::SceneIoError;
+use crate::component::{ComponentInstance, ComponentTypeName};
 use crate::kind::SceneObjectKind;
 use crate::name::SceneName;
-use crate::schema::{ObjectSchema, ObjectTypeId, PropertySchema};
+use crate::schema::{ComponentSchema, ObjectSchema, ObjectTypeId};
 use crate::snapshot::{SceneObject, SceneObjectId, SceneSnapshot};
 use crate::{PropertyPath, PropertyValue};
 
@@ -18,7 +19,7 @@ pub const DEFAULT_SCENE_FILENAME: &str = "main.elcarax.scene.toml";
 pub struct SceneFileVersion(pub u32);
 
 impl SceneFileVersion {
-    pub const CURRENT: Self = Self(1);
+    pub const CURRENT: Self = Self(2);
 
     pub const fn value(self) -> u32 {
         self.0
@@ -98,6 +99,14 @@ struct SceneObjectDocument {
     kind: SceneObjectKind,
     type_id: u64,
     property_summary: Option<String>,
+    components: Vec<ComponentInstanceDocument>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ComponentInstanceDocument {
+    id: u64,
+    type_name: ComponentTypeName,
+    display_name: String,
     properties: BTreeMap<String, PropertyValue>,
 }
 
@@ -105,7 +114,7 @@ struct SceneObjectDocument {
 struct ObjectSchemaDocument {
     type_id: u64,
     display_name: String,
-    properties: Vec<PropertySchema>,
+    components: Vec<ComponentSchema>,
 }
 
 impl SceneFileDocument {
@@ -151,21 +160,42 @@ impl SceneFileDocument {
 
 impl SceneObjectDocument {
     fn from_object(object: &SceneObject) -> Self {
-        let properties = object
-            .properties
-            .iter()
-            .map(|(path, value)| (path.to_string(), value.clone()))
-            .collect();
         Self {
             id: object.id.get(),
             parent: object.parent.map(|id| id.get()),
             children: object.children.iter().map(|id| id.get()).collect(),
             display_name: object.display_name.clone(),
-            kind: object.kind,
+            kind: object.kind.clone(),
             type_id: object.type_id.get(),
             property_summary: object.property_summary.clone(),
-            properties,
+            components: object
+                .components
+                .iter()
+                .map(ComponentInstanceDocument::from_component)
+                .collect(),
         }
+    }
+}
+
+impl ComponentInstanceDocument {
+    fn from_component(component: &ComponentInstance) -> Self {
+        Self {
+            id: component.id.get(),
+            type_name: component.type_name.clone(),
+            display_name: component.display_name.clone(),
+            properties: component
+                .properties
+                .iter()
+                .map(|(path, value)| (path.to_string(), value.clone()))
+                .collect(),
+        }
+    }
+
+    fn into_component(self) -> Result<ComponentInstance, SceneIoError> {
+        let id = required_id::<crate::component::ComponentInstanceMarker>(self.id, "component_id")?;
+        let mut component = ComponentInstance::with_stable_id(id, self.type_name, self.display_name);
+        component.properties = properties_from_document(self.properties)?;
+        Ok(component)
     }
 }
 
@@ -174,7 +204,7 @@ impl ObjectSchemaDocument {
         Self {
             type_id: schema.type_id.get(),
             display_name: schema.display_name.clone(),
-            properties: schema.properties.clone(),
+            components: schema.components.clone(),
         }
     }
 }
@@ -188,7 +218,11 @@ fn objects_from_documents(
         let parent = optional_id::<crate::snapshot::SceneObjectMarker>(document.parent)?;
         let children = ids_from_values(document.children, "child_id")?;
         let type_id = required_id::<crate::schema::ObjectTypeMarker>(document.type_id, "type_id")?;
-        let properties = properties_from_document(document.properties)?;
+        let components = document
+            .components
+            .into_iter()
+            .map(ComponentInstanceDocument::into_component)
+            .collect::<Result<Vec<_>, _>>()?;
         let object = SceneObject {
             id,
             parent,
@@ -197,7 +231,7 @@ fn objects_from_documents(
             kind: document.kind,
             type_id,
             property_summary: document.property_summary,
-            properties,
+            components,
         };
         if objects.insert(id, object).is_some() {
             return Err(SceneIoError::InvalidDocument(format!(
@@ -219,7 +253,7 @@ fn schemas_from_documents(
         let schema = ObjectSchema {
             type_id,
             display_name: document.display_name,
-            properties: document.properties,
+            components: document.components,
         };
         if schemas.insert(type_id, schema).is_some() {
             return Err(SceneIoError::InvalidDocument(format!(
@@ -275,7 +309,7 @@ mod tests {
             Ok(value) => value,
             Err(error) => panic!("serialize should succeed: {error}"),
         };
-        assert!(content.contains("schema_version = 1"));
+        assert!(content.contains("schema_version = 2"));
         assert!(content.contains("name = \"Main Scene\""));
     }
 
@@ -301,9 +335,9 @@ mod tests {
         let schema = ObjectSchema::new("World");
         let type_id = schema.type_id;
         snapshot.add_schema(schema);
-        let root = SceneObject::new("World", SceneObjectKind::World, type_id);
+        let root = SceneObject::new("World", SceneObjectKind::new(crate::kind::well_known::WORLD), type_id);
         let root_id = root.id;
-        let child = SceneObject::new("Child", SceneObjectKind::Mesh, type_id);
+        let child = SceneObject::new("Child", SceneObjectKind::new(crate::kind::well_known::MESH), type_id);
         let child_id = child.id;
         snapshot.add_root_object(root);
         if let Err(error) = snapshot.attach_child(root_id, child) {

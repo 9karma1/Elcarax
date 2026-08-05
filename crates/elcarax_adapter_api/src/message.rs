@@ -3,7 +3,8 @@ use std::fmt;
 
 use elcarax_core::{Diagnostic, DiagnosticSource, Severity};
 use elcarax_scene_model::{
-    PropertyPath, PropertyValue, SceneId, SceneObjectId, ScenePatch, SceneSnapshot,
+    ComponentInstanceId, PropertyPath, PropertyValue, SceneId, SceneObjectId, ScenePatch,
+    SceneSnapshot,
 };
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +59,7 @@ pub struct GetSceneSnapshotRequest {
 pub struct SetPropertyRequest {
     pub scene_id: SceneId,
     pub object_id: SceneObjectId,
+    pub component_id: ComponentInstanceId,
     pub path: PropertyPath,
     pub expected_old_value: Option<PropertyValue>,
     pub new_value: PropertyValue,
@@ -115,6 +117,7 @@ pub struct SetPropertyResponse {
     pub status: SetPropertyStatus,
     pub scene_id: SceneId,
     pub object_id: SceneObjectId,
+    pub component_id: ComponentInstanceId,
     pub path: PropertyPath,
     pub old_value: Option<PropertyValue>,
     pub confirmed_new_value: Option<PropertyValue>,
@@ -275,7 +278,9 @@ pub fn decode_adapter_line(line: &str) -> Result<AdapterLine, serde_json::Error>
 mod tests {
     use super::*;
     use crate::{AdapterCapabilities, AdapterId, AdapterName, AdapterVersion};
-    use elcarax_scene_model::reference_scene_snapshot;
+    use elcarax_scene_model::{
+        components, reference_scene_snapshot, ComponentTypeName,
+    };
 
     #[test]
     fn handshake_request_response_round_trip() -> Result<(), serde_json::Error> {
@@ -472,12 +477,15 @@ mod tests {
     fn set_property_request_round_trips() -> Result<(), serde_json::Error> {
         let snapshot = reference_scene_snapshot();
         let player = player(&snapshot);
+        let gameplay = gameplay_component(player);
+        let health_path = path("health");
         let request = AdapterRequest::new(
             AdapterRequestId::new(9),
             AdapterRequestMessage::SetProperty(SetPropertyRequest {
                 scene_id: snapshot.scene_id(),
                 object_id: player.id,
-                path: path("gameplay.health"),
+                component_id: gameplay.id,
+                path: health_path.clone(),
                 expected_old_value: Some(PropertyValue::I64(100)),
                 new_value: PropertyValue::I64(65),
                 transaction_id: "adapter.inspector.set_player_health_demo".to_string(),
@@ -493,18 +501,22 @@ mod tests {
     fn set_property_response_round_trips() -> Result<(), serde_json::Error> {
         let snapshot = reference_scene_snapshot();
         let player = player(&snapshot);
+        let gameplay = gameplay_component(player);
+        let health_path = path("health");
         let response = AdapterResponse::new(
             AdapterRequestId::new(9),
             AdapterResponseMessage::SetProperty(SetPropertyResponse {
                 status: SetPropertyStatus::Accepted,
                 scene_id: snapshot.scene_id(),
                 object_id: player.id,
-                path: path("gameplay.health"),
+                component_id: gameplay.id,
+                path: health_path.clone(),
                 old_value: Some(PropertyValue::I64(100)),
                 confirmed_new_value: Some(PropertyValue::I64(65)),
                 patch: Some(ScenePatch::property_updated(
                     player.id,
-                    path("gameplay.health"),
+                    gameplay.id,
+                    health_path,
                     PropertyValue::I64(65),
                 )),
                 diagnostics: Vec::new(),
@@ -542,13 +554,18 @@ mod tests {
 
     fn rejected_response(snapshot: &SceneSnapshot) -> AdapterResponse {
         let player = player(snapshot);
+        let references = match player.component_by_type(&ComponentTypeName::new(components::REFERENCES)) {
+            Some(component) => component,
+            None => panic!("references component should exist"),
+        };
         AdapterResponse::new(
             AdapterRequestId::new(10),
             AdapterResponseMessage::SetProperty(SetPropertyResponse {
                 status: SetPropertyStatus::ReadOnlyProperty,
                 scene_id: snapshot.scene_id(),
                 object_id: player.id,
-                path: path("references.mesh"),
+                component_id: references.id,
+                path: path("mesh"),
                 old_value: None,
                 confirmed_new_value: None,
                 patch: None,
@@ -558,6 +575,15 @@ mod tests {
                 )],
             }),
         )
+    }
+
+    fn gameplay_component(
+        player: &elcarax_scene_model::SceneObject,
+    ) -> &elcarax_scene_model::ComponentInstance {
+        match player.component_by_type(&ComponentTypeName::new(components::GAMEPLAY)) {
+            Some(component) => component,
+            None => panic!("gameplay component should exist"),
+        }
     }
 
     fn player(snapshot: &SceneSnapshot) -> &elcarax_scene_model::SceneObject {

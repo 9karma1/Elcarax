@@ -1,5 +1,6 @@
 //! Engine-neutral scene, object, schema, and property model.
 
+mod component;
 mod diagnostic;
 mod error;
 mod hierarchy;
@@ -19,6 +20,10 @@ mod selection;
 mod snapshot;
 mod viewport_pick;
 
+pub use component::{
+    ComponentInstance, ComponentInstanceId, ComponentInstanceMarker, ComponentTypeName,
+    display_name_property_path, is_display_name_property,
+};
 pub use diagnostic::SceneDiagnostic;
 pub use error::{SceneError, SceneIoError};
 pub use hierarchy::{SceneHierarchy, SceneTreeRow};
@@ -33,8 +38,8 @@ pub use inspector_widget::{
 pub use kind::SceneObjectKind;
 pub use name::{PropertyName, SceneName, SceneObjectName};
 pub use patch::{
-    CapturedSubtree, ObjectAdded, ObjectRemoved, PropertyUpdated, Renamed, Reparented, ScenePatch,
-    ScenePatchError, ScenePatchOperation,
+    CapturedSubtree, ComponentAdded, ComponentRemoved, ObjectAdded, ObjectRemoved, PropertyUpdated,
+    Renamed, Reparented, ScenePatch, ScenePatchError, ScenePatchOperation,
 };
 pub use property::{PropertyPath, PropertyValue};
 pub use property_display::{
@@ -55,13 +60,24 @@ pub use scene_io::{
     resolve_scene_load_path, write_scene_file,
 };
 pub use schema::{
-    NumericEditMetadata, ObjectSchema, ObjectTypeId, PropertyEditKind, PropertyKind, PropertySchema,
+    ComponentSchema, NumericEditMetadata, ObjectSchema, ObjectTypeId, PropertyEditKind,
+    PropertyKind, PropertySchema,
 };
 pub use selection::{SceneExpansion, SceneSelection};
 pub use snapshot::{
     SceneId, SceneMarker, SceneObject, SceneObjectId, SceneObjectMarker, SceneSnapshot,
 };
 pub use viewport_pick::{ViewportPickCoord, pick_object_at};
+
+/// Well-known component type identifiers (e.g. `transform`, `gameplay`).
+pub mod components {
+    pub use crate::component::well_known::*;
+}
+
+/// Well-known object kind identifiers (e.g. `world`, `mesh`).
+pub mod kinds {
+    pub use crate::kind::well_known::*;
+}
 
 #[cfg(test)]
 mod tests {
@@ -228,8 +244,14 @@ mod tests {
             "rgba(1.00, 0.95, 0.80, 1.00)"
         );
         assert_eq!(
-            format_property_value(&PropertyValue::Unknown, context),
-            "<unsupported>"
+            format_property_value(
+                &PropertyValue::Extension {
+                    type_id: "curve".to_string(),
+                    data: serde_json::json!({}),
+                },
+                context
+            ),
+            "<curve>"
         );
     }
 
@@ -245,7 +267,10 @@ mod tests {
             Err(_) => panic!("player inspector should build"),
         };
         assert_eq!(inspector.name, "Player");
-        assert_eq!(inspector.kind, SceneObjectKind::Character);
+        assert_eq!(
+            inspector.kind,
+            SceneObjectKind::new(kind::well_known::CHARACTER)
+        );
         assert_eq!(inspector.property_count(), 8);
         let labels: Vec<_> = inspector
             .sections
@@ -262,13 +287,20 @@ mod tests {
     fn editing_editable_int_property_succeeds() -> Result<()> {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
-        let path = path("gameplay.health");
-        let change = edit_scene_property(&mut snapshot, player_id, &path, PropertyValue::I64(75))
-            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
+        let path = path("health");
+        let change = edit_scene_property(
+            &mut snapshot,
+            player_id,
+            component_id,
+            &path,
+            PropertyValue::I64(75),
+        )
+        .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(change.old_value, PropertyValue::I64(100));
         assert_eq!(change.new_value, PropertyValue::I64(75));
         assert_eq!(
-            snapshot.object(player_id)?.property(&path),
+            snapshot.object(player_id)?.property(component_id, &path),
             Some(&PropertyValue::I64(75))
         );
         Ok(())
@@ -278,9 +310,16 @@ mod tests {
     fn editing_editable_float_property_succeeds() -> Result<()> {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
-        let path = path("gameplay.speed");
-        let change = edit_scene_property(&mut snapshot, player_id, &path, PropertyValue::F64(8.0))
-            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
+        let path = path("speed");
+        let change = edit_scene_property(
+            &mut snapshot,
+            player_id,
+            component_id,
+            &path,
+            PropertyValue::F64(8.0),
+        )
+        .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(change.old_value, PropertyValue::F64(6.5));
         Ok(())
     }
@@ -289,10 +328,12 @@ mod tests {
     fn editing_editable_string_property_succeeds() -> Result<()> {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
-        let path = path("general.name");
+        let component_id = component_id(&snapshot, player_id, component::well_known::GENERAL);
+        let path = path("name");
         edit_scene_property(
             &mut snapshot,
             player_id,
+            component_id,
             &path,
             PropertyValue::String("Hero".to_string()),
         )
@@ -305,10 +346,12 @@ mod tests {
     fn editing_editable_vec3_property_succeeds() -> Result<()> {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
-        let path = path("transform.position");
+        let component_id = component_id(&snapshot, player_id, component::well_known::TRANSFORM);
+        let path = path("position");
         let change = edit_scene_property(
             &mut snapshot,
             player_id,
+            component_id,
             &path,
             PropertyValue::Vec3([2.0, 3.0, 4.0]),
         )
@@ -321,10 +364,12 @@ mod tests {
     fn editing_read_only_asset_ref_fails_clearly() {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
-        let path = path("references.mesh");
+        let component_id = component_id(&snapshot, player_id, component::well_known::REFERENCES);
+        let path = path("mesh");
         let result = edit_scene_property(
             &mut snapshot,
             player_id,
+            component_id,
             &path,
             PropertyValue::AssetRef("assets/models/hero.glb".to_string()),
         );
@@ -339,10 +384,12 @@ mod tests {
     fn editing_missing_property_fails_clearly() {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
         let result = edit_scene_property(
             &mut snapshot,
             player_id,
-            &path("gameplay.mana"),
+            component_id,
+            &path("mana"),
             PropertyValue::I64(10),
         );
         let error = match result {
@@ -359,10 +406,15 @@ mod tests {
             Some(value) => SceneObjectId::from_non_zero(value),
             None => panic!("missing test ID should be non-zero"),
         };
+        let fake_component = match std::num::NonZeroU64::new(1) {
+            Some(value) => ComponentInstanceId::from_non_zero(value),
+            None => panic!("component id should be non-zero"),
+        };
         let result = edit_scene_property(
             &mut snapshot,
             missing,
-            &path("gameplay.health"),
+            fake_component,
+            &path("health"),
             PropertyValue::I64(75),
         );
         let error = match result {
@@ -376,10 +428,12 @@ mod tests {
     fn editing_type_mismatch_fails_clearly() {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
         let result = edit_scene_property(
             &mut snapshot,
             player_id,
-            &path("gameplay.health"),
+            component_id,
+            &path("health"),
             PropertyValue::String("high".to_string()),
         );
         let error = match result {
@@ -393,13 +447,19 @@ mod tests {
     fn property_update_patch_applies_successfully() -> Result<()> {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
-        let path = path("gameplay.health");
-        let patch = ScenePatch::property_updated(player_id, path.clone(), PropertyValue::I64(65));
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
+        let path = path("health");
+        let patch = ScenePatch::property_updated(
+            player_id,
+            component_id,
+            path.clone(),
+            PropertyValue::I64(65),
+        );
         patch
             .apply(&mut snapshot)
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(
-            snapshot.object(player_id)?.property(&path),
+            snapshot.object(player_id)?.property(component_id, &path),
             Some(&PropertyValue::I64(65))
         );
         Ok(())
@@ -412,8 +472,16 @@ mod tests {
             Some(value) => SceneObjectId::from_non_zero(value),
             None => panic!("missing test ID should be non-zero"),
         };
-        let patch =
-            ScenePatch::property_updated(missing, path("gameplay.health"), PropertyValue::I64(65));
+        let fake_component = match std::num::NonZeroU64::new(1) {
+            Some(value) => ComponentInstanceId::from_non_zero(value),
+            None => panic!("component id should be non-zero"),
+        };
+        let patch = ScenePatch::property_updated(
+            missing,
+            fake_component,
+            path("health"),
+            PropertyValue::I64(65),
+        );
         assert!(matches!(
             patch.apply(&mut snapshot),
             Err(ScenePatchError::ObjectNotFound { .. })
@@ -424,8 +492,13 @@ mod tests {
     fn property_update_patch_missing_property_fails_clearly() {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
-        let patch =
-            ScenePatch::property_updated(player_id, path("gameplay.mana"), PropertyValue::I64(65));
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
+        let patch = ScenePatch::property_updated(
+            player_id,
+            component_id,
+            path("mana"),
+            PropertyValue::I64(65),
+        );
         assert!(matches!(
             patch.apply(&mut snapshot),
             Err(ScenePatchError::Property(
@@ -438,9 +511,11 @@ mod tests {
     fn property_update_patch_type_mismatch_fails_clearly() {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
         let patch = ScenePatch::property_updated(
             player_id,
-            path("gameplay.health"),
+            component_id,
+            path("health"),
             PropertyValue::String("high".to_string()),
         );
         assert!(matches!(
@@ -455,17 +530,19 @@ mod tests {
     fn property_update_patch_preserves_unrelated_properties() -> Result<()> {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
-        let speed = path("gameplay.speed");
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
+        let speed = path("speed");
         let patch = ScenePatch::property_updated(
             player_id,
-            path("gameplay.health"),
+            component_id,
+            path("health"),
             PropertyValue::I64(65),
         );
         patch
             .apply(&mut snapshot)
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(
-            snapshot.object(player_id)?.property(&speed),
+            snapshot.object(player_id)?.property(component_id, &speed),
             Some(&PropertyValue::F64(6.5))
         );
         Ok(())
@@ -477,11 +554,19 @@ mod tests {
         let schema = ObjectSchema::new("Node");
         let type_id = schema.type_id;
         snapshot.add_schema(schema);
-        let root = SceneObject::new("Root", SceneObjectKind::World, type_id);
+        let root = SceneObject::new(
+            "Root",
+            SceneObjectKind::new(kind::well_known::WORLD),
+            type_id,
+        );
         let root_id = root.id;
         snapshot.add_root_object(root);
 
-        let child = SceneObject::new("Child", SceneObjectKind::Mesh, type_id);
+        let child = SceneObject::new(
+            "Child",
+            SceneObjectKind::new(kind::well_known::MESH),
+            type_id,
+        );
         let child_id = child.id;
         let add = snapshot
             .add_object(Some(root_id), 0, child)
@@ -499,7 +584,11 @@ mod tests {
 
         add.apply(&mut snapshot)
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
-        let sibling = SceneObject::new("Sibling", SceneObjectKind::Mesh, type_id);
+        let sibling = SceneObject::new(
+            "Sibling",
+            SceneObjectKind::new(kind::well_known::MESH),
+            type_id,
+        );
         let sibling_id = sibling.id;
         snapshot
             .add_object(Some(root_id), 1, sibling)
@@ -608,6 +697,20 @@ mod tests {
         match snapshot.object_by_name("Player") {
             Some(object) => object.id,
             None => panic!("player should exist"),
+        }
+    }
+
+    fn component_id(
+        snapshot: &SceneSnapshot,
+        object_id: SceneObjectId,
+        type_name: &str,
+    ) -> ComponentInstanceId {
+        match snapshot.object(object_id) {
+            Ok(object) => match object.component_by_type(&ComponentTypeName::new(type_name)) {
+                Some(component) => component.id,
+                None => panic!("component {type_name} should exist"),
+            },
+            Err(error) => panic!("object should exist: {error}"),
         }
     }
 

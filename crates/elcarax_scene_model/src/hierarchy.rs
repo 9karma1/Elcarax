@@ -95,7 +95,7 @@ impl SceneHierarchy {
             object_id,
             depth,
             display_name: SceneObjectName::from_unvalidated(object.display_name.clone()),
-            kind: object.kind,
+            kind: object.kind.clone(),
             has_children,
             expanded,
         });

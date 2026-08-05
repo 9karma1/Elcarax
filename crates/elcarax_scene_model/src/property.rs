@@ -3,6 +3,8 @@ use std::fmt;
 use elcarax_core::{ElcaraxError, Result};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::PropertyKind;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PropertyPath(Vec<String>);
 
@@ -69,6 +71,7 @@ impl<'de> Deserialize<'de> for PropertyPath {
     }
 }
 
+/// Core property values plus an open extension slot for adapter-declared types.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PropertyValue {
     Bool(bool),
@@ -81,11 +84,50 @@ pub enum PropertyValue {
     Enum { variant: String },
     AssetRef(String),
     ObjectRef(u64),
-    Unknown,
     List(Vec<PropertyValue>),
+    /// Opaque extension value keyed by a registered type id.
+    Extension {
+        type_id: String,
+        data: serde_json::Value,
+    },
 }
 
 impl PropertyValue {
+    pub fn kind(&self) -> PropertyKind {
+        match self {
+            Self::Bool(_) => PropertyKind::Bool,
+            Self::I64(_) => PropertyKind::I64,
+            Self::F64(_) => PropertyKind::F64,
+            Self::String(_) => PropertyKind::String,
+            Self::Vec2(_) => PropertyKind::Vec2,
+            Self::Vec3(_) => PropertyKind::Vec3,
+            Self::ColorRgba(_) => PropertyKind::ColorRgba,
+            Self::Enum { .. } => PropertyKind::Enum,
+            Self::AssetRef(_) => PropertyKind::AssetRef,
+            Self::ObjectRef(_) => PropertyKind::ObjectRef,
+            Self::List(_) => PropertyKind::List,
+            Self::Extension { .. } => PropertyKind::Extension,
+        }
+    }
+
+    pub fn matches_kind(&self, kind: PropertyKind) -> bool {
+        matches!(
+            (kind, self),
+            (PropertyKind::Bool, Self::Bool(_))
+                | (PropertyKind::I64, Self::I64(_))
+                | (PropertyKind::F64, Self::F64(_))
+                | (PropertyKind::String, Self::String(_))
+                | (PropertyKind::Vec2, Self::Vec2(_))
+                | (PropertyKind::Vec3, Self::Vec3(_))
+                | (PropertyKind::ColorRgba, Self::ColorRgba(_))
+                | (PropertyKind::Enum, Self::Enum { .. })
+                | (PropertyKind::AssetRef, Self::AssetRef(_))
+                | (PropertyKind::ObjectRef, Self::ObjectRef(_))
+                | (PropertyKind::List, Self::List(_))
+                | (PropertyKind::Extension, Self::Extension { .. })
+        )
+    }
+
     pub fn format_display(&self, snapshot: &crate::snapshot::SceneSnapshot) -> String {
         crate::property_display::format_property_value(
             self,
@@ -109,7 +151,7 @@ impl PropertyValue {
             Self::AssetRef(value) => value.clone(),
             Self::ObjectRef(value) => value.to_string(),
             Self::List(values) => format!("{} item(s)", values.len()),
-            Self::Unknown => "<unsupported>".to_string(),
+            Self::Extension { type_id, .. } => format!("<{type_id}>"),
         }
     }
 }
@@ -127,8 +169,8 @@ mod tests {
 
     #[test]
     fn property_path_formats_with_dots() -> Result<()> {
-        let path = PropertyPath::parse("transform.position.x")?;
-        assert_eq!(path.to_string(), "transform.position.x");
+        let path = PropertyPath::parse("position.x")?;
+        assert_eq!(path.to_string(), "position.x");
         Ok(())
     }
 
@@ -142,5 +184,15 @@ mod tests {
             format_property_value(&PropertyValue::String("demo".to_string()), context),
             "demo"
         );
+    }
+
+    #[test]
+    fn property_value_kind_covers_extension() {
+        let value = PropertyValue::Extension {
+            type_id: "curve".to_string(),
+            data: serde_json::json!({"points": []}),
+        };
+        assert_eq!(value.kind(), PropertyKind::Extension);
+        assert!(value.matches_kind(PropertyKind::Extension));
     }
 }

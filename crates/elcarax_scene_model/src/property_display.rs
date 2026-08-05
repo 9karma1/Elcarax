@@ -51,7 +51,7 @@ pub fn format_property_value(value: &PropertyValue, context: PropertyFormatConte
         PropertyValue::AssetRef(value) => asset_display_name(value),
         PropertyValue::ObjectRef(value) => object_display_name(context.snapshot, *value),
         PropertyValue::List(values) => format!("{} item(s)", values.len()),
-        PropertyValue::Unknown => "<unsupported>".to_string(),
+        PropertyValue::Extension { type_id, .. } => format!("<{type_id}>"),
     }
 }
 

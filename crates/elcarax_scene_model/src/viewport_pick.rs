@@ -1,5 +1,6 @@
 //! Orthographic viewport picking for engine-neutral scene snapshots.
 
+use crate::component::{ComponentTypeName, well_known};
 use crate::{PropertyPath, PropertyValue, SceneObjectId, SceneSnapshot};
 
 const PICK_RADIUS: f32 = 0.15;
@@ -32,12 +33,13 @@ pub fn pick_object_at(snapshot: &SceneSnapshot, coord: ViewportPickCoord) -> Opt
 }
 
 fn object_position(object: &crate::SceneObject) -> Option<[f32; 3]> {
-    let path = match PropertyPath::from_static_segments(&["transform", "position"]) {
+    let transform = object.component_by_type(&ComponentTypeName::new(well_known::TRANSFORM))?;
+    let path = match PropertyPath::from_static_segments(&["position"]) {
         Ok(path) => path,
         Err(_) => return None,
     };
-    match object.property(&path)? {
-        PropertyValue::Vec3(position) => Some(*position),
+    match transform.property(&path)? {
+        PropertyValue::Vec3(position) => Some([position[0], position[1], position[2]]),
         _ => None,
     }
 }

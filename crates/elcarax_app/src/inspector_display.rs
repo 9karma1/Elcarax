@@ -17,6 +17,7 @@ pub(crate) struct InspectorUiSnapshot {
     pub(crate) row_widgets: [InspectorValueWidget; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_editable: [bool; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_property_paths: [String; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub(crate) row_component_ids: [Option<elcarax_scene_model::ComponentInstanceId>; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_edit_kinds: [PropertyEditKind; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_command_ids: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) property_count: usize,
@@ -79,6 +80,7 @@ fn build_selected_snapshot_with_scroll(
     let mut row_widgets = empty_widgets();
     let mut row_editable = empty_editable_rows();
     let mut row_property_paths = empty_rows();
+    let mut row_component_ids = empty_component_ids();
     let mut row_edit_kinds = empty_edit_kinds();
     let mut row_command_ids = empty_rows();
     let rows = inspector_rows(&inspector, snapshot);
@@ -95,6 +97,7 @@ fn build_selected_snapshot_with_scroll(
         row_widgets[index] = row.widget.clone();
         row_editable[index] = row.editable;
         row_property_paths[index] = row.property_path.clone();
+        row_component_ids[index] = row.component_id;
         row_edit_kinds[index] = row.edit_kind;
         row_command_ids[index] = row.command_id.clone();
     }
@@ -109,6 +112,7 @@ fn build_selected_snapshot_with_scroll(
         row_widgets,
         row_editable,
         row_property_paths,
+        row_component_ids,
         row_edit_kinds,
         row_command_ids,
         property_count,
@@ -126,6 +130,7 @@ struct InspectorDisplayRow {
     widget: InspectorValueWidget,
     editable: bool,
     property_path: String,
+    component_id: Option<elcarax_scene_model::ComponentInstanceId>,
     edit_kind: PropertyEditKind,
     command_id: String,
 }
@@ -147,6 +152,7 @@ fn inspector_rows(
             widget: InspectorValueWidget::Hidden,
             editable: false,
             property_path: String::new(),
+            component_id: None,
             edit_kind: PropertyEditKind::Unsupported,
             command_id: String::new(),
         });
@@ -162,6 +168,7 @@ fn inspector_rows(
                 widget,
                 editable: row.editable,
                 property_path: row.path.to_string(),
+                component_id: Some(row.component_id),
                 edit_kind: row.edit_kind,
                 command_id: inspector_command_for_row(row),
             });
@@ -182,14 +189,13 @@ fn widget_for_row(
     let Some(schema) = snapshot.schema(type_id) else {
         return InspectorValueWidget::Text(row.value.clone());
     };
-    let Some(property_schema) = schema
-        .properties
-        .iter()
-        .find(|property| property.path == row.path)
-    else {
+    let Some(component) = object.component(row.component_id) else {
         return InspectorValueWidget::Text(row.value.clone());
     };
-    let Some(value) = object.property(&row.path) else {
+    let Some(property_schema) = schema.property(&component.type_name, &row.path) else {
+        return InspectorValueWidget::Text(row.value.clone());
+    };
+    let Some(value) = component.property(&row.path) else {
         return InspectorValueWidget::Text(row.value.clone());
     };
     inspector_value_widget_for(property_schema, value)
@@ -206,6 +212,7 @@ fn empty_snapshot_with_message(message: &str) -> InspectorUiSnapshot {
         row_widgets: empty_widgets(),
         row_editable: empty_editable_rows(),
         row_property_paths: empty_rows(),
+        row_component_ids: empty_component_ids(),
         row_edit_kinds: empty_edit_kinds(),
         row_command_ids: empty_rows(),
         property_count: 0,
@@ -227,6 +234,7 @@ fn empty_snapshot_with_summary(summary: String) -> InspectorUiSnapshot {
         row_widgets: empty_widgets(),
         row_editable: empty_editable_rows(),
         row_property_paths: empty_rows(),
+        row_component_ids: empty_component_ids(),
         row_edit_kinds: empty_edit_kinds(),
         row_command_ids: empty_rows(),
         property_count: 0,
@@ -253,6 +261,10 @@ fn empty_editable_rows() -> [bool; MAX_VISIBLE_INSPECTOR_ROWS] {
     [false; MAX_VISIBLE_INSPECTOR_ROWS]
 }
 
+fn empty_component_ids() -> [Option<elcarax_scene_model::ComponentInstanceId>; MAX_VISIBLE_INSPECTOR_ROWS] {
+    [None; MAX_VISIBLE_INSPECTOR_ROWS]
+}
+
 fn empty_edit_kinds() -> [PropertyEditKind; MAX_VISIBLE_INSPECTOR_ROWS] {
     [PropertyEditKind::Unsupported; MAX_VISIBLE_INSPECTOR_ROWS]
 }
@@ -273,8 +285,8 @@ mod tests {
     use super::*;
     use crate::scene_state::SceneState;
     use elcarax_scene_model::{
-        ObjectSchema, PropertyGroup, PropertyKind, PropertyPath, PropertySchema, PropertyValue,
-        SceneName, SceneObject, SceneObjectKind, SceneSnapshot,
+        ComponentInstance, ComponentSchema, ObjectSchema, PropertyKind, PropertyPath, PropertySchema,
+        PropertyValue, SceneName, SceneObject, SceneObjectKind, SceneSnapshot, components, kinds,
     };
 
     #[test]
@@ -295,16 +307,20 @@ mod tests {
     }
 
     fn selected_fixture_scene() -> SceneState {
-        let health_path = fixture_path("gameplay.health");
-        let schema = ObjectSchema::new("Actor").with_property(PropertySchema::editable(
-            health_path.clone(),
-            "Health",
-            PropertyKind::I64,
-            PropertyGroup::new("Gameplay"),
-        ));
-        let mut object =
-            SceneObject::new("Fixture Actor", SceneObjectKind::Character, schema.type_id);
-        object.set_property(health_path, PropertyValue::I64(100));
+        let health_path = fixture_path("health");
+        let schema = ObjectSchema::new("Actor").with_component(
+            ComponentSchema::new(components::GAMEPLAY, "Gameplay").with_property(
+                PropertySchema::editable(health_path.clone(), "Health", PropertyKind::I64),
+            ),
+        );
+        let component = ComponentInstance::new(components::GAMEPLAY, "Gameplay")
+            .with_property(health_path.clone(), PropertyValue::I64(100));
+        let object = SceneObject::new(
+            "Fixture Actor",
+            SceneObjectKind::new(kinds::CHARACTER),
+            schema.type_id,
+        )
+        .with_component(component);
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);

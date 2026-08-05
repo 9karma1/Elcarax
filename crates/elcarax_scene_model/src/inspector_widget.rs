@@ -119,12 +119,12 @@ pub fn inspector_value_widget_for_row(
         path: crate::PropertyPath::fixture_from_segments(&["fixture"]),
         display_name: String::new(),
         kind: property_kind_for_edit(edit_kind),
-        group: crate::property_display::PropertyGroup::new("Fixture"),
         editable: true,
         edit_kind,
         numeric,
         enum_variants: enum_variants.to_vec(),
         read_only_reason: None,
+        extension_type_id: None,
     };
     inspector_value_widget_for(&schema, value)
 }
@@ -196,29 +196,18 @@ fn vector_components(value: &PropertyValue, count: u8) -> [String; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::property_display::PropertyGroup;
     use crate::{PropertyKind, PropertyPath, PropertySchema};
 
     #[test]
     fn bool_schema_maps_to_toggle_widget() {
-        let schema = PropertySchema::editable(
-            path("general.enabled"),
-            "Enabled",
-            PropertyKind::Bool,
-            PropertyGroup::new("General"),
-        );
+        let schema = PropertySchema::editable(path("enabled"), "Enabled", PropertyKind::Bool);
         let widget = inspector_value_widget_for(&schema, &PropertyValue::Bool(true));
         assert_eq!(widget, InspectorValueWidget::Toggle { checked: true });
     }
 
     #[test]
     fn enum_schema_maps_to_enum_widget() {
-        let schema = PropertySchema::editable_enum(
-            path("gameplay.stance"),
-            "Stance",
-            &["Idle", "Run"],
-            PropertyGroup::new("Gameplay"),
-        );
+        let schema = PropertySchema::editable_enum(path("stance"), "Stance", &["Idle", "Run"]);
         let widget = inspector_value_widget_for(
             &schema,
             &PropertyValue::Enum {

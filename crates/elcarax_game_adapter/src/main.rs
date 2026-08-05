@@ -160,6 +160,7 @@ impl MockAdapter {
         let result = prepare_property_change(
             &self.scene,
             request.object_id,
+            request.component_id,
             &request.path,
             &request.new_value,
         );
@@ -186,7 +187,12 @@ impl MockAdapter {
         }
         let old_value = change.old_value.clone();
         let new_value = change.new_value.clone();
-        let patch = ScenePatch::property_updated(request.object_id, path, new_value.clone());
+        let patch = ScenePatch::property_updated(
+            request.object_id,
+            request.component_id,
+            path,
+            new_value.clone(),
+        );
         if let Err(error) = patch.apply(&mut self.scene) {
             return rejected_property_response(
                 request,
@@ -198,6 +204,7 @@ impl MockAdapter {
             status: SetPropertyStatus::Accepted,
             scene_id: request.scene_id,
             object_id: request.object_id,
+            component_id: request.component_id,
             path: request.path,
             old_value: Some(old_value),
             confirmed_new_value: Some(new_value),
@@ -353,6 +360,7 @@ fn rejected_property_response(
         status,
         scene_id: request.scene_id,
         object_id: request.object_id,
+        component_id: request.component_id,
         path: request.path,
         old_value: None,
         confirmed_new_value: None,
@@ -364,6 +372,7 @@ fn rejected_property_response(
 fn status_for_edit_error(error: &PropertyEditError) -> SetPropertyStatus {
     match error {
         PropertyEditError::ObjectNotFound { .. } => SetPropertyStatus::ObjectNotFound,
+        PropertyEditError::ComponentNotFound { .. } => SetPropertyStatus::ObjectNotFound,
         PropertyEditError::PropertyNotFound { .. } => SetPropertyStatus::PropertyNotFound,
         PropertyEditError::ReadOnly { .. } => SetPropertyStatus::ReadOnlyProperty,
         PropertyEditError::TypeMismatch { .. } => SetPropertyStatus::TypeMismatch,
@@ -540,10 +549,10 @@ mod tests {
     #[test]
     fn set_editable_int_property_succeeds() {
         let mut adapter = MockAdapter::new();
-        let response = adapter.set_property(request("gameplay.health", PropertyValue::I64(65)));
+        let response = adapter.set_property(request("health", PropertyValue::I64(65)));
         assert_eq!(response.status, SetPropertyStatus::Accepted);
         assert_eq!(
-            player_property(&adapter.scene, "gameplay.health"),
+            player_property(&adapter.scene, "health"),
             PropertyValue::I64(65)
         );
     }
@@ -551,10 +560,10 @@ mod tests {
     #[test]
     fn set_editable_float_property_succeeds() {
         let mut adapter = MockAdapter::new();
-        let response = adapter.set_property(request("gameplay.speed", PropertyValue::F64(9.0)));
+        let response = adapter.set_property(request("speed", PropertyValue::F64(9.0)));
         assert_eq!(response.status, SetPropertyStatus::Accepted);
         assert_eq!(
-            player_property(&adapter.scene, "gameplay.speed"),
+            player_property(&adapter.scene, "speed"),
             PropertyValue::F64(9.0)
         );
     }
@@ -563,7 +572,7 @@ mod tests {
     fn set_editable_string_property_succeeds() {
         let mut adapter = MockAdapter::new();
         let response = adapter.set_property(request(
-            "general.name",
+            "name",
             PropertyValue::String("Adapter Hero".to_string()),
         ));
         assert_eq!(response.status, SetPropertyStatus::Accepted);
@@ -578,7 +587,7 @@ mod tests {
     fn set_read_only_property_fails() {
         let mut adapter = MockAdapter::new();
         let response = adapter.set_property(request(
-            "references.mesh",
+            "mesh",
             PropertyValue::AssetRef("assets/models/hero.glb".to_string()),
         ));
         assert_eq!(response.status, SetPropertyStatus::ReadOnlyProperty);
@@ -587,7 +596,7 @@ mod tests {
     #[test]
     fn set_missing_property_fails() {
         let mut adapter = MockAdapter::new();
-        let response = adapter.set_property(request("gameplay.mana", PropertyValue::I64(10)));
+        let response = adapter.set_property(request("mana", PropertyValue::I64(10)));
         assert_eq!(response.status, SetPropertyStatus::PropertyNotFound);
     }
 
@@ -595,7 +604,7 @@ mod tests {
     fn set_type_mismatch_fails() {
         let mut adapter = MockAdapter::new();
         let response = adapter.set_property(request(
-            "gameplay.health",
+            "health",
             PropertyValue::String("high".to_string()),
         ));
         assert_eq!(response.status, SetPropertyStatus::TypeMismatch);
@@ -604,12 +613,12 @@ mod tests {
     #[test]
     fn stale_expected_old_value_fails() {
         let mut adapter = MockAdapter::new();
-        let mut request = request("gameplay.health", PropertyValue::I64(65));
+        let mut request = request("health", PropertyValue::I64(65));
         request.expected_old_value = Some(PropertyValue::I64(50));
         let response = adapter.set_property(request);
         assert_eq!(response.status, SetPropertyStatus::StaleValue);
         assert_eq!(
-            player_property(&adapter.scene, "gameplay.health"),
+            player_property(&adapter.scene, "health"),
             PropertyValue::I64(100)
         );
     }
@@ -617,7 +626,7 @@ mod tests {
     #[test]
     fn scene_snapshot_after_edit_contains_updated_value() {
         let mut adapter = MockAdapter::new();
-        let _ = adapter.set_property(request("gameplay.health", PropertyValue::I64(65)));
+        let _ = adapter.set_property(request("health", PropertyValue::I64(65)));
         let mut writer = Vec::new();
         let adapter_request = AdapterRequest::new(
             elcarax_adapter_api::AdapterRequestId(1),
@@ -633,17 +642,26 @@ mod tests {
         assert!(output.contains("65"));
     }
 
+    use elcarax_scene_model::{components, ComponentTypeName};
+
     fn request(path: &str, new_value: PropertyValue) -> SetPropertyRequest {
         let snapshot = reference_scene_snapshot();
         let player = match snapshot.object_by_name("Player") {
             Some(player) => player,
             None => panic!("player should exist"),
         };
+        let component_type = component_type_for_property(path);
+        let component = match player.component_by_type(&ComponentTypeName::new(component_type)) {
+            Some(component) => component,
+            None => panic!("component {component_type} should exist"),
+        };
+        let prop_path = property_path(path);
         SetPropertyRequest {
             scene_id: snapshot.scene_id(),
             object_id: player.id,
-            path: property_path(path),
-            expected_old_value: player.property(&property_path(path)).cloned(),
+            component_id: component.id,
+            path: prop_path.clone(),
+            expected_old_value: component.property(&prop_path).cloned(),
             new_value,
             transaction_id: "test".to_string(),
             edit_source: AdapterEditSource::Inspector,
@@ -655,9 +673,23 @@ mod tests {
             Some(player) => player,
             None => panic!("player should exist"),
         };
-        match player.property(&property_path(path)) {
+        let component_type = component_type_for_property(path);
+        let component = match player.component_by_type(&ComponentTypeName::new(component_type)) {
+            Some(component) => component,
+            None => panic!("component {component_type} should exist"),
+        };
+        match component.property(&property_path(path)) {
             Some(value) => value.clone(),
             None => panic!("property should exist"),
+        }
+    }
+
+    fn component_type_for_property(path: &str) -> &'static str {
+        match path {
+            "health" | "speed" | "stance" | "mana" => components::GAMEPLAY,
+            "name" => components::GENERAL,
+            "mesh" | "material" => components::REFERENCES,
+            _ => panic!("unknown property path {path}"),
         }
     }
 

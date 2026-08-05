@@ -394,7 +394,7 @@ fn require_project(editor: &EditorSessionState, reason: &str) -> CommandAvailabi
 mod tests {
     use super::*;
     use elcarax_commands::{CommandScope, KeyChord, KeyModifier, built_in_commands};
-    use elcarax_scene_model::{ObjectSchema, SceneObject, SceneObjectKind};
+    use elcarax_scene_model::{ObjectSchema, SceneObject};
 
     fn registry_and_bindings() -> (CommandRegistry, CommandBindingRegistry) {
         let registry = match built_in_commands() {
@@ -533,7 +533,13 @@ mod tests {
             .execute_project_command(PROJECT_CREATE_COMMAND, None);
         if let Some(snapshot) = editor.scene.snapshot_mut() {
             let schema = ObjectSchema::new("DirtyMarker");
-            let object = SceneObject::new("Dirty Root", SceneObjectKind::World, schema.type_id);
+            let object = SceneObject::new(
+                "Dirty Root",
+                elcarax_scene_model::SceneObjectKind::new(
+                elcarax_scene_model::kinds::WORLD,
+                ),
+                schema.type_id,
+            );
             snapshot.add_schema(schema);
             snapshot.add_root_object(object);
         }
@@ -567,25 +573,31 @@ mod tests {
         };
         use elcarax_adapter_host::{AdapterSession, FakeAdapterTransport, response_line};
         use elcarax_scene_model::{
-            PropertyEditKind, PropertyGroup, PropertyKind, PropertyPath, PropertySchema,
-            PropertyValue, SceneName, SceneObject, SceneObjectKind, ScenePatch, SceneSnapshot,
+            ComponentInstance, ComponentSchema, components, kinds, PropertyEditKind, PropertyKind,
+            PropertyPath, PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectKind,
+            ScenePatch, SceneSnapshot,
         };
 
         use crate::adapter_state::AdapterState;
 
-        let health_path = match PropertyPath::parse("gameplay.health") {
+        let health_path = match PropertyPath::parse("health") {
             Ok(path) => path,
             Err(error) => panic!("fixture path should parse: {error}"),
         };
-        let schema = ObjectSchema::new("Actor").with_property(PropertySchema::editable(
-            health_path.clone(),
-            "Health",
-            PropertyKind::I64,
-            PropertyGroup::new("Gameplay"),
-        ));
-        let mut object =
-            SceneObject::new("Fixture Actor", SceneObjectKind::Character, schema.type_id);
-        object.set_property(health_path.clone(), PropertyValue::I64(100));
+        let schema = ObjectSchema::new("Actor").with_component(
+            ComponentSchema::new(components::GAMEPLAY, "Gameplay").with_property(
+                PropertySchema::editable(health_path.clone(), "Health", PropertyKind::I64),
+            ),
+        );
+        let component = ComponentInstance::new(components::GAMEPLAY, "Gameplay")
+            .with_property(health_path.clone(), PropertyValue::I64(100));
+        let component_id = component.id;
+        let object = SceneObject::new(
+            "Fixture Actor",
+            SceneObjectKind::new(kinds::CHARACTER),
+            schema.type_id,
+        )
+        .with_component(component);
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);
@@ -609,11 +621,13 @@ mod tests {
                 status: SetPropertyStatus::Accepted,
                 scene_id,
                 object_id,
+                component_id,
                 path: health_path.clone(),
                 old_value: Some(PropertyValue::I64(100)),
                 confirmed_new_value: Some(PropertyValue::I64(65)),
                 patch: Some(ScenePatch::property_updated(
                     object_id,
+                    component_id,
                     health_path,
                     PropertyValue::I64(65),
                 )),
@@ -629,7 +643,8 @@ mod tests {
         )));
         let _ = editor.session_mut().commit_inspector_property(
             &mut adapter,
-            "gameplay.health",
+            component_id,
+            "health",
             PropertyEditKind::Integer,
             "65",
             "Set Fixture Health",

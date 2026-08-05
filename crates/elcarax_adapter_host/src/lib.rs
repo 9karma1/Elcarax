@@ -590,7 +590,10 @@ mod tests {
         AdapterCapabilities, AdapterEditSource, AdapterId, AdapterName, ProtocolVersion,
         SetPropertyResponse, SetPropertyStatus, decode_request_line,
     };
-    use elcarax_scene_model::{PropertyPath, PropertyValue, ScenePatch, reference_scene_snapshot};
+    use elcarax_scene_model::{
+        components, ComponentTypeName, PropertyPath, PropertyValue, ScenePatch,
+        reference_scene_snapshot,
+    };
 
     #[test]
     fn fake_transport_handshake_succeeds() {
@@ -631,18 +634,25 @@ mod tests {
             Some(player) => player,
             None => panic!("player should exist"),
         };
+        let gameplay = match player.component_by_type(&ComponentTypeName::new(components::GAMEPLAY)) {
+            Some(component) => component,
+            None => panic!("gameplay component should exist"),
+        };
+        let health_path = path("health");
         let response = response_line(
             AdapterRequestId(1),
             AdapterResponseMessage::SetProperty(SetPropertyResponse {
                 status: SetPropertyStatus::Accepted,
                 scene_id: snapshot.scene_id(),
                 object_id: player.id,
-                path: path("gameplay.health"),
+                component_id: gameplay.id,
+                path: health_path.clone(),
                 old_value: Some(PropertyValue::I64(100)),
                 confirmed_new_value: Some(PropertyValue::I64(65)),
                 patch: Some(ScenePatch::property_updated(
                     player.id,
-                    path("gameplay.health"),
+                    gameplay.id,
+                    health_path.clone(),
                     PropertyValue::I64(65),
                 )),
                 diagnostics: Vec::new(),
@@ -652,7 +662,8 @@ mod tests {
         let response = must(session.set_property(SetPropertyRequest {
             scene_id: snapshot.scene_id(),
             object_id: player.id,
-            path: path("gameplay.health"),
+            component_id: gameplay.id,
+            path: health_path,
             expected_old_value: Some(PropertyValue::I64(100)),
             new_value: PropertyValue::I64(65),
             transaction_id: "test".to_string(),

@@ -357,8 +357,8 @@ mod tests {
     use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
     use elcarax_project::{ProjectCreateRequest, create_project};
     use elcarax_scene_model::{
-        ObjectSchema, PropertyGroup, PropertyKind, PropertyPath, PropertySchema, PropertyValue,
-        SceneName, SceneObject, SceneObjectKind,
+        ComponentInstance, ComponentSchema, components, kinds, ObjectSchema, PropertyKind,
+        PropertyPath, PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectKind,
     };
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
     use std::fs;
@@ -439,7 +439,11 @@ mod tests {
         let _ = state.execute_command_id(SCENE_LOAD_COMMAND);
         if let Some(snapshot) = state.snapshot_mut() {
             let schema = ObjectSchema::new("Marker");
-            let object = SceneObject::new("Saved Root", SceneObjectKind::World, schema.type_id);
+            let object = SceneObject::new(
+                "Saved Root",
+                SceneObjectKind::new(kinds::WORLD),
+                schema.type_id,
+            );
             snapshot.add_schema(schema);
             snapshot.add_root_object(object);
         }
@@ -535,16 +539,20 @@ mod tests {
     }
 
     fn loaded_fixture_scene() -> (SceneState, SceneObjectId) {
-        let path = fixture_path("general.name");
-        let schema = ObjectSchema::new("Entity").with_property(PropertySchema::editable(
-            path.clone(),
-            "Name",
-            PropertyKind::String,
-            PropertyGroup::new("General"),
-        ));
-        let mut object =
-            SceneObject::new("Fixture Object", SceneObjectKind::Character, schema.type_id);
-        object.set_property(path, PropertyValue::String("Fixture Object".to_string()));
+        let path = fixture_path("name");
+        let schema = ObjectSchema::new("Entity").with_component(
+            ComponentSchema::new(components::GENERAL, "General").with_property(
+                PropertySchema::editable(path.clone(), "Name", PropertyKind::String),
+            ),
+        );
+        let component = ComponentInstance::new(components::GENERAL, "General")
+            .with_property(path, PropertyValue::String("Fixture Object".to_string()));
+        let object = SceneObject::new(
+            "Fixture Object",
+            SceneObjectKind::new(kinds::CHARACTER),
+            schema.type_id,
+        )
+        .with_component(component);
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);

@@ -75,6 +75,7 @@ fn empty_inspector_snapshot() -> InspectorUiSnapshot {
         row_widgets: std::array::from_fn(|_| elcarax_scene_model::InspectorValueWidget::Hidden),
         row_editable: [false; elcarax_ui::MAX_VISIBLE_INSPECTOR_ROWS],
         row_property_paths: std::array::from_fn(|_| String::new()),
+        row_component_ids: std::array::from_fn(|_| None),
         row_edit_kinds: [elcarax_scene_model::PropertyEditKind::Unsupported;
             elcarax_ui::MAX_VISIBLE_INSPECTOR_ROWS],
         row_command_ids: std::array::from_fn(|_| String::new()),

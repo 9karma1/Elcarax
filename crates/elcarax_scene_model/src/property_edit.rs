@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::component::ComponentInstanceId;
 use crate::{
     PropertyEditKind, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneId,
     SceneObjectId, SceneSnapshot,
@@ -9,6 +10,7 @@ use crate::{
 pub struct PropertyChange {
     pub scene_id: SceneId,
     pub object_id: SceneObjectId,
+    pub component_id: ComponentInstanceId,
     pub path: PropertyPath,
     pub old_value: PropertyValue,
     pub new_value: PropertyValue,
@@ -18,6 +20,9 @@ pub struct PropertyChange {
 pub enum PropertyEditError {
     ObjectNotFound {
         object_id: SceneObjectId,
+    },
+    ComponentNotFound {
+        component_id: ComponentInstanceId,
     },
     PropertyNotFound {
         path: PropertyPath,
@@ -38,6 +43,9 @@ impl PropertyEditError {
         match self {
             Self::ObjectNotFound { object_id } => {
                 format!("Object {} was not found", object_id.get())
+            }
+            Self::ComponentNotFound { component_id } => {
+                format!("Component {} was not found", component_id.get())
             }
             Self::PropertyNotFound { path } => format!("Property '{path}' was not found"),
             Self::ReadOnly { path, reason } => {
@@ -74,6 +82,7 @@ pub enum PropertyChangeValue {
 pub fn prepare_property_change(
     snapshot: &SceneSnapshot,
     object_id: SceneObjectId,
+    component_id: ComponentInstanceId,
     path: &PropertyPath,
     new_value: &PropertyValue,
 ) -> PropertyEditResult {
@@ -81,14 +90,17 @@ pub fn prepare_property_change(
         .objects()
         .get(&object_id)
         .ok_or(PropertyEditError::ObjectNotFound { object_id })?;
-    let schema = editable_schema_for(snapshot, object.type_id, path)?;
+    let component = object
+        .component(component_id)
+        .ok_or(PropertyEditError::ComponentNotFound { component_id })?;
+    let schema = editable_schema_for(snapshot, object.type_id, &component.type_name, path)?;
     validate_value_type(path, schema.kind, schema.edit_kind, new_value)?;
     if schema.kind == PropertyKind::Enum {
         let PropertyValue::Enum { variant } = new_value else {
             return Err(PropertyEditError::TypeMismatch {
                 path: path.clone(),
                 expected: schema.edit_kind,
-                actual: value_kind_label(new_value).to_string(),
+                actual: new_value.display_label(),
             });
         };
         if !schema.enum_variants.iter().any(|value| value == variant) {
@@ -99,13 +111,14 @@ pub fn prepare_property_change(
             });
         }
     }
-    let old_value = object
+    let old_value = component
         .property(path)
         .cloned()
         .ok_or_else(|| PropertyEditError::PropertyNotFound { path: path.clone() })?;
     Ok(PropertyChange {
         scene_id: snapshot.scene_id(),
         object_id,
+        component_id,
         path: path.clone(),
         old_value,
         new_value: new_value.clone(),
@@ -115,10 +128,11 @@ pub fn prepare_property_change(
 pub fn edit_scene_property(
     snapshot: &mut SceneSnapshot,
     object_id: SceneObjectId,
+    component_id: ComponentInstanceId,
     path: &PropertyPath,
     new_value: PropertyValue,
 ) -> PropertyEditResult {
-    let change = prepare_property_change(snapshot, object_id, path, &new_value)?;
+    let change = prepare_property_change(snapshot, object_id, component_id, path, &new_value)?;
     apply_property_change(snapshot, &change, PropertyChangeValue::New)?;
     Ok(change)
 }
@@ -201,6 +215,7 @@ pub fn apply_property_change(
     };
     crate::ScenePatch::property_updated(
         change.object_id,
+        change.component_id,
         change.path.clone(),
         selected_value.clone(),
     )
@@ -209,6 +224,9 @@ pub fn apply_property_change(
         crate::ScenePatchError::Property(error) => error,
         crate::ScenePatchError::ObjectNotFound { object_id } => {
             PropertyEditError::ObjectNotFound { object_id }
+        }
+        crate::ScenePatchError::ComponentNotFound { component_id, .. } => {
+            PropertyEditError::ComponentNotFound { component_id }
         }
         other => PropertyEditError::ReadOnly {
             path: change.path.clone(),
@@ -221,11 +239,13 @@ pub fn property_change_patches(change: &PropertyChange) -> (crate::ScenePatch, c
     (
         crate::ScenePatch::property_updated(
             change.object_id,
+            change.component_id,
             change.path.clone(),
             change.new_value.clone(),
         ),
         crate::ScenePatch::property_updated(
             change.object_id,
+            change.component_id,
             change.path.clone(),
             change.old_value.clone(),
         ),
@@ -235,15 +255,14 @@ pub fn property_change_patches(change: &PropertyChange) -> (crate::ScenePatch, c
 fn editable_schema_for<'a>(
     snapshot: &'a SceneSnapshot,
     type_id: crate::ObjectTypeId,
+    type_name: &crate::component::ComponentTypeName,
     path: &PropertyPath,
 ) -> Result<&'a PropertySchema, PropertyEditError> {
     let schema = snapshot
         .schema(type_id)
         .ok_or_else(|| PropertyEditError::PropertyNotFound { path: path.clone() })?;
     let property = schema
-        .properties
-        .iter()
-        .find(|property| property.path == *path)
+        .property(type_name, path)
         .ok_or_else(|| PropertyEditError::PropertyNotFound { path: path.clone() })?;
     if !property.editable {
         return Err(PropertyEditError::ReadOnly {
@@ -263,41 +282,14 @@ fn validate_value_type(
     edit_kind: PropertyEditKind,
     value: &PropertyValue,
 ) -> Result<(), PropertyEditError> {
-    let matches = matches!(
-        (kind, value),
-        (PropertyKind::Bool, PropertyValue::Bool(_))
-            | (PropertyKind::I64, PropertyValue::I64(_))
-            | (PropertyKind::F64, PropertyValue::F64(_))
-            | (PropertyKind::String, PropertyValue::String(_))
-            | (PropertyKind::Vec2, PropertyValue::Vec2(_))
-            | (PropertyKind::Vec3, PropertyValue::Vec3(_))
-            | (PropertyKind::Enum, PropertyValue::Enum { .. })
-    );
-    if matches {
+    if value.matches_kind(kind) {
         return Ok(());
     }
     Err(PropertyEditError::TypeMismatch {
         path: path.clone(),
         expected: edit_kind,
-        actual: value_kind_label(value).to_string(),
+        actual: value.display_label(),
     })
-}
-
-fn value_kind_label(value: &PropertyValue) -> &'static str {
-    match value {
-        PropertyValue::Bool(_) => "bool",
-        PropertyValue::I64(_) => "integer",
-        PropertyValue::F64(_) => "float",
-        PropertyValue::String(_) => "string",
-        PropertyValue::Vec2(_) => "vec2",
-        PropertyValue::Vec3(_) => "vec3",
-        PropertyValue::ColorRgba(_) => "color",
-        PropertyValue::Enum { .. } => "enum",
-        PropertyValue::AssetRef(_) => "asset ref",
-        PropertyValue::ObjectRef(_) => "object ref",
-        PropertyValue::Unknown => "unknown",
-        PropertyValue::List(_) => "list",
-    }
 }
 
 #[cfg(test)]

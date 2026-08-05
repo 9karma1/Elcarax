@@ -2,7 +2,7 @@ use elcarax_core::{Id, IdGenerator};
 use serde::{Deserialize, Serialize};
 
 use crate::PropertyPath;
-use crate::property_display::PropertyGroup;
+use crate::component::ComponentTypeName;
 
 pub enum ObjectTypeMarker {}
 pub type ObjectTypeId = Id<ObjectTypeMarker>;
@@ -20,6 +20,8 @@ pub enum PropertyKind {
     AssetRef,
     ObjectRef,
     List,
+    /// Adapter- or schema-declared extension type (paired with PropertyValue::Extension).
+    Extension,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,7 +49,8 @@ impl PropertyEditKind {
             PropertyKind::ColorRgba
             | PropertyKind::AssetRef
             | PropertyKind::ObjectRef
-            | PropertyKind::List => Self::Unsupported,
+            | PropertyKind::List
+            | PropertyKind::Extension => Self::Unsupported,
         }
     }
 
@@ -91,12 +94,14 @@ pub struct PropertySchema {
     pub path: PropertyPath,
     pub display_name: String,
     pub kind: PropertyKind,
-    pub group: PropertyGroup,
     pub editable: bool,
     pub edit_kind: PropertyEditKind,
     pub numeric: Option<NumericEditMetadata>,
     pub enum_variants: Vec<String>,
     pub read_only_reason: Option<String>,
+    /// When kind is Extension, the registered extension type id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension_type_id: Option<String>,
 }
 
 impl PropertySchema {
@@ -104,19 +109,18 @@ impl PropertySchema {
         path: PropertyPath,
         display_name: impl Into<String>,
         kind: PropertyKind,
-        group: PropertyGroup,
     ) -> Self {
         let edit_kind = PropertyEditKind::for_property_kind(kind);
         Self {
             path,
             display_name: display_name.into(),
             kind,
-            group,
             editable: false,
             edit_kind,
             numeric: None,
             enum_variants: Vec::new(),
             read_only_reason: Some(read_only_reason(kind)),
+            extension_type_id: None,
         }
     }
 
@@ -124,14 +128,12 @@ impl PropertySchema {
         path: PropertyPath,
         display_name: impl Into<String>,
         kind: PropertyKind,
-        group: PropertyGroup,
     ) -> Self {
         let edit_kind = PropertyEditKind::for_property_kind(kind);
         Self {
             path,
             display_name: display_name.into(),
             kind,
-            group,
             editable: edit_kind.is_supported(),
             edit_kind,
             numeric: numeric_metadata(kind),
@@ -141,6 +143,7 @@ impl PropertySchema {
             } else {
                 Some(read_only_reason(kind))
             },
+            extension_type_id: None,
         }
     }
 
@@ -148,13 +151,11 @@ impl PropertySchema {
         path: PropertyPath,
         display_name: impl Into<String>,
         variants: &[&str],
-        group: PropertyGroup,
     ) -> Self {
         Self {
             path,
             display_name: display_name.into(),
             kind: PropertyKind::Enum,
-            group,
             editable: !variants.is_empty(),
             edit_kind: PropertyEditKind::Enum,
             numeric: None,
@@ -164,22 +165,48 @@ impl PropertySchema {
             } else {
                 None
             },
+            extension_type_id: None,
+        }
+    }
+
+    pub fn extension(
+        path: PropertyPath,
+        display_name: impl Into<String>,
+        extension_type_id: impl Into<String>,
+        editable: bool,
+    ) -> Self {
+        Self {
+            path,
+            display_name: display_name.into(),
+            kind: PropertyKind::Extension,
+            editable: false,
+            edit_kind: PropertyEditKind::Unsupported,
+            numeric: None,
+            enum_variants: Vec::new(),
+            read_only_reason: if editable {
+                Some("Extension property editing requires an adapter-provided editor".to_string())
+            } else {
+                Some("Extension property is read-only".to_string())
+            },
+            extension_type_id: Some(extension_type_id.into()),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ObjectSchema {
-    pub type_id: ObjectTypeId,
+pub struct ComponentSchema {
+    pub type_name: ComponentTypeName,
     pub display_name: String,
     pub properties: Vec<PropertySchema>,
 }
 
-impl ObjectSchema {
-    pub fn new(display_name: impl Into<String>) -> Self {
-        static IDS: IdGenerator<ObjectTypeMarker> = IdGenerator::new();
+impl ComponentSchema {
+    pub fn new(
+        type_name: impl Into<ComponentTypeName>,
+        display_name: impl Into<String>,
+    ) -> Self {
         Self {
-            type_id: IDS.next_id(),
+            type_name: type_name.into(),
             display_name: display_name.into(),
             properties: Vec::new(),
         }
@@ -188,6 +215,46 @@ impl ObjectSchema {
     pub fn with_property(mut self, property: PropertySchema) -> Self {
         self.properties.push(property);
         self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ObjectSchema {
+    pub type_id: ObjectTypeId,
+    pub display_name: String,
+    pub components: Vec<ComponentSchema>,
+}
+
+impl ObjectSchema {
+    pub fn new(display_name: impl Into<String>) -> Self {
+        static IDS: IdGenerator<ObjectTypeMarker> = IdGenerator::new();
+        Self {
+            type_id: IDS.next_id(),
+            display_name: display_name.into(),
+            components: Vec::new(),
+        }
+    }
+
+    pub fn with_component(mut self, component: ComponentSchema) -> Self {
+        self.components.push(component);
+        self
+    }
+
+    pub fn component(&self, type_name: &ComponentTypeName) -> Option<&ComponentSchema> {
+        self.components
+            .iter()
+            .find(|component| component.type_name == *type_name)
+    }
+
+    pub fn property(
+        &self,
+        type_name: &ComponentTypeName,
+        path: &PropertyPath,
+    ) -> Option<&PropertySchema> {
+        self.component(type_name)?
+            .properties
+            .iter()
+            .find(|property| property.path == *path)
     }
 }
 
@@ -201,15 +268,12 @@ fn numeric_metadata(kind: PropertyKind) -> Option<NumericEditMetadata> {
 
 fn read_only_reason(kind: PropertyKind) -> String {
     match kind {
-        PropertyKind::ColorRgba => "Color editing is not enabled in this milestone".to_string(),
-        PropertyKind::AssetRef => {
-            "Asset assignment editing is not enabled in this milestone".to_string()
-        }
-        PropertyKind::ObjectRef => {
-            "Object reference editing is not enabled in this milestone".to_string()
-        }
+        PropertyKind::ColorRgba => "Color editing is not enabled".to_string(),
+        PropertyKind::AssetRef => "Asset assignment editing is not enabled".to_string(),
+        PropertyKind::ObjectRef => "Object reference editing is not enabled".to_string(),
         PropertyKind::Enum => "Enum property is read-only in this scene snapshot".to_string(),
-        PropertyKind::List => "List editing is not enabled in this milestone".to_string(),
+        PropertyKind::List => "List editing is not enabled".to_string(),
+        PropertyKind::Extension => "Extension property editing is not enabled".to_string(),
         PropertyKind::Bool
         | PropertyKind::I64
         | PropertyKind::F64

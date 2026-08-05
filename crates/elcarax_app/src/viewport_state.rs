@@ -41,10 +41,12 @@ impl ViewportFrameRequestSize {
         Self { width, height }
     }
 
+    #[cfg(any(test, feature = "native-shell"))]
     pub(crate) const fn width(self) -> u32 {
         self.width
     }
 
+    #[cfg(any(test, feature = "native-shell"))]
     pub(crate) const fn height(self) -> u32 {
         self.height
     }

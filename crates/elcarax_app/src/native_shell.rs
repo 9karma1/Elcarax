@@ -1350,13 +1350,18 @@ fn commit_inspector_row(
         .inspector
         .ui_snapshot_at(&ui.editor.scene, ui.scroll_offsets.inspector);
     let path = snapshot.row_property_paths[row_index].clone();
+    let component_id = snapshot.row_component_ids[row_index];
     let edit_kind = snapshot.row_edit_kinds[row_index];
     let label = snapshot.row_labels[row_index].clone();
     if path.is_empty() {
         return Ok(());
     }
+    let Some(component_id) = component_id else {
+        return Ok(());
+    };
     let result = ui.editor.session_mut().commit_inspector_property(
         &mut ui.adapter_state,
+        component_id,
         path.as_str(),
         edit_kind,
         text.as_str(),

@@ -23,6 +23,7 @@ impl SessionEditService {
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
+        component_id: elcarax_scene_model::ComponentInstanceId,
         path: &PropertyPath,
         new_value: PropertyValue,
         label: &str,
@@ -33,8 +34,9 @@ impl SessionEditService {
         let Some(object_id) = scene.selection().selected() else {
             return Err(InspectorDiagnostic::NoObjectSelected.message().to_string());
         };
-        let change = prepare_property_change(snapshot, object_id, path, &new_value)
-            .map_err(|error| error.message())?;
+        let change =
+            prepare_property_change(snapshot, object_id, component_id, path, &new_value)
+                .map_err(|error| error.message())?;
         let old_label = change.old_value.display_label();
         let new_label = change.new_value.display_label();
 
@@ -76,11 +78,20 @@ impl SessionEditService {
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
+        component_id: elcarax_scene_model::ComponentInstanceId,
         path: &PropertyPath,
         new_value: PropertyValue,
         label: &str,
     ) -> InspectorCommandResult {
-        match Self::commit_property(scene, history, adapter, path, new_value, label) {
+        match Self::commit_property(
+            scene,
+            history,
+            adapter,
+            component_id,
+            path,
+            new_value,
+            label,
+        ) {
             Ok(message) => edit_status(scene, EDIT_SET_PROPERTY_COMMAND, message, true),
             Err(message) => edit_status(scene, EDIT_SET_PROPERTY_COMMAND, message, false),
         }
@@ -204,6 +215,7 @@ impl SceneMutationSink for AdapterState {
         let request = SetPropertyRequest {
             scene_id: change.scene_id,
             object_id: change.object_id,
+            component_id: change.component_id,
             path: change.path.clone(),
             expected_old_value: Some(change.old_value.clone()),
             new_value: change.new_value.clone(),

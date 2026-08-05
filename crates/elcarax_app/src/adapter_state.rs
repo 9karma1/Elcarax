@@ -154,6 +154,7 @@ impl AdapterState {
         Some((id, self.supports_viewport_preview()))
     }
 
+    #[allow(unused_variables)]
     pub(crate) fn request_viewport_frame(
         &mut self,
         viewport: &mut elcarax_core::ViewportState,
@@ -581,6 +582,7 @@ impl AdapterState {
         Ok(response.patch.unwrap_or_else(|| {
             ScenePatch::property_updated(
                 response.object_id,
+                response.component_id,
                 response.path.clone(),
                 response
                     .confirmed_new_value
@@ -740,7 +742,8 @@ mod tests {
     use elcarax_adapter_host::{FakeAdapterTransport, event_line, response_line};
     use elcarax_commands::CommandHistory;
     use elcarax_scene_model::{
-        ObjectSchema, PropertyGroup, PropertyKind, PropertySchema, PropertyValue, SceneName,
+        ComponentInstance, ComponentSchema, ComponentTypeName, components, kinds,
+        ObjectSchema, PropertyKind, PropertySchema, PropertyValue, SceneName,
         SceneObject, SceneObjectId, SceneObjectKind, ScenePatch, SceneSnapshot,
     };
 
@@ -837,16 +840,18 @@ mod tests {
     #[test]
     fn adapter_backed_edit_sends_request_and_updates_scene() {
         let mut scene = adapter_fixture_scene();
+        let component_id = fixture_health_component_id(&scene);
         let mut state = state_with_lines(vec![response(
             AdapterRequestId(1),
-            accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
+            accepted_health_response(&scene, component_id, PropertyValue::I64(100), PropertyValue::I64(65)),
         )]);
         let mut history = CommandHistory::new();
         let result = SessionEditService::commit_property(
             &mut scene,
             &mut history,
             Some(&mut state),
-            &path("gameplay.health"),
+            component_id,
+            &path("health"),
             PropertyValue::I64(65),
             "Set Fixture Health",
         );
@@ -869,16 +874,18 @@ mod tests {
     #[test]
     fn failed_adapter_edit_records_diagnostic_and_does_not_mutate_value() {
         let mut scene = adapter_fixture_scene();
+        let component_id = fixture_health_component_id(&scene);
         let mut state = state_with_lines(vec![response(
             AdapterRequestId(1),
-            rejected_health_response(&scene),
+            rejected_health_response(&scene, component_id),
         )]);
         let mut history = CommandHistory::new();
         let result = SessionEditService::commit_property_result(
             &mut scene,
             &mut history,
             Some(&mut state),
-            &path("gameplay.health"),
+            component_id,
+            &path("health"),
             PropertyValue::I64(65),
             "Set Fixture Health",
         );
@@ -889,18 +896,34 @@ mod tests {
     #[test]
     fn adapter_backed_undo_and_redo_send_writebacks() {
         let mut scene = adapter_fixture_scene();
+        let component_id = fixture_health_component_id(&scene);
         let mut state = state_with_lines(vec![
             response(
                 AdapterRequestId(1),
-                accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
+                accepted_health_response(
+                    &scene,
+                    component_id,
+                    PropertyValue::I64(100),
+                    PropertyValue::I64(65),
+                ),
             ),
             response(
                 AdapterRequestId(2),
-                accepted_health_response(&scene, PropertyValue::I64(65), PropertyValue::I64(100)),
+                accepted_health_response(
+                    &scene,
+                    component_id,
+                    PropertyValue::I64(65),
+                    PropertyValue::I64(100),
+                ),
             ),
             response(
                 AdapterRequestId(3),
-                accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
+                accepted_health_response(
+                    &scene,
+                    component_id,
+                    PropertyValue::I64(100),
+                    PropertyValue::I64(65),
+                ),
             ),
         ]);
         let mut history = CommandHistory::new();
@@ -908,7 +931,8 @@ mod tests {
             &mut scene,
             &mut history,
             Some(&mut state),
-            &path("gameplay.health"),
+            component_id,
+            &path("health"),
             PropertyValue::I64(65),
             "Set Fixture Health",
         );
@@ -924,13 +948,15 @@ mod tests {
     #[test]
     fn disconnected_adapter_edit_fails_clearly() {
         let mut scene = adapter_fixture_scene();
+        let component_id = fixture_health_component_id(&scene);
         let mut state = AdapterState::default();
         let mut history = CommandHistory::new();
         let result = SessionEditService::commit_property_result(
             &mut scene,
             &mut history,
             Some(&mut state),
-            &path("gameplay.health"),
+            component_id,
+            &path("health"),
             PropertyValue::I64(65),
             "Set Fixture Health",
         );
@@ -947,7 +973,7 @@ mod tests {
     }
 
     fn adapter_fixture_scene() -> SceneState {
-        let (snapshot, object_id) = fixture_scene();
+        let (snapshot, object_id, _component_id) = fixture_scene();
         let mut scene = SceneState::default();
         scene.load_external_snapshot(
             snapshot,
@@ -985,30 +1011,41 @@ mod tests {
 
     fn accepted_health_response(
         scene: &SceneState,
+        component_id: elcarax_scene_model::ComponentInstanceId,
         old_value: PropertyValue,
         new_value: PropertyValue,
     ) -> AdapterResponseMessage {
         let (scene_id, object_id) = scene_ids(scene);
-        let path = path("gameplay.health");
+        let health_path = path("health");
         AdapterResponseMessage::SetProperty(SetPropertyResponse {
             status: SetPropertyStatus::Accepted,
             scene_id,
             object_id,
-            path: path.clone(),
+            component_id,
+            path: health_path.clone(),
             old_value: Some(old_value),
             confirmed_new_value: Some(new_value.clone()),
-            patch: Some(ScenePatch::property_updated(object_id, path, new_value)),
+            patch: Some(ScenePatch::property_updated(
+                object_id,
+                component_id,
+                health_path,
+                new_value,
+            )),
             diagnostics: Vec::new(),
         })
     }
 
-    fn rejected_health_response(scene: &SceneState) -> AdapterResponseMessage {
+    fn rejected_health_response(
+        scene: &SceneState,
+        component_id: elcarax_scene_model::ComponentInstanceId,
+    ) -> AdapterResponseMessage {
         let (scene_id, object_id) = scene_ids(scene);
         AdapterResponseMessage::SetProperty(SetPropertyResponse {
             status: SetPropertyStatus::Rejected,
             scene_id,
             object_id,
-            path: path("gameplay.health"),
+            component_id,
+            path: path("health"),
             old_value: None,
             confirmed_new_value: None,
             patch: None,
@@ -1030,22 +1067,35 @@ mod tests {
         }
     }
 
-    fn fixture_scene() -> (SceneSnapshot, SceneObjectId) {
-        let health_path = path("gameplay.health");
-        let schema = ObjectSchema::new("Actor").with_property(PropertySchema::editable(
-            health_path.clone(),
-            "Health",
-            PropertyKind::I64,
-            PropertyGroup::new("Gameplay"),
-        ));
-        let mut object =
-            SceneObject::new("Fixture Actor", SceneObjectKind::Character, schema.type_id);
-        object.set_property(health_path, PropertyValue::I64(100));
+    fn fixture_scene() -> (
+        SceneSnapshot,
+        SceneObjectId,
+        elcarax_scene_model::ComponentInstanceId,
+    ) {
+        let health_path = path("health");
+        let schema = ObjectSchema::new("Actor").with_component(
+            ComponentSchema::new(components::GAMEPLAY, "Gameplay").with_property(
+                PropertySchema::editable(
+                    health_path.clone(),
+                    "Health",
+                    PropertyKind::I64,
+                ),
+            ),
+        );
+        let component = ComponentInstance::new(components::GAMEPLAY, "Gameplay")
+            .with_property(health_path, PropertyValue::I64(100));
+        let component_id = component.id;
+        let object = SceneObject::new(
+            "Fixture Actor",
+            SceneObjectKind::new(kinds::CHARACTER),
+            schema.type_id,
+        )
+        .with_component(component);
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);
         snapshot.add_root_object(object);
-        (snapshot, object_id)
+        (snapshot, object_id, component_id)
     }
 
     fn scene_ids(scene: &SceneState) -> (elcarax_scene_model::SceneId, SceneObjectId) {
@@ -1060,6 +1110,23 @@ mod tests {
         (snapshot.scene_id(), actor.id)
     }
 
+    fn fixture_health_component_id(
+        scene: &SceneState,
+    ) -> elcarax_scene_model::ComponentInstanceId {
+        let snapshot = match scene.snapshot() {
+            Some(snapshot) => snapshot,
+            None => panic!("scene should be loaded"),
+        };
+        let actor = match snapshot.object_by_name("Fixture Actor") {
+            Some(actor) => actor,
+            None => panic!("fixture actor should exist"),
+        };
+        match actor.component_by_type(&ComponentTypeName::new(components::GAMEPLAY)) {
+            Some(component) => component.id,
+            None => panic!("gameplay component should exist"),
+        }
+    }
+
     fn fixture_health(scene: &SceneState) -> PropertyValue {
         let snapshot = match scene.snapshot() {
             Some(snapshot) => snapshot,
@@ -1069,7 +1136,12 @@ mod tests {
             Some(actor) => actor,
             None => panic!("fixture actor should exist"),
         };
-        match actor.property(&path("gameplay.health")) {
+        let component = match actor.component_by_type(&ComponentTypeName::new(components::GAMEPLAY))
+        {
+            Some(component) => component,
+            None => panic!("gameplay component should exist"),
+        };
+        match component.property(&path("health")) {
             Some(value) => value.clone(),
             None => panic!("health should exist"),
         }

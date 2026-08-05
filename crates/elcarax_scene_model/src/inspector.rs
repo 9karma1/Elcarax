@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
+use crate::component::{ComponentInstance, ComponentInstanceId};
 use crate::kind::SceneObjectKind;
 use crate::name::PropertyName;
 use crate::property::{PropertyPath, PropertyValue};
 use crate::property_display::{PropertyFormatContext, PropertyGroup, format_property_value};
-use crate::schema::{ObjectSchema, PropertyEditKind, PropertySchema};
+use crate::schema::{ComponentSchema, ObjectSchema, PropertyEditKind, PropertySchema};
 use crate::snapshot::{SceneObject, SceneObjectId, SceneSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +28,7 @@ impl InspectorDiagnostic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InspectorRow {
     pub label: PropertyName,
+    pub component_id: ComponentInstanceId,
     pub path: PropertyPath,
     pub value: String,
     pub editable: bool,
@@ -66,7 +68,7 @@ pub fn build_inspector_object(
     Ok(InspectorObject {
         object_id,
         name: object.display_name.clone(),
-        kind: object.kind,
+        kind: object.kind.clone(),
         sections,
     })
 }
@@ -89,37 +91,16 @@ fn build_sections(
     let context = PropertyFormatContext { snapshot };
     let mut grouped: BTreeMap<String, Vec<InspectorRow>> = BTreeMap::new();
 
-    if let Some(schema) = schema {
-        for property in &schema.properties {
-            let Some(value) = object.property(&property.path) else {
-                continue;
-            };
-            let row = inspector_row(property, value, context);
-            grouped
-                .entry(property.group.as_str().to_string())
-                .or_default()
-                .push(row);
+    for component in &object.components {
+        let component_schema = schema.and_then(|schema| schema.component(&component.type_name));
+        let rows = grouped.entry(component.display_name.clone()).or_default();
+        for (path, value) in &component.properties {
+            let property = component_schema.and_then(|schema| property_schema(schema, path));
+            rows.push(match property {
+                Some(property) => inspector_row(component.id, property, value, context),
+                None => unschematized_row(component, path, value, context),
+            });
         }
-    }
-
-    for (path, value) in &object.properties {
-        if schema.is_some_and(|schema| schema_has_path(schema, path)) {
-            continue;
-        }
-        let group = infer_group(path);
-        let label = path_label(path);
-        let row = InspectorRow {
-            label: PropertyName::from_unvalidated(label),
-            path: path.clone(),
-            value: format_property_value(value, context),
-            editable: false,
-            edit_kind: PropertyEditKind::Unsupported,
-            read_only_reason: Some("No editable property schema is available".to_string()),
-        };
-        grouped
-            .entry(group.as_str().to_string())
-            .or_default()
-            .push(row);
     }
 
     grouped
@@ -134,20 +115,25 @@ fn build_sections(
         .collect()
 }
 
-fn schema_has_path(schema: &ObjectSchema, path: &PropertyPath) -> bool {
+fn property_schema<'a>(
+    schema: &'a ComponentSchema,
+    path: &PropertyPath,
+) -> Option<&'a PropertySchema> {
     schema
         .properties
         .iter()
-        .any(|property| property.path == *path)
+        .find(|property| property.path == *path)
 }
 
 fn inspector_row(
+    component_id: ComponentInstanceId,
     property: &PropertySchema,
     value: &PropertyValue,
     context: PropertyFormatContext<'_>,
 ) -> InspectorRow {
     InspectorRow {
         label: PropertyName::from_unvalidated(property.display_name.clone()),
+        component_id,
         path: property.path.clone(),
         value: format_property_value(value, context),
         editable: property.editable,
@@ -156,15 +142,20 @@ fn inspector_row(
     }
 }
 
-fn infer_group(path: &PropertyPath) -> PropertyGroup {
-    let head = path.parts().first().map_or("General", |part| part.as_str());
-    match head {
-        "transform" => PropertyGroup::new("Transform"),
-        "gameplay" => PropertyGroup::new("Gameplay"),
-        "references" | "refs" => PropertyGroup::new("References"),
-        "lighting" => PropertyGroup::new("Lighting"),
-        "camera" => PropertyGroup::new("Camera"),
-        _ => PropertyGroup::new("General"),
+fn unschematized_row(
+    component: &ComponentInstance,
+    path: &PropertyPath,
+    value: &PropertyValue,
+    context: PropertyFormatContext<'_>,
+) -> InspectorRow {
+    InspectorRow {
+        label: PropertyName::from_unvalidated(path_label(path)),
+        component_id: component.id,
+        path: path.clone(),
+        value: format_property_value(value, context),
+        editable: false,
+        edit_kind: PropertyEditKind::Unsupported,
+        read_only_reason: Some("No editable property schema is available".to_string()),
     }
 }
 

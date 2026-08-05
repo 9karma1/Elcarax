@@ -304,11 +304,15 @@ fn dispatch_session_command(session: &mut EditorSessionState, command_id: &str) 
 }
 
 fn prove_scene_document_round_trip(session: &mut EditorSessionState) -> Result<()> {
-    use elcarax_scene_model::{ObjectSchema, SceneObject, SceneObjectKind};
+    use elcarax_scene_model::{ObjectSchema, SceneObject, SceneObjectKind, kinds};
 
     if let Some(snapshot) = session.scene.snapshot_mut() {
         let schema = ObjectSchema::new("RoundtripMarker");
-        let object = SceneObject::new("Persisted Root", SceneObjectKind::World, schema.type_id);
+        let object = SceneObject::new(
+            "Persisted Root",
+            SceneObjectKind::new(kinds::WORLD),
+            schema.type_id,
+        );
         snapshot.add_schema(schema);
         snapshot.add_root_object(object);
     }

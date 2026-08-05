@@ -6,6 +6,7 @@ pub enum SceneError {
     EmptySceneName,
     EmptyObjectName,
     ObjectNotFound,
+    ComponentNotFound,
     InvalidHierarchy,
 }
 
@@ -15,6 +16,7 @@ impl fmt::Display for SceneError {
             Self::EmptySceneName => write!(formatter, "scene name cannot be empty"),
             Self::EmptyObjectName => write!(formatter, "scene object name cannot be empty"),
             Self::ObjectNotFound => write!(formatter, "scene object was not found"),
+            Self::ComponentNotFound => write!(formatter, "scene component was not found"),
             Self::InvalidHierarchy => write!(formatter, "scene hierarchy is invalid"),
         }
     }

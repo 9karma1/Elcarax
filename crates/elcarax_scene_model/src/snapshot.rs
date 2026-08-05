@@ -3,10 +3,13 @@ use std::collections::BTreeMap;
 use elcarax_core::{ElcaraxError, Id, IdGenerator, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::component::{
+    ComponentInstance, ComponentInstanceId, ComponentTypeName, is_display_name_property,
+};
 use crate::kind::SceneObjectKind;
 use crate::name::{SceneName, SceneObjectName};
 use crate::schema::ObjectTypeMarker;
-use crate::{ObjectSchema, ObjectTypeId, PropertyPath, PropertyValue};
+use crate::{ObjectSchema, ObjectTypeId, PropertyPath, PropertyValue, SceneError};
 
 pub enum SceneMarker {}
 pub enum SceneObjectMarker {}
@@ -23,7 +26,7 @@ pub struct SceneObject {
     pub kind: SceneObjectKind,
     pub type_id: ObjectTypeId,
     pub property_summary: Option<String>,
-    pub properties: BTreeMap<PropertyPath, PropertyValue>,
+    pub components: Vec<ComponentInstance>,
 }
 
 impl SceneObject {
@@ -59,7 +62,7 @@ impl SceneObject {
             kind,
             type_id,
             property_summary: None,
-            properties: BTreeMap::new(),
+            components: Vec::new(),
         }
     }
 
@@ -67,12 +70,73 @@ impl SceneObject {
         SceneObjectName::from_unvalidated(self.display_name.clone())
     }
 
-    pub fn set_property(&mut self, path: PropertyPath, value: PropertyValue) {
-        self.properties.insert(path, value);
+    pub fn component(&self, component_id: ComponentInstanceId) -> Option<&ComponentInstance> {
+        self.components
+            .iter()
+            .find(|component| component.id == component_id)
     }
 
-    pub fn property(&self, path: &PropertyPath) -> Option<&PropertyValue> {
-        self.properties.get(path)
+    pub fn component_mut(
+        &mut self,
+        component_id: ComponentInstanceId,
+    ) -> Option<&mut ComponentInstance> {
+        self.components
+            .iter_mut()
+            .find(|component| component.id == component_id)
+    }
+
+    pub fn component_by_type(&self, type_name: &ComponentTypeName) -> Option<&ComponentInstance> {
+        self.components
+            .iter()
+            .find(|component| component.type_name == *type_name)
+    }
+
+    pub fn component_index(&self, component_id: ComponentInstanceId) -> Option<usize> {
+        self.components
+            .iter()
+            .position(|component| component.id == component_id)
+    }
+
+    pub fn add_component(&mut self, component: ComponentInstance) {
+        self.components.push(component);
+    }
+
+    pub fn insert_component(&mut self, index: usize, component: ComponentInstance) {
+        let index = index.min(self.components.len());
+        self.components.insert(index, component);
+    }
+
+    pub fn with_component(mut self, component: ComponentInstance) -> Self {
+        self.add_component(component);
+        self
+    }
+
+    pub fn remove_component(
+        &mut self,
+        component_id: ComponentInstanceId,
+    ) -> Option<(usize, ComponentInstance)> {
+        let index = self.component_index(component_id)?;
+        Some((index, self.components.remove(index)))
+    }
+
+    pub fn set_property(
+        &mut self,
+        component_id: ComponentInstanceId,
+        path: PropertyPath,
+        value: PropertyValue,
+    ) -> std::result::Result<Option<PropertyValue>, SceneError> {
+        let component = self
+            .component_mut(component_id)
+            .ok_or(SceneError::ComponentNotFound)?;
+        Ok(component.properties.insert(path, value))
+    }
+
+    pub fn property(
+        &self,
+        component_id: ComponentInstanceId,
+        path: &PropertyPath,
+    ) -> Option<&PropertyValue> {
+        self.component(component_id)?.property(path)
     }
 }
 
@@ -228,6 +292,7 @@ impl SceneSnapshot {
     pub fn set_property(
         &mut self,
         object_id: SceneObjectId,
+        component_id: ComponentInstanceId,
         path: PropertyPath,
         value: PropertyValue,
     ) -> Result<Option<PropertyValue>> {
@@ -235,7 +300,18 @@ impl SceneSnapshot {
             .objects
             .get_mut(&object_id)
             .ok_or_else(|| ElcaraxError::not_found(format!("scene object {}", object_id.get())))?;
-        Ok(object.properties.insert(path, value))
+        object.set_property(component_id, path, value).map_err(|_| {
+            ElcaraxError::not_found(format!("scene component {}", component_id.get()))
+        })
+    }
+
+    pub fn property(
+        &self,
+        object_id: SceneObjectId,
+        component_id: ComponentInstanceId,
+        path: &PropertyPath,
+    ) -> Option<&PropertyValue> {
+        self.objects.get(&object_id)?.property(component_id, path)
     }
 
     pub(crate) fn objects_mut(&mut self) -> &mut BTreeMap<SceneObjectId, SceneObject> {
@@ -390,9 +466,62 @@ impl SceneSnapshot {
         Ok(patch)
     }
 
+    pub fn add_component(
+        &mut self,
+        object_id: SceneObjectId,
+        index: usize,
+        component: ComponentInstance,
+    ) -> std::result::Result<crate::ScenePatch, crate::ScenePatchError> {
+        let patch = crate::ScenePatch::single(crate::ScenePatchOperation::ComponentAdded(
+            crate::ComponentAdded {
+                object_id,
+                index,
+                component,
+            },
+        ));
+        patch.apply(self)?;
+        Ok(patch)
+    }
+
+    pub fn remove_component(
+        &mut self,
+        object_id: SceneObjectId,
+        component_id: ComponentInstanceId,
+    ) -> std::result::Result<crate::ScenePatch, crate::ScenePatchError> {
+        let object = self
+            .objects
+            .get(&object_id)
+            .ok_or(crate::ScenePatchError::ObjectNotFound { object_id })?;
+        let index = object.component_index(component_id).ok_or(
+            crate::ScenePatchError::ComponentNotFound {
+                object_id,
+                component_id,
+            },
+        )?;
+        let component = match object.components.get(index) {
+            Some(component) => component.clone(),
+            None => {
+                return Err(crate::ScenePatchError::ComponentNotFound {
+                    object_id,
+                    component_id,
+                });
+            }
+        };
+        let patch = crate::ScenePatch::single(crate::ScenePatchOperation::ComponentRemoved(
+            crate::ComponentRemoved {
+                object_id,
+                index,
+                component,
+            },
+        ));
+        patch.apply(self)?;
+        Ok(patch)
+    }
+
     pub(crate) fn replace_existing_property(
         &mut self,
         object_id: SceneObjectId,
+        component_id: ComponentInstanceId,
         path: &PropertyPath,
         value: PropertyValue,
     ) -> Result<()> {
@@ -400,19 +529,36 @@ impl SceneSnapshot {
             .objects
             .get_mut(&object_id)
             .ok_or_else(|| ElcaraxError::not_found(format!("scene object {}", object_id.get())))?;
-        if !object.properties.contains_key(path) {
+        let component = object.component_mut(component_id).ok_or_else(|| {
+            ElcaraxError::not_found(format!("scene component {}", component_id.get()))
+        })?;
+        if !component.properties.contains_key(path) {
             return Err(ElcaraxError::not_found(format!("property {path}")));
         }
-        if is_display_name_path(path)
-            && let PropertyValue::String(name) = &value
+        let syncs_display_name = is_display_name_property(&component.type_name, path);
+        component.properties.insert(path.clone(), value.clone());
+        if syncs_display_name
+            && let PropertyValue::String(name) = value
         {
-            object.display_name = name.clone();
+            object.display_name = name;
         }
-        object.properties.insert(path.clone(), value);
         Ok(())
     }
-}
 
-fn is_display_name_path(path: &PropertyPath) -> bool {
-    path.parts() == ["general".to_string(), "name".to_string()]
+    /// Writes a renamed object's display name back into its General name property, when present.
+    pub(crate) fn sync_display_name_property(&mut self, object_id: SceneObjectId, name: &str) {
+        let Some(object) = self.objects.get_mut(&object_id) else {
+            return;
+        };
+        let path = crate::component::display_name_property_path();
+        for component in &mut object.components {
+            if is_display_name_property(&component.type_name, &path)
+                && component.properties.contains_key(&path)
+            {
+                component
+                    .properties
+                    .insert(path.clone(), PropertyValue::String(name.to_string()));
+            }
+        }
+    }
 }

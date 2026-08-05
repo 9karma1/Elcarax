@@ -1,7 +1,7 @@
-use crate::kind::SceneObjectKind;
+use crate::component::{ComponentInstance, ComponentInstanceId, well_known as components};
+use crate::kind::{SceneObjectKind, well_known as kinds};
 use crate::name::SceneName;
-use crate::property_display::PropertyGroup;
-use crate::schema::ObjectSchema;
+use crate::schema::{ComponentSchema, ObjectSchema};
 use crate::snapshot::{SceneId, SceneObject, SceneObjectId, SceneSnapshot};
 use crate::{PropertyKind, PropertyPath, PropertySchema, PropertyValue};
 
@@ -9,236 +9,149 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
     let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Reference Scene"));
     snapshot.set_scene_id(stable_scene_id(100));
 
-    let mut world = object(1, "World", SceneObjectKind::World);
-    let mut directional_light = object(2, "Directional Light", SceneObjectKind::Light);
-    let mut main_camera = object(3, "Main Camera", SceneObjectKind::Camera);
-    let mut player = object(4, "Player", SceneObjectKind::Character);
-    let player_mesh = object(5, "Player Mesh", SceneObjectKind::Mesh);
-    let player_audio = object(6, "Player Audio", SceneObjectKind::Audio);
-    let environment = object(7, "Environment", SceneObjectKind::Environment);
-    let ground = object(8, "Ground", SceneObjectKind::Ground);
-    let mut cube = object(9, "Cube", SceneObjectKind::Cube);
-    let trigger_zone = object(10, "Trigger Zone", SceneObjectKind::Trigger);
-
-    let general = PropertyGroup::new("General");
-    let transform = PropertyGroup::new("Transform");
-    let lighting = PropertyGroup::new("Lighting");
-    let camera = PropertyGroup::new("Camera");
-    let gameplay = PropertyGroup::new("Gameplay");
-    let references = PropertyGroup::new("References");
-
-    let world_schema = ObjectSchema::new("World")
-        .with_property(read_only_property(
-            &["general", "name"],
-            "Name",
-            PropertyKind::String,
-            &general,
-        ))
-        .with_property(read_only_property(
-            &["general", "enabled"],
-            "Enabled",
-            PropertyKind::Bool,
-            &general,
-        ));
-    apply_schema(
-        &mut world,
-        &world_schema,
-        &[
-            (
-                &["general", "name"],
-                PropertyValue::String("World".to_string()),
-            ),
-            (&["general", "enabled"], PropertyValue::Bool(true)),
-        ],
+    let world_schema = ObjectSchema::new("World").with_component(
+        ComponentSchema::new(components::GENERAL, "General")
+            .with_property(read_only("name", "Name", PropertyKind::String))
+            .with_property(read_only("enabled", "Enabled", PropertyKind::Bool)),
     );
+    let mut world = object(1, "World", kinds::WORLD).with_component(
+        component(1, 1, components::GENERAL, "General")
+            .with_property(path("name"), PropertyValue::String("World".to_string()))
+            .with_property(path("enabled"), PropertyValue::Bool(true)),
+    );
+    world.type_id = world_schema.type_id;
     snapshot.add_schema(world_schema);
 
     let light_schema = ObjectSchema::new("Light")
-        .with_property(read_only_property(
-            &["lighting", "intensity"],
-            "Intensity",
-            PropertyKind::F64,
-            &lighting,
-        ))
-        .with_property(read_only_property(
-            &["lighting", "color"],
-            "Color",
-            PropertyKind::ColorRgba,
-            &lighting,
-        ))
-        .with_property(read_only_property(
-            &["transform", "rotation"],
-            "Rotation",
-            PropertyKind::Vec3,
-            &transform,
-        ));
-    apply_schema(
-        &mut directional_light,
-        &light_schema,
-        &[
-            (&["lighting", "intensity"], PropertyValue::F64(3.5)),
-            (
-                &["lighting", "color"],
-                PropertyValue::ColorRgba([1.0, 0.95, 0.8, 1.0]),
-            ),
-            (
-                &["transform", "rotation"],
-                PropertyValue::Vec3([-45.0, 45.0, 0.0]),
-            ),
-        ],
-    );
+        .with_component(
+            ComponentSchema::new(components::LIGHTING, "Lighting")
+                .with_property(read_only("intensity", "Intensity", PropertyKind::F64))
+                .with_property(read_only("color", "Color", PropertyKind::ColorRgba)),
+        )
+        .with_component(
+            ComponentSchema::new(components::TRANSFORM, "Transform")
+                .with_property(read_only("rotation", "Rotation", PropertyKind::Vec3)),
+        );
+    let mut directional_light = object(2, "Directional Light", kinds::LIGHT)
+        .with_component(
+            component(2, 1, components::LIGHTING, "Lighting")
+                .with_property(path("intensity"), PropertyValue::F64(3.5))
+                .with_property(
+                    path("color"),
+                    PropertyValue::ColorRgba([1.0, 0.95, 0.8, 1.0]),
+                ),
+        )
+        .with_component(
+            component(2, 2, components::TRANSFORM, "Transform")
+                .with_property(path("rotation"), PropertyValue::Vec3([-45.0, 45.0, 0.0])),
+        );
+    directional_light.type_id = light_schema.type_id;
     snapshot.add_schema(light_schema);
 
     let camera_schema = ObjectSchema::new("Camera")
-        .with_property(read_only_property(
-            &["transform", "position"],
-            "Position",
-            PropertyKind::Vec3,
-            &transform,
-        ))
-        .with_property(read_only_property(
-            &["transform", "rotation"],
-            "Rotation",
-            PropertyKind::Vec3,
-            &transform,
-        ))
-        .with_property(read_only_property(
-            &["camera", "field_of_view"],
-            "Field Of View",
-            PropertyKind::F64,
-            &camera,
-        ));
-    apply_schema(
-        &mut main_camera,
-        &camera_schema,
-        &[
-            (
-                &["transform", "position"],
-                PropertyValue::Vec3([0.0, 2.0, -8.0]),
-            ),
-            (
-                &["transform", "rotation"],
-                PropertyValue::Vec3([15.0, 0.0, 0.0]),
-            ),
-            (&["camera", "field_of_view"], PropertyValue::F64(60.0)),
-        ],
-    );
+        .with_component(
+            ComponentSchema::new(components::TRANSFORM, "Transform")
+                .with_property(read_only("position", "Position", PropertyKind::Vec3))
+                .with_property(read_only("rotation", "Rotation", PropertyKind::Vec3)),
+        )
+        .with_component(
+            ComponentSchema::new(components::CAMERA, "Camera")
+                .with_property(read_only("field_of_view", "Field Of View", PropertyKind::F64)),
+        );
+    let mut main_camera = object(3, "Main Camera", kinds::CAMERA)
+        .with_component(
+            component(3, 1, components::TRANSFORM, "Transform")
+                .with_property(path("position"), PropertyValue::Vec3([0.0, 2.0, -8.0]))
+                .with_property(path("rotation"), PropertyValue::Vec3([15.0, 0.0, 0.0])),
+        )
+        .with_component(
+            component(3, 2, components::CAMERA, "Camera")
+                .with_property(path("field_of_view"), PropertyValue::F64(60.0)),
+        );
+    main_camera.type_id = camera_schema.type_id;
     snapshot.add_schema(camera_schema);
 
     let player_schema = ObjectSchema::new("Character")
-        .with_property(editable_property(
-            &["general", "name"],
-            "Name",
-            PropertyKind::String,
-            &general,
-        ))
-        .with_property(editable_property(
-            &["transform", "position"],
-            "Position",
-            PropertyKind::Vec3,
-            &transform,
-        ))
-        .with_property(editable_property(
-            &["transform", "rotation"],
-            "Rotation",
-            PropertyKind::Vec3,
-            &transform,
-        ))
-        .with_property(editable_property(
-            &["transform", "scale"],
-            "Scale",
-            PropertyKind::Vec3,
-            &transform,
-        ))
-        .with_property(editable_property(
-            &["gameplay", "health"],
-            "Health",
-            PropertyKind::I64,
-            &gameplay,
-        ))
-        .with_property(editable_property(
-            &["gameplay", "speed"],
-            "Speed",
-            PropertyKind::F64,
-            &gameplay,
-        ))
-        .with_property(editable_enum_property(
-            &["gameplay", "stance"],
-            "Stance",
-            &["Idle", "Run", "Jump"],
-            &gameplay,
-        ))
-        .with_property(read_only_property(
-            &["references", "mesh"],
-            "Mesh",
-            PropertyKind::AssetRef,
-            &references,
-        ));
-    apply_schema(
-        &mut player,
-        &player_schema,
-        &[
-            (
-                &["general", "name"],
-                PropertyValue::String("Player".to_string()),
-            ),
-            (
-                &["transform", "position"],
-                PropertyValue::Vec3([0.0, 1.0, 0.0]),
-            ),
-            (
-                &["transform", "rotation"],
-                PropertyValue::Vec3([0.0, 0.0, 0.0]),
-            ),
-            (
-                &["transform", "scale"],
-                PropertyValue::Vec3([1.0, 1.0, 1.0]),
-            ),
-            (&["gameplay", "health"], PropertyValue::I64(100)),
-            (&["gameplay", "speed"], PropertyValue::F64(6.5)),
-            (
-                &["gameplay", "stance"],
-                PropertyValue::Enum {
-                    variant: "Idle".to_string(),
-                },
-            ),
-            (
-                &["references", "mesh"],
+        .with_component(
+            ComponentSchema::new(components::GENERAL, "General")
+                .with_property(editable("name", "Name", PropertyKind::String)),
+        )
+        .with_component(
+            ComponentSchema::new(components::TRANSFORM, "Transform")
+                .with_property(editable("position", "Position", PropertyKind::Vec3))
+                .with_property(editable("rotation", "Rotation", PropertyKind::Vec3))
+                .with_property(editable("scale", "Scale", PropertyKind::Vec3)),
+        )
+        .with_component(
+            ComponentSchema::new(components::GAMEPLAY, "Gameplay")
+                .with_property(editable("health", "Health", PropertyKind::I64))
+                .with_property(editable("speed", "Speed", PropertyKind::F64))
+                .with_property(editable_enum("stance", "Stance", &["Idle", "Run", "Jump"])),
+        )
+        .with_component(
+            ComponentSchema::new(components::REFERENCES, "References")
+                .with_property(read_only("mesh", "Mesh", PropertyKind::AssetRef)),
+        );
+    let mut player = object(4, "Player", kinds::CHARACTER)
+        .with_component(
+            component(4, 1, components::GENERAL, "General")
+                .with_property(path("name"), PropertyValue::String("Player".to_string())),
+        )
+        .with_component(
+            component(4, 2, components::TRANSFORM, "Transform")
+                .with_property(path("position"), PropertyValue::Vec3([0.0, 1.0, 0.0]))
+                .with_property(path("rotation"), PropertyValue::Vec3([0.0, 0.0, 0.0]))
+                .with_property(path("scale"), PropertyValue::Vec3([1.0, 1.0, 1.0])),
+        )
+        .with_component(
+            component(4, 3, components::GAMEPLAY, "Gameplay")
+                .with_property(path("health"), PropertyValue::I64(100))
+                .with_property(path("speed"), PropertyValue::F64(6.5))
+                .with_property(
+                    path("stance"),
+                    PropertyValue::Enum {
+                        variant: "Idle".to_string(),
+                    },
+                ),
+        )
+        .with_component(
+            component(4, 4, components::REFERENCES, "References").with_property(
+                path("mesh"),
                 PropertyValue::AssetRef("assets/models/cube.glb".to_string()),
             ),
-        ],
-    );
+        );
+    player.type_id = player_schema.type_id;
     player.property_summary = Some("Health: 100 | Speed: 6.5".to_string());
     snapshot.add_schema(player_schema);
 
     let cube_schema = ObjectSchema::new("Cube")
-        .with_property(read_only_property(
-            &["transform", "position"],
-            "Position",
-            PropertyKind::Vec3,
-            &transform,
-        ))
-        .with_property(read_only_property(
-            &["references", "material"],
-            "Material",
-            PropertyKind::AssetRef,
-            &references,
-        ));
-    apply_schema(
-        &mut cube,
-        &cube_schema,
-        &[
-            (
-                &["transform", "position"],
-                PropertyValue::Vec3([2.0, 0.5, 1.0]),
-            ),
-            (
-                &["references", "material"],
+        .with_component(
+            ComponentSchema::new(components::TRANSFORM, "Transform")
+                .with_property(read_only("position", "Position", PropertyKind::Vec3)),
+        )
+        .with_component(
+            ComponentSchema::new(components::REFERENCES, "References")
+                .with_property(read_only("material", "Material", PropertyKind::AssetRef)),
+        );
+    let mut cube = object(9, "Cube", kinds::CUBE)
+        .with_component(
+            component(9, 1, components::TRANSFORM, "Transform")
+                .with_property(path("position"), PropertyValue::Vec3([2.0, 0.5, 1.0])),
+        )
+        .with_component(
+            component(9, 2, components::REFERENCES, "References").with_property(
+                path("material"),
                 PropertyValue::AssetRef("assets/materials/default.material".to_string()),
             ),
-        ],
-    );
+        );
+    cube.type_id = cube_schema.type_id;
     snapshot.add_schema(cube_schema);
+
+    let player_mesh = object(5, "Player Mesh", kinds::MESH);
+    let player_audio = object(6, "Player Audio", kinds::AUDIO);
+    let environment = object(7, "Environment", kinds::ENVIRONMENT);
+    let ground = object(8, "Ground", kinds::GROUND);
+    let trigger_zone = object(10, "Trigger Zone", kinds::TRIGGER);
 
     snapshot.add_root_object(world);
     let world_id = stable_object_id(1);
@@ -256,50 +169,37 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
     snapshot
 }
 
-fn read_only_property(
-    segments: &[&str],
+fn path(segment: &str) -> PropertyPath {
+    PropertyPath::fixture_from_segments(&[segment])
+}
+
+fn read_only(segment: &str, display_name: &str, kind: PropertyKind) -> PropertySchema {
+    PropertySchema::read_only(path(segment), display_name, kind)
+}
+
+fn editable(segment: &str, display_name: &str, kind: PropertyKind) -> PropertySchema {
+    PropertySchema::editable(path(segment), display_name, kind)
+}
+
+fn editable_enum(segment: &str, display_name: &str, variants: &[&str]) -> PropertySchema {
+    PropertySchema::editable_enum(path(segment), display_name, variants)
+}
+
+fn component(
+    object_value: u64,
+    slot: u64,
+    type_name: &str,
     display_name: &str,
-    kind: PropertyKind,
-    group: &PropertyGroup,
-) -> PropertySchema {
-    let path = PropertyPath::fixture_from_segments(segments);
-    PropertySchema::read_only(path, display_name, kind, group.clone())
+) -> ComponentInstance {
+    ComponentInstance::with_stable_id(
+        stable_component_id(object_value * 100 + slot),
+        type_name,
+        display_name,
+    )
 }
 
-fn editable_property(
-    segments: &[&str],
-    display_name: &str,
-    kind: PropertyKind,
-    group: &PropertyGroup,
-) -> PropertySchema {
-    let path = PropertyPath::fixture_from_segments(segments);
-    PropertySchema::editable(path, display_name, kind, group.clone())
-}
-
-fn editable_enum_property(
-    segments: &[&str],
-    display_name: &str,
-    variants: &[&str],
-    group: &PropertyGroup,
-) -> PropertySchema {
-    let path = PropertyPath::fixture_from_segments(segments);
-    PropertySchema::editable_enum(path, display_name, variants, group.clone())
-}
-
-fn apply_schema(
-    object: &mut SceneObject,
-    schema: &ObjectSchema,
-    values: &[(&[&str], PropertyValue)],
-) {
-    object.type_id = schema.type_id;
-    for (segments, value) in values {
-        let path = PropertyPath::fixture_from_segments(segments);
-        object.set_property(path, value.clone());
-    }
-}
-
-fn object(id: u64, name: &str, kind: SceneObjectKind) -> SceneObject {
-    SceneObject::with_stable_id(stable_object_id(id), name, kind)
+fn object(id: u64, name: &str, kind: &str) -> SceneObject {
+    SceneObject::with_stable_id(stable_object_id(id), name, SceneObjectKind::new(kind))
 }
 
 fn stable_scene_id(value: u64) -> SceneId {
@@ -307,6 +207,10 @@ fn stable_scene_id(value: u64) -> SceneId {
 }
 
 fn stable_object_id(value: u64) -> SceneObjectId {
+    stable_id(value)
+}
+
+fn stable_component_id(value: u64) -> ComponentInstanceId {
     stable_id(value)
 }
 

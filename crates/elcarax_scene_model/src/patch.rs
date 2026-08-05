@@ -3,6 +3,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::component::{ComponentInstance, ComponentInstanceId};
 use crate::{
     PropertyEditError, PropertyKind, PropertyPath, PropertyValue, SceneObject, SceneObjectId,
     SceneSnapshot,
@@ -28,11 +29,13 @@ impl ScenePatch {
 
     pub fn property_updated(
         object_id: SceneObjectId,
+        component_id: ComponentInstanceId,
         path: PropertyPath,
         value: PropertyValue,
     ) -> Self {
         Self::single(ScenePatchOperation::PropertyUpdated(PropertyUpdated {
             object_id,
+            component_id,
             path,
             value,
         }))
@@ -57,6 +60,8 @@ impl ScenePatch {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ScenePatchOperation {
     PropertyUpdated(PropertyUpdated),
+    ComponentAdded(ComponentAdded),
+    ComponentRemoved(ComponentRemoved),
     ObjectAdded(ObjectAdded),
     ObjectRemoved(ObjectRemoved),
     Reparented(Reparented),
@@ -70,6 +75,16 @@ impl ScenePatchOperation {
                 reason: "PropertyUpdated requires a paired inverse patch with the prior value"
                     .to_string(),
             }),
+            Self::ComponentAdded(added) => Ok(Self::ComponentRemoved(ComponentRemoved {
+                object_id: added.object_id,
+                index: added.index,
+                component: added.component.clone(),
+            })),
+            Self::ComponentRemoved(removed) => Ok(Self::ComponentAdded(ComponentAdded {
+                object_id: removed.object_id,
+                index: removed.index,
+                component: removed.component.clone(),
+            })),
             Self::ObjectAdded(added) => Ok(Self::ObjectRemoved(ObjectRemoved {
                 subtree: added.subtree.clone(),
             })),
@@ -94,6 +109,8 @@ impl ScenePatchOperation {
     fn apply(&self, snapshot: &mut SceneSnapshot) -> Result<(), ScenePatchError> {
         match self {
             Self::PropertyUpdated(update) => apply_property_update(snapshot, update),
+            Self::ComponentAdded(added) => apply_component_added(snapshot, added),
+            Self::ComponentRemoved(removed) => apply_component_removed(snapshot, removed),
             Self::ObjectAdded(added) => apply_object_added(snapshot, added),
             Self::ObjectRemoved(removed) => apply_object_removed(snapshot, removed),
             Self::Reparented(reparented) => apply_reparented(snapshot, reparented),
@@ -105,8 +122,23 @@ impl ScenePatchOperation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PropertyUpdated {
     pub object_id: SceneObjectId,
+    pub component_id: ComponentInstanceId,
     pub path: PropertyPath,
     pub value: PropertyValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComponentAdded {
+    pub object_id: SceneObjectId,
+    pub index: usize,
+    pub component: ComponentInstance,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComponentRemoved {
+    pub object_id: SceneObjectId,
+    pub index: usize,
+    pub component: ComponentInstance,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -168,11 +200,29 @@ pub struct Renamed {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScenePatchError {
     Property(PropertyEditError),
-    ObjectNotFound { object_id: SceneObjectId },
-    ObjectAlreadyExists { object_id: SceneObjectId },
-    InvalidHierarchy { reason: String },
-    CycleDetected { object_id: SceneObjectId },
-    NotInvertible { reason: String },
+    ObjectNotFound {
+        object_id: SceneObjectId,
+    },
+    ObjectAlreadyExists {
+        object_id: SceneObjectId,
+    },
+    ComponentNotFound {
+        object_id: SceneObjectId,
+        component_id: ComponentInstanceId,
+    },
+    ComponentAlreadyExists {
+        object_id: SceneObjectId,
+        component_id: ComponentInstanceId,
+    },
+    InvalidHierarchy {
+        reason: String,
+    },
+    CycleDetected {
+        object_id: SceneObjectId,
+    },
+    NotInvertible {
+        reason: String,
+    },
 }
 
 impl ScenePatchError {
@@ -185,6 +235,22 @@ impl ScenePatchError {
             Self::ObjectAlreadyExists { object_id } => {
                 format!("Object {} already exists in the scene", object_id.get())
             }
+            Self::ComponentNotFound {
+                object_id,
+                component_id,
+            } => format!(
+                "Component {} was not found on object {}",
+                component_id.get(),
+                object_id.get()
+            ),
+            Self::ComponentAlreadyExists {
+                object_id,
+                component_id,
+            } => format!(
+                "Component {} already exists on object {}",
+                component_id.get(),
+                object_id.get()
+            ),
             Self::InvalidHierarchy { reason } => format!("Invalid hierarchy: {reason}"),
             Self::CycleDetected { object_id } => {
                 format!(
@@ -222,18 +288,68 @@ fn apply_property_update(
             .ok_or(ScenePatchError::ObjectNotFound {
                 object_id: update.object_id,
             })?;
-    let kind = property_kind(snapshot, object.type_id, &update.path)?;
+    let component =
+        object
+            .component(update.component_id)
+            .ok_or(ScenePatchError::ComponentNotFound {
+                object_id: update.object_id,
+                component_id: update.component_id,
+            })?;
+    let kind = property_kind(snapshot, object.type_id, &component.type_name, &update.path)?;
     validate_patch_value(&update.path, kind, &update.value)?;
-    if object.property(&update.path).is_none() {
+    if component.property(&update.path).is_none() {
         return Err(PropertyEditError::PropertyNotFound {
             path: update.path.clone(),
         }
         .into());
     }
     snapshot
-        .replace_existing_property(update.object_id, &update.path, update.value.clone())
+        .replace_existing_property(
+            update.object_id,
+            update.component_id,
+            &update.path,
+            update.value.clone(),
+        )
         .map_err(|_| ScenePatchError::ObjectNotFound {
             object_id: update.object_id,
+        })
+}
+
+fn apply_component_added(
+    snapshot: &mut SceneSnapshot,
+    added: &ComponentAdded,
+) -> Result<(), ScenePatchError> {
+    let object = snapshot
+        .objects_mut()
+        .get_mut(&added.object_id)
+        .ok_or(ScenePatchError::ObjectNotFound {
+            object_id: added.object_id,
+        })?;
+    if object.component(added.component.id).is_some() {
+        return Err(ScenePatchError::ComponentAlreadyExists {
+            object_id: added.object_id,
+            component_id: added.component.id,
+        });
+    }
+    object.insert_component(added.index, added.component.clone());
+    Ok(())
+}
+
+fn apply_component_removed(
+    snapshot: &mut SceneSnapshot,
+    removed: &ComponentRemoved,
+) -> Result<(), ScenePatchError> {
+    let object = snapshot.objects_mut().get_mut(&removed.object_id).ok_or(
+        ScenePatchError::ObjectNotFound {
+            object_id: removed.object_id,
+        },
+    )?;
+    object
+        .remove_component(removed.component.id)
+        .map(|_| ())
+        .ok_or(ScenePatchError::ComponentNotFound {
+            object_id: removed.object_id,
+            component_id: removed.component.id,
         })
 }
 
@@ -359,13 +475,7 @@ fn apply_renamed(snapshot: &mut SceneSnapshot, renamed: &Renamed) -> Result<(), 
         },
     )?;
     object.display_name = renamed.new_name.clone();
-    if let Ok(path) = PropertyPath::parse("general.name")
-        && object.properties.contains_key(&path)
-    {
-        object
-            .properties
-            .insert(path, PropertyValue::String(renamed.new_name.clone()));
-    }
+    snapshot.sync_display_name_property(renamed.object_id, &renamed.new_name);
     Ok(())
 }
 
@@ -437,15 +547,14 @@ fn would_create_cycle(
 fn property_kind(
     snapshot: &SceneSnapshot,
     type_id: crate::ObjectTypeId,
+    type_name: &crate::component::ComponentTypeName,
     path: &PropertyPath,
 ) -> Result<PropertyKind, ScenePatchError> {
     let schema = snapshot
         .schema(type_id)
         .ok_or_else(|| PropertyEditError::PropertyNotFound { path: path.clone() })?;
     schema
-        .properties
-        .iter()
-        .find(|property| property.path == *path)
+        .property(type_name, path)
         .map(|property| property.kind)
         .ok_or_else(|| PropertyEditError::PropertyNotFound { path: path.clone() }.into())
 }
@@ -455,21 +564,7 @@ fn validate_patch_value(
     kind: PropertyKind,
     value: &PropertyValue,
 ) -> Result<(), ScenePatchError> {
-    let matches = matches!(
-        (kind, value),
-        (PropertyKind::Bool, PropertyValue::Bool(_))
-            | (PropertyKind::I64, PropertyValue::I64(_))
-            | (PropertyKind::F64, PropertyValue::F64(_))
-            | (PropertyKind::String, PropertyValue::String(_))
-            | (PropertyKind::Vec2, PropertyValue::Vec2(_))
-            | (PropertyKind::Vec3, PropertyValue::Vec3(_))
-            | (PropertyKind::ColorRgba, PropertyValue::ColorRgba(_))
-            | (PropertyKind::Enum, PropertyValue::Enum { .. })
-            | (PropertyKind::AssetRef, PropertyValue::AssetRef(_))
-            | (PropertyKind::ObjectRef, PropertyValue::ObjectRef(_))
-            | (PropertyKind::List, PropertyValue::List(_))
-    );
-    if matches {
+    if value.matches_kind(kind) {
         return Ok(());
     }
     Err(PropertyEditError::TypeMismatch {
