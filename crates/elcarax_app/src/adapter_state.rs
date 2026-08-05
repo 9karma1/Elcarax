@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 
 use elcarax_adapter_api::{
-    AdapterCapabilities, AdapterDiagnostic, AdapterEditSource, AdapterName, AdapterVersion,
+    AdapterCapabilities, AdapterDiagnostic, AdapterName, AdapterVersion,
     SetPropertyRequest, SetPropertyResponse, ViewportFrameResponseStatus,
 };
 #[cfg(any(test, feature = "native-shell"))]
@@ -29,12 +29,8 @@ use elcarax_core::ViewportFrameFormat;
 use elcarax_core::{ViewportError, ViewportFrame};
 #[cfg(feature = "native-shell")]
 use elcarax_scene_model::SceneObjectId;
-use elcarax_scene_model::{
-    PropertyChange, PropertyEditKind, PropertyPath, PropertyValue, ScenePatch, parse_property_text,
-    prepare_property_change,
-};
+use elcarax_scene_model::{PropertyPath, ScenePatch};
 
-use crate::inspector_state::EDIT_SET_PROPERTY_COMMAND;
 use crate::scene_state::{SceneState, UNSAVED_SCENE_MESSAGE};
 
 pub(crate) const ADAPTER_CONNECT_COMMAND: &str = "adapter.connect";
@@ -44,8 +40,6 @@ pub(crate) const ADAPTER_LOAD_SCENE_COMMAND: &str = "adapter.load_scene";
 pub(crate) const ADAPTER_SHOW_STATUS_COMMAND: &str = "adapter.show_status";
 pub(crate) const ADAPTER_SHOW_DIAGNOSTICS_COMMAND: &str = "adapter.show_diagnostics";
 pub(crate) const ADAPTER_DISCONNECT_COMMAND: &str = "adapter.disconnect";
-pub(crate) const ADAPTER_EDIT_UNDO_COMMAND: &str = "adapter.edit.undo";
-pub(crate) const ADAPTER_EDIT_REDO_COMMAND: &str = "adapter.edit.redo";
 
 pub(crate) struct AdapterState {
     #[cfg(test)]
@@ -59,7 +53,6 @@ pub(crate) struct AdapterState {
     version: Option<AdapterVersion>,
     capabilities: Option<AdapterCapabilities>,
     diagnostics: Vec<AdapterDiagnostic>,
-    edit_history: AdapterEditHistory,
     last_result: Option<AdapterCommandResult>,
     config: AdapterLaunchConfig,
 }
@@ -117,8 +110,6 @@ impl AdapterState {
             AdapterCommand::ShowStatus => self.show_status(),
             AdapterCommand::ShowDiagnostics => self.show_diagnostics(),
             AdapterCommand::Disconnect => self.disconnect(),
-            AdapterCommand::Undo => self.undo(scene_state),
-            AdapterCommand::Redo => self.redo(scene_state),
         };
         self.last_result = Some(result.clone());
         Some(result)
@@ -143,14 +134,6 @@ impl AdapterState {
         self.capabilities
             .as_ref()
             .is_some_and(|capabilities| capabilities.supports_viewport_preview)
-    }
-
-    pub(crate) fn undo_count(&self) -> usize {
-        self.edit_history.undo_count()
-    }
-
-    pub(crate) fn redo_count(&self) -> usize {
-        self.edit_history.redo_count()
     }
 
     #[cfg(feature = "native-shell")]
@@ -580,188 +563,29 @@ impl AdapterState {
         self.name = None;
         self.version = None;
         self.capabilities = None;
-        self.edit_history.clear();
     }
 
-    pub(crate) fn commit_inspector_property(
+    pub(crate) fn confirm_set_property(
         &mut self,
-        scene_state: &mut SceneState,
-        path: &str,
-        edit_kind: PropertyEditKind,
-        text: &str,
-        label: &str,
-    ) -> AdapterCommandResult {
-        let path = match PropertyPath::parse(path) {
-            Ok(path) => path,
-            Err(error) => {
-                return self.record_property_edit_failure(
-                    scene_state,
-                    EDIT_SET_PROPERTY_COMMAND,
-                    format!("invalid property path: {error}"),
-                );
-            }
-        };
-        let value = match parse_property_text(&path, edit_kind, text) {
-            Ok(value) => value,
-            Err(error) => {
-                return self.record_property_edit_failure(
-                    scene_state,
-                    EDIT_SET_PROPERTY_COMMAND,
-                    error.message(),
-                );
-            }
-        };
-        self.commit_property_edit(scene_state, EDIT_SET_PROPERTY_COMMAND, &path, value, label)
-    }
-
-    fn commit_property_edit(
-        &mut self,
-        scene_state: &mut SceneState,
-        command_id: &str,
-        path: &PropertyPath,
-        new_value: PropertyValue,
-        label: &str,
-    ) -> AdapterCommandResult {
-        let change = match adapter_property_change(scene_state, path, &new_value) {
-            Ok(change) => change,
-            Err(message) => {
-                return self.record_property_edit_failure(scene_state, command_id, message);
-            }
-        };
-        match self.apply_adapter_change(scene_state, &change, command_id) {
-            Ok(()) => {
-                self.edit_history.push(change.clone());
-                let message = format!(
-                    "{label} confirmed | {} -> {}",
-                    change.old_value.display_label(),
-                    change.new_value.display_label()
-                );
-                scene_state.record_status(
-                    command_id,
-                    format!(
-                        "Adapter Command: {label} | {} -> {}",
-                        change.old_value.display_label(),
-                        change.new_value.display_label()
-                    ),
-                );
-                self.record_command_result(command_id, message.clone())
-            }
-            Err(message) => self.record_property_edit_failure(scene_state, command_id, message),
-        }
-    }
-
-    fn record_property_edit_failure(
-        &mut self,
-        scene_state: &mut SceneState,
-        command_id: &str,
-        message: impl Into<String>,
-    ) -> AdapterCommandResult {
-        let message = message.into();
-        scene_state.record_status(command_id, format!("Diagnostic: {message}"));
-        self.record_command_result(command_id, format!("Diagnostic: {message}"))
-    }
-
-    fn record_command_result(
-        &mut self,
-        command_id: &str,
-        message: impl Into<String>,
-    ) -> AdapterCommandResult {
-        let result = AdapterCommandResult::new(command_id, message);
-        self.last_result = Some(result.clone());
-        result
-    }
-
-    fn undo(&mut self, scene_state: &mut SceneState) -> AdapterCommandResult {
-        let Some(entry) = self.edit_history.undo_candidate() else {
-            return AdapterCommandResult::new(
-                ADAPTER_EDIT_UNDO_COMMAND,
-                "Diagnostic: nothing to undo",
-            );
-        };
-        let reverse = entry.reverse_change();
-        match self.apply_adapter_change(scene_state, &reverse, ADAPTER_EDIT_UNDO_COMMAND) {
-            Ok(()) => {
-                self.edit_history.commit_undo();
-                scene_state.record_status(
-                    ADAPTER_EDIT_UNDO_COMMAND,
-                    "Adapter Command: adapter.edit.undo",
-                );
-                self.record_command_result(ADAPTER_EDIT_UNDO_COMMAND, "adapter undo confirmed")
-            }
-            Err(message) => {
-                scene_state
-                    .record_status(ADAPTER_EDIT_UNDO_COMMAND, format!("Diagnostic: {message}"));
-                self.record_command_result(
-                    ADAPTER_EDIT_UNDO_COMMAND,
-                    format!("Diagnostic: {message}"),
-                )
-            }
-        }
-    }
-
-    fn redo(&mut self, scene_state: &mut SceneState) -> AdapterCommandResult {
-        let Some(entry) = self.edit_history.redo_candidate() else {
-            return AdapterCommandResult::new(
-                ADAPTER_EDIT_REDO_COMMAND,
-                "Diagnostic: nothing to redo",
-            );
-        };
-        let change = entry.change.clone();
-        match self.apply_adapter_change(scene_state, &change, ADAPTER_EDIT_REDO_COMMAND) {
-            Ok(()) => {
-                self.edit_history.commit_redo();
-                scene_state.record_status(
-                    ADAPTER_EDIT_REDO_COMMAND,
-                    "Adapter Command: adapter.edit.redo",
-                );
-                self.record_command_result(ADAPTER_EDIT_REDO_COMMAND, "adapter redo confirmed")
-            }
-            Err(message) => {
-                scene_state
-                    .record_status(ADAPTER_EDIT_REDO_COMMAND, format!("Diagnostic: {message}"));
-                self.record_command_result(
-                    ADAPTER_EDIT_REDO_COMMAND,
-                    format!("Diagnostic: {message}"),
-                )
-            }
-        }
-    }
-
-    fn apply_adapter_change(
-        &mut self,
-        scene_state: &mut SceneState,
-        change: &PropertyChange,
-        command_id: &str,
-    ) -> Result<(), String> {
-        let request = SetPropertyRequest {
-            scene_id: change.scene_id,
-            object_id: change.object_id,
-            path: change.path.clone(),
-            expected_old_value: Some(change.old_value.clone()),
-            new_value: change.new_value.clone(),
-            transaction_id: command_id.to_string(),
-            edit_source: AdapterEditSource::Inspector,
-        };
+        request: SetPropertyRequest,
+    ) -> Result<ScenePatch, String> {
+        let fallback_value = request.new_value.clone();
         let response = self.send_set_property(request)?;
         if !response.status.is_accepted() {
             let message = writeback_failure_message(&response);
             self.diagnostics.extend(response.diagnostics);
             return Err(message);
         }
-        let Some(snapshot) = scene_state.snapshot_mut() else {
-            return Err("scene not loaded".to_string());
-        };
-        let patch = response.patch.unwrap_or_else(|| {
+        Ok(response.patch.unwrap_or_else(|| {
             ScenePatch::property_updated(
                 response.object_id,
                 response.path.clone(),
                 response
                     .confirmed_new_value
                     .clone()
-                    .unwrap_or_else(|| change.new_value.clone()),
+                    .unwrap_or(fallback_value),
             )
-        });
-        patch.apply(snapshot).map_err(|error| error.message())
+        }))
     }
 
     fn send_set_property(
@@ -812,7 +636,6 @@ impl AdapterState {
             version: None,
             capabilities: None,
             diagnostics: Vec::new(),
-            edit_history: AdapterEditHistory::default(),
             last_result: None,
             config: AdapterLaunchConfig::default(),
         }
@@ -843,7 +666,6 @@ impl Default for AdapterState {
             version: None,
             capabilities: None,
             diagnostics: Vec::new(),
-            edit_history: AdapterEditHistory::default(),
             last_result: None,
             config: AdapterLaunchConfig::default(),
         }
@@ -878,8 +700,6 @@ enum AdapterCommand {
     ShowStatus,
     ShowDiagnostics,
     Disconnect,
-    Undo,
-    Redo,
 }
 
 impl AdapterCommand {
@@ -892,101 +712,9 @@ impl AdapterCommand {
             ADAPTER_SHOW_STATUS_COMMAND => Some(Self::ShowStatus),
             ADAPTER_SHOW_DIAGNOSTICS_COMMAND => Some(Self::ShowDiagnostics),
             ADAPTER_DISCONNECT_COMMAND => Some(Self::Disconnect),
-            ADAPTER_EDIT_UNDO_COMMAND => Some(Self::Undo),
-            ADAPTER_EDIT_REDO_COMMAND => Some(Self::Redo),
             _ => None,
         }
     }
-}
-
-#[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
-pub(crate) fn adapter_command_for_inspector_edit(id: &str) -> Option<&'static str> {
-    match id {
-        crate::inspector_state::EDIT_UNDO_COMMAND => Some(ADAPTER_EDIT_UNDO_COMMAND),
-        crate::inspector_state::EDIT_REDO_COMMAND => Some(ADAPTER_EDIT_REDO_COMMAND),
-        _ => None,
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct AdapterEditHistory {
-    undo_stack: Vec<AdapterEditEntry>,
-    redo_stack: Vec<AdapterEditEntry>,
-}
-
-impl AdapterEditHistory {
-    fn push(&mut self, change: PropertyChange) {
-        self.undo_stack.push(AdapterEditEntry { change });
-        self.redo_stack.clear();
-    }
-
-    fn undo_count(&self) -> usize {
-        self.undo_stack.len()
-    }
-
-    fn redo_count(&self) -> usize {
-        self.redo_stack.len()
-    }
-
-    fn undo_candidate(&self) -> Option<&AdapterEditEntry> {
-        self.undo_stack.last()
-    }
-
-    fn redo_candidate(&self) -> Option<&AdapterEditEntry> {
-        self.redo_stack.last()
-    }
-
-    fn commit_undo(&mut self) {
-        if let Some(entry) = self.undo_stack.pop() {
-            self.redo_stack.push(entry);
-        }
-    }
-
-    fn commit_redo(&mut self) {
-        if let Some(entry) = self.redo_stack.pop() {
-            self.undo_stack.push(entry);
-        }
-    }
-
-    #[cfg(any(test, feature = "native-shell"))]
-    fn clear(&mut self) {
-        self.undo_stack.clear();
-        self.redo_stack.clear();
-    }
-}
-
-#[derive(Debug, Clone)]
-struct AdapterEditEntry {
-    change: PropertyChange,
-}
-
-impl AdapterEditEntry {
-    fn reverse_change(&self) -> PropertyChange {
-        PropertyChange {
-            scene_id: self.change.scene_id,
-            object_id: self.change.object_id,
-            path: self.change.path.clone(),
-            old_value: self.change.new_value.clone(),
-            new_value: self.change.old_value.clone(),
-        }
-    }
-}
-
-fn adapter_property_change(
-    scene_state: &SceneState,
-    path: &PropertyPath,
-    new_value: &PropertyValue,
-) -> Result<PropertyChange, String> {
-    if !scene_state.is_adapter_backed() {
-        return Err("scene is not adapter-backed".to_string());
-    }
-    let Some(snapshot) = scene_state.snapshot() else {
-        return Err("scene not loaded".to_string());
-    };
-    let Some(object_id) = scene_state.selection().selected() else {
-        return Err("no object selected".to_string());
-    };
-    prepare_property_change(snapshot, object_id, path, new_value).map_err(|error| error.message())
 }
 
 fn writeback_failure_message(response: &SetPropertyResponse) -> String {
@@ -1008,11 +736,13 @@ mod tests {
         SetPropertyResponse, SetPropertyStatus, ShutdownResponse, decode_request_line,
     };
     use elcarax_adapter_host::{FakeAdapterTransport, event_line, response_line};
+    use elcarax_commands::CommandHistory;
     use elcarax_scene_model::{
-        ObjectSchema, PropertyGroup, PropertyKind, PropertySchema, SceneName, SceneObject,
-        SceneObjectId, SceneObjectKind, ScenePatch, SceneSnapshot,
+        ObjectSchema, PropertyGroup, PropertyKind, PropertySchema, PropertyValue, SceneName,
+        SceneObject, SceneObjectId, SceneObjectKind, ScenePatch, SceneSnapshot,
     };
 
+    use crate::edit_service::SessionEditService;
     use crate::editor_session::EditorSessionState;
     use crate::project_config::AppProjectConfig;
     use crate::project_state::PROJECT_CREATE_COMMAND;
@@ -1109,14 +839,16 @@ mod tests {
             AdapterRequestId(1),
             accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
         )]);
-        let result = state.commit_inspector_property(
+        let mut history = CommandHistory::new();
+        let result = SessionEditService::commit_property(
             &mut scene,
-            "gameplay.health",
-            PropertyEditKind::Integer,
-            "65",
+            &mut history,
+            Some(&mut state),
+            &path("gameplay.health"),
+            PropertyValue::I64(65),
             "Set Fixture Health",
         );
-        assert!(result.message().contains("confirmed"));
+        assert!(result.is_ok_and(|message| message.contains("65")));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(65));
         let request = match state.fake_writes().first() {
             Some(line) => match decode_request_line(line) {
@@ -1129,8 +861,7 @@ mod tests {
             request.message,
             elcarax_adapter_api::AdapterRequestMessage::SetProperty(_)
         ));
-        assert_eq!(state.undo_count(), 1);
-        assert_eq!(state.redo_count(), 0);
+        assert_eq!(history.undo_count(), 1);
     }
 
     #[test]
@@ -1140,11 +871,13 @@ mod tests {
             AdapterRequestId(1),
             rejected_health_response(&scene),
         )]);
-        let result = state.commit_inspector_property(
+        let mut history = CommandHistory::new();
+        let result = SessionEditService::commit_property_result(
             &mut scene,
-            "gameplay.health",
-            PropertyEditKind::Integer,
-            "65",
+            &mut history,
+            Some(&mut state),
+            &path("gameplay.health"),
+            PropertyValue::I64(65),
             "Set Fixture Health",
         );
         assert!(result.message().contains("Diagnostic:"));
@@ -1168,16 +901,20 @@ mod tests {
                 accepted_health_response(&scene, PropertyValue::I64(100), PropertyValue::I64(65)),
             ),
         ]);
-        let _ = state.commit_inspector_property(
+        let mut history = CommandHistory::new();
+        let _ = SessionEditService::commit_property(
             &mut scene,
-            "gameplay.health",
-            PropertyEditKind::Integer,
-            "65",
+            &mut history,
+            Some(&mut state),
+            &path("gameplay.health"),
+            PropertyValue::I64(65),
             "Set Fixture Health",
         );
-        let _ = state.execute_command_id(ADAPTER_EDIT_UNDO_COMMAND, &mut scene);
+        let undo = SessionEditService::undo(&mut scene, &mut history, Some(&mut state));
+        assert!(undo.message().contains("edit.undo"));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(100));
-        let _ = state.execute_command_id(ADAPTER_EDIT_REDO_COMMAND, &mut scene);
+        let redo = SessionEditService::redo(&mut scene, &mut history, Some(&mut state));
+        assert!(redo.message().contains("edit.redo"));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(65));
         assert_eq!(state.fake_writes().len(), 3);
     }
@@ -1186,19 +923,25 @@ mod tests {
     fn disconnected_adapter_edit_fails_clearly() {
         let mut scene = adapter_fixture_scene();
         let mut state = AdapterState::default();
-        let result = state.commit_inspector_property(
+        let mut history = CommandHistory::new();
+        let result = SessionEditService::commit_property_result(
             &mut scene,
-            "gameplay.health",
-            PropertyEditKind::Integer,
-            "65",
+            &mut history,
+            Some(&mut state),
+            &path("gameplay.health"),
+            PropertyValue::I64(65),
             "Set Fixture Health",
         );
+        assert!(result.message().contains("Diagnostic:"));
         assert!(result.message().contains("adapter not connected"));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(100));
     }
 
     fn state_with_lines(lines: Vec<String>) -> AdapterState {
-        AdapterState::with_fake_session(AdapterSession::new(FakeAdapterTransport::new(lines)))
+        let mut state =
+            AdapterState::with_fake_session(AdapterSession::new(FakeAdapterTransport::new(lines)));
+        state.status = AdapterHostState::Connected;
+        state
     }
 
     fn adapter_fixture_scene() -> SceneState {

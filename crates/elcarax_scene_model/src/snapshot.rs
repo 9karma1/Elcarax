@@ -173,6 +173,31 @@ impl SceneSnapshot {
         Ok(())
     }
 
+    pub fn add_object(
+        &mut self,
+        parent: Option<SceneObjectId>,
+        index: usize,
+        mut object: SceneObject,
+    ) -> std::result::Result<crate::ScenePatch, crate::ScenePatchError> {
+        object.parent = parent;
+        object.children.clear();
+        let root_id = object.id;
+        let mut objects = BTreeMap::new();
+        objects.insert(root_id, object);
+        let patch = crate::ScenePatch::single(crate::ScenePatchOperation::ObjectAdded(
+            crate::ObjectAdded {
+                subtree: crate::CapturedSubtree {
+                    root_id,
+                    parent,
+                    index,
+                    objects,
+                },
+            },
+        ));
+        patch.apply(self)?;
+        Ok(patch)
+    }
+
     pub fn object(&self, id: SceneObjectId) -> Result<&SceneObject> {
         self.objects
             .get(&id)
@@ -211,6 +236,159 @@ impl SceneSnapshot {
             .get_mut(&object_id)
             .ok_or_else(|| ElcaraxError::not_found(format!("scene object {}", object_id.get())))?;
         Ok(object.properties.insert(path, value))
+    }
+
+    pub(crate) fn objects_mut(&mut self) -> &mut BTreeMap<SceneObjectId, SceneObject> {
+        &mut self.objects
+    }
+
+    pub(crate) fn insert_object_raw(&mut self, object: SceneObject) {
+        self.objects.insert(object.id, object);
+    }
+
+    pub(crate) fn remove_object_raw(&mut self, object_id: SceneObjectId) {
+        self.objects.remove(&object_id);
+    }
+
+    pub(crate) fn insert_child_link(
+        &mut self,
+        parent: Option<SceneObjectId>,
+        child_id: SceneObjectId,
+        index: usize,
+    ) -> std::result::Result<(), crate::ScenePatchError> {
+        match parent {
+            Some(parent_id) => {
+                let parent = self.objects.get_mut(&parent_id).ok_or(
+                    crate::ScenePatchError::ObjectNotFound {
+                        object_id: parent_id,
+                    },
+                )?;
+                let index = index.min(parent.children.len());
+                parent.children.insert(index, child_id);
+            }
+            None => {
+                let index = index.min(self.root_objects.len());
+                self.root_objects.insert(index, child_id);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn remove_child_link(
+        &mut self,
+        parent: Option<SceneObjectId>,
+        child_id: SceneObjectId,
+    ) -> std::result::Result<(), crate::ScenePatchError> {
+        match parent {
+            Some(parent_id) => {
+                let parent = self.objects.get_mut(&parent_id).ok_or(
+                    crate::ScenePatchError::ObjectNotFound {
+                        object_id: parent_id,
+                    },
+                )?;
+                let Some(position) = parent.children.iter().position(|id| *id == child_id) else {
+                    return Err(crate::ScenePatchError::InvalidHierarchy {
+                        reason: format!(
+                            "child {} is not linked under parent {}",
+                            child_id.get(),
+                            parent_id.get()
+                        ),
+                    });
+                };
+                parent.children.remove(position);
+            }
+            None => {
+                let Some(position) = self.root_objects.iter().position(|id| *id == child_id) else {
+                    return Err(crate::ScenePatchError::InvalidHierarchy {
+                        reason: format!("object {} is not a root object", child_id.get()),
+                    });
+                };
+                self.root_objects.remove(position);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn remove_object(
+        &mut self,
+        object_id: SceneObjectId,
+    ) -> std::result::Result<crate::ScenePatch, crate::ScenePatchError> {
+        let subtree = crate::CapturedSubtree::from_object(self, object_id)?;
+        let patch = crate::ScenePatch::single(crate::ScenePatchOperation::ObjectRemoved(
+            crate::ObjectRemoved { subtree },
+        ));
+        patch.apply(self)?;
+        Ok(patch)
+    }
+
+    pub fn reparent_object(
+        &mut self,
+        object_id: SceneObjectId,
+        new_parent: Option<SceneObjectId>,
+        new_index: usize,
+    ) -> std::result::Result<crate::ScenePatch, crate::ScenePatchError> {
+        let object = self
+            .objects
+            .get(&object_id)
+            .ok_or(crate::ScenePatchError::ObjectNotFound { object_id })?;
+        let old_parent = object.parent;
+        let old_index = match old_parent {
+            Some(parent_id) => self
+                .objects
+                .get(&parent_id)
+                .ok_or(crate::ScenePatchError::ObjectNotFound {
+                    object_id: parent_id,
+                })?
+                .children
+                .iter()
+                .position(|id| *id == object_id)
+                .ok_or_else(|| crate::ScenePatchError::InvalidHierarchy {
+                    reason: format!(
+                        "object {} is not listed under parent {}",
+                        object_id.get(),
+                        parent_id.get()
+                    ),
+                })?,
+            None => self
+                .root_objects
+                .iter()
+                .position(|id| *id == object_id)
+                .ok_or_else(|| crate::ScenePatchError::InvalidHierarchy {
+                    reason: format!("object {} is not a root object", object_id.get()),
+                })?,
+        };
+        let patch = crate::ScenePatch::single(crate::ScenePatchOperation::Reparented(
+            crate::Reparented {
+                object_id,
+                old_parent,
+                old_index,
+                new_parent,
+                new_index,
+            },
+        ));
+        patch.apply(self)?;
+        Ok(patch)
+    }
+
+    pub fn rename_object(
+        &mut self,
+        object_id: SceneObjectId,
+        new_name: impl Into<String>,
+    ) -> std::result::Result<crate::ScenePatch, crate::ScenePatchError> {
+        let new_name = new_name.into();
+        let object = self
+            .objects
+            .get(&object_id)
+            .ok_or(crate::ScenePatchError::ObjectNotFound { object_id })?;
+        let old_name = object.display_name.clone();
+        let patch =
+            crate::ScenePatch::single(crate::ScenePatchOperation::Renamed(crate::Renamed {
+                object_id,
+                old_name,
+                new_name,
+            }));
+        patch.apply(self)?;
+        Ok(patch)
     }
 
     pub(crate) fn replace_existing_property(

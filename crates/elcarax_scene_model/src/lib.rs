@@ -32,7 +32,10 @@ pub use inspector_widget::{
 };
 pub use kind::SceneObjectKind;
 pub use name::{PropertyName, SceneName, SceneObjectName};
-pub use patch::{PropertyUpdated, ScenePatch, ScenePatchOperation};
+pub use patch::{
+    CapturedSubtree, ObjectAdded, ObjectRemoved, PropertyUpdated, Renamed, Reparented, ScenePatch,
+    ScenePatchError, ScenePatchOperation,
+};
 pub use property::{PropertyPath, PropertyValue};
 pub use property_display::{
     PropertyDisplay, PropertyFormatContext, PropertyGroup, PropertyId, format_property_value,
@@ -40,6 +43,7 @@ pub use property_display::{
 pub use property_edit::{
     PropertyChange, PropertyChangeValue, PropertyEditError, PropertyEditResult,
     apply_property_change, edit_scene_property, parse_property_text, prepare_property_change,
+    property_change_patches,
 };
 pub use reference_scene::reference_scene_snapshot;
 pub use scene_file::{
@@ -412,7 +416,7 @@ mod tests {
             ScenePatch::property_updated(missing, path("gameplay.health"), PropertyValue::I64(65));
         assert!(matches!(
             patch.apply(&mut snapshot),
-            Err(PropertyEditError::ObjectNotFound { .. })
+            Err(ScenePatchError::ObjectNotFound { .. })
         ));
     }
 
@@ -424,7 +428,7 @@ mod tests {
             ScenePatch::property_updated(player_id, path("gameplay.mana"), PropertyValue::I64(65));
         assert!(matches!(
             patch.apply(&mut snapshot),
-            Err(PropertyEditError::PropertyNotFound { .. })
+            Err(ScenePatchError::Property(PropertyEditError::PropertyNotFound { .. }))
         ));
     }
 
@@ -439,7 +443,7 @@ mod tests {
         );
         assert!(matches!(
             patch.apply(&mut snapshot),
-            Err(PropertyEditError::TypeMismatch { .. })
+            Err(ScenePatchError::Property(PropertyEditError::TypeMismatch { .. }))
         ));
     }
 
@@ -461,6 +465,89 @@ mod tests {
             Some(&PropertyValue::F64(6.5))
         );
         Ok(())
+    }
+
+    #[test]
+    fn object_add_remove_and_reparent_patches_round_trip() -> Result<()> {
+        let mut snapshot = SceneSnapshot::empty();
+        let schema = ObjectSchema::new("Node");
+        let type_id = schema.type_id;
+        snapshot.add_schema(schema);
+        let root = SceneObject::new("Root", SceneObjectKind::World, type_id);
+        let root_id = root.id;
+        snapshot.add_root_object(root);
+
+        let child = SceneObject::new("Child", SceneObjectKind::Mesh, type_id);
+        let child_id = child.id;
+        let add = snapshot
+            .add_object(Some(root_id), 0, child)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert!(snapshot.objects().contains_key(&child_id));
+        assert_eq!(snapshot.object(root_id)?.children, vec![child_id]);
+
+        let remove = add
+            .invert()
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        remove
+            .apply(&mut snapshot)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert!(!snapshot.objects().contains_key(&child_id));
+
+        add.apply(&mut snapshot)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        let sibling = SceneObject::new("Sibling", SceneObjectKind::Mesh, type_id);
+        let sibling_id = sibling.id;
+        snapshot
+            .add_object(Some(root_id), 1, sibling)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        let reparent = snapshot
+            .reparent_object(child_id, None, 0)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(snapshot.object(child_id)?.parent, None);
+        assert!(snapshot.root_object_ids().contains(&child_id));
+        reparent
+            .invert()
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?
+            .apply(&mut snapshot)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(snapshot.object(child_id)?.parent, Some(root_id));
+        assert!(snapshot.objects().contains_key(&sibling_id));
+        Ok(())
+    }
+
+    #[test]
+    fn rename_patch_updates_display_name() -> Result<()> {
+        let mut snapshot = reference_scene_snapshot();
+        let player_id = player_id(&snapshot);
+        let patch = snapshot
+            .rename_object(player_id, "Hero")
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(snapshot.object(player_id)?.display_name, "Hero");
+        patch
+            .invert()
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?
+            .apply(&mut snapshot)
+            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
+        assert_eq!(snapshot.object(player_id)?.display_name, "Player");
+        Ok(())
+    }
+
+    #[test]
+    fn reparent_rejects_cycles() {
+        let snapshot = reference_scene_snapshot();
+        let world = match snapshot.object_by_name("World") {
+            Some(object) => object.id,
+            None => panic!("world should exist"),
+        };
+        let player = match snapshot.object_by_name("Player") {
+            Some(object) => object.id,
+            None => panic!("player should exist"),
+        };
+        let mut snapshot = snapshot;
+        assert!(matches!(
+            snapshot.reparent_object(world, Some(player), 0),
+            Err(ScenePatchError::CycleDetected { .. })
+        ));
     }
 
     #[test]

@@ -5,6 +5,7 @@ mod asset_state;
 mod asset_ui;
 #[cfg(not(feature = "native-shell"))]
 mod console;
+mod edit_service;
 mod editor_commands;
 mod editor_session;
 mod editor_status;

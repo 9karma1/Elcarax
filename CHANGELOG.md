@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Unified scene mutation contract: `ScenePatch` operations for property updates plus hierarchy (`ObjectAdded`, `ObjectRemoved`, `Reparented`, `Renamed`) with invertible hierarchy patches
+- `ApplyScenePatchCommand` and `SceneMutationSink` as the single undoable mutation path through `CommandHistory`
+- `SessionEditService` as the sole edit authority for inspector commits and `edit.undo` / `edit.redo` (local and adapter-backed scenes)
+- SceneSnapshot APIs `add_object`, `remove_object`, `reparent_object`, and `rename_object` that return applied patches
 - Project-owned scene files (`*.elcarax.scene.toml`) with `scene.load`, `scene.save`, document dirty tracking, unsaved project close guards, manifest `[editor].active_scene` sync, toolbar `*` affordances, and native-shell **Ctrl+S**
 - Default `scenes/main.elcarax.scene.toml` written on project create
 - `EditorSession` / `EditorSessionState` coordinator for unified project open/close/switch, dependent state binding, and undo history reset across console and native shell
@@ -34,10 +38,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Route project-bound lifecycle through `EditorSession` instead of `project_effects.rs` (removed)
+- Property edits apply through `ScenePatch` instead of direct property map writes on the command path
+- Native-shell adapter `SetProperty` writeback uses `AdapterHost` (no longer test-only)
+- Inspector property commits on adapter-backed scenes confirm through the adapter before updating the local snapshot
 - Console proof covers command binding diagnostics, toolbar snapshot construction, Ctrl+S-equivalent scene save dispatch through the registry path, and scene document save round-trip after project reopen
 - Native shell shortcut handling now converts platform input into registry key chords and dispatches toolbar, palette, and shortcut commands through one command execution path
 - Beta cleanup: removed in-memory asset demo index and `examples/demo_project`; renamed `demo_scene_snapshot` to `reference_scene_snapshot`; consolidated adapter capabilities to `AdapterCapabilities::stdio_game_adapter()`
 - Documentation: milestone markdown files replaced by this changelog; README, STATUS, ROADMAP, and BUILD_NOTES updated for scroll views, inspector widgets, viewport camera behavior, toolbar actions, and keybindings
+
+### Removed
+
+- `SetScenePropertyCommand` / `SetScenePropertiesCommand` (replaced by `ApplyScenePatchCommand`)
+- `AdapterEditHistory` and `adapter.edit.undo` / `adapter.edit.redo` parallel undo path
 
 ## [0.1.0] - 2026-07-03
 

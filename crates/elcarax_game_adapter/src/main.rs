@@ -190,7 +190,7 @@ impl MockAdapter {
         if let Err(error) = patch.apply(&mut self.scene) {
             return rejected_property_response(
                 request,
-                status_for_edit_error(&error),
+                status_for_patch_error(&error),
                 error.message(),
             );
         }
@@ -367,6 +367,16 @@ fn status_for_edit_error(error: &PropertyEditError) -> SetPropertyStatus {
         PropertyEditError::PropertyNotFound { .. } => SetPropertyStatus::PropertyNotFound,
         PropertyEditError::ReadOnly { .. } => SetPropertyStatus::ReadOnlyProperty,
         PropertyEditError::TypeMismatch { .. } => SetPropertyStatus::TypeMismatch,
+    }
+}
+
+fn status_for_patch_error(error: &elcarax_scene_model::ScenePatchError) -> SetPropertyStatus {
+    match error {
+        elcarax_scene_model::ScenePatchError::Property(error) => status_for_edit_error(error),
+        elcarax_scene_model::ScenePatchError::ObjectNotFound { .. } => {
+            SetPropertyStatus::ObjectNotFound
+        }
+        _ => SetPropertyStatus::AdapterError,
     }
 }
 

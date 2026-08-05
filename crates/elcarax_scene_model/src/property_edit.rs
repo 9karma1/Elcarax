@@ -199,13 +199,37 @@ pub fn apply_property_change(
         PropertyChangeValue::Old => &change.old_value,
         PropertyChangeValue::New => &change.new_value,
     };
-    prepare_property_change(snapshot, change.object_id, &change.path, selected_value)?;
-    snapshot
-        .replace_existing_property(change.object_id, &change.path, selected_value.clone())
-        .map_err(|_| PropertyEditError::ObjectNotFound {
-            object_id: change.object_id,
-        })?;
-    Ok(())
+    crate::ScenePatch::property_updated(
+        change.object_id,
+        change.path.clone(),
+        selected_value.clone(),
+    )
+    .apply(snapshot)
+    .map_err(|error| match error {
+        crate::ScenePatchError::Property(error) => error,
+        crate::ScenePatchError::ObjectNotFound { object_id } => {
+            PropertyEditError::ObjectNotFound { object_id }
+        }
+        other => PropertyEditError::ReadOnly {
+            path: change.path.clone(),
+            reason: other.message(),
+        },
+    })
+}
+
+pub fn property_change_patches(change: &PropertyChange) -> (crate::ScenePatch, crate::ScenePatch) {
+    (
+        crate::ScenePatch::property_updated(
+            change.object_id,
+            change.path.clone(),
+            change.new_value.clone(),
+        ),
+        crate::ScenePatch::property_updated(
+            change.object_id,
+            change.path.clone(),
+            change.old_value.clone(),
+        ),
+    )
 }
 
 fn editable_schema_for<'a>(

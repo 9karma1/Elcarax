@@ -244,26 +244,14 @@ pub(crate) fn command_availability(
             }
         }
         EDIT_UNDO_COMMAND => {
-            if editor.scene.is_adapter_backed() {
-                if adapter.undo_count() > 0 {
-                    CommandAvailability::enabled()
-                } else {
-                    CommandAvailability::disabled("Nothing to undo")
-                }
-            } else if editor.edit_history.undo_count() > 0 {
+            if editor.edit_history.undo_count() > 0 {
                 CommandAvailability::enabled()
             } else {
                 CommandAvailability::disabled("Nothing to undo")
             }
         }
         EDIT_REDO_COMMAND => {
-            if editor.scene.is_adapter_backed() {
-                if adapter.redo_count() > 0 {
-                    CommandAvailability::enabled()
-                } else {
-                    CommandAvailability::disabled("Nothing to redo")
-                }
-            } else if editor.edit_history.redo_count() > 0 {
+            if editor.edit_history.redo_count() > 0 {
                 CommandAvailability::enabled()
             } else {
                 CommandAvailability::disabled("Nothing to redo")
@@ -572,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn adapter_backed_scene_uses_adapter_undo_availability() {
+    fn adapter_backed_scene_uses_edit_history_undo_availability() {
         use elcarax_adapter_api::{
             AdapterId, AdapterRequestId, AdapterResponseMessage, SetPropertyResponse,
             SetPropertyStatus,
@@ -639,8 +627,8 @@ mod tests {
         adapter.attach_fake_session_for_tests(AdapterSession::new(FakeAdapterTransport::new(
             vec![response],
         )));
-        let _ = adapter.commit_inspector_property(
-            &mut editor.scene,
+        let _ = editor.session_mut().commit_inspector_property(
+            &mut adapter,
             "gameplay.health",
             PropertyEditKind::Integer,
             "65",
@@ -653,5 +641,6 @@ mod tests {
             &AppViewportState::default(),
         );
         assert!(availability.is_enabled());
+        assert_eq!(editor.edit_history.undo_count(), 1);
     }
 }

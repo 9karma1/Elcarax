@@ -6,11 +6,9 @@ use elcarax_commands::CommandHistory;
 use elcarax_project::save_project_editor_settings;
 use elcarax_scene_model::PropertyEditKind;
 
-use crate::adapter_state::{
-    ADAPTER_DISCONNECT_COMMAND, AdapterState, adapter_command_for_inspector_edit,
-};
+use crate::adapter_state::{ADAPTER_DISCONNECT_COMMAND, AdapterState};
 use crate::asset_state::{ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, AssetState};
-use crate::inspector_state::{EDIT_SET_PROPERTY_COMMAND, InspectorCommandResult, InspectorState};
+use crate::inspector_state::{InspectorCommandResult, InspectorState};
 use crate::project_config::AppProjectConfig;
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
@@ -209,30 +207,15 @@ impl<'a> EditorSession<'a> {
         text: &str,
         label: &str,
     ) -> InspectorCommandResult {
-        if self.state.scene.is_adapter_backed() {
-            let result = adapter.commit_inspector_property(
-                &mut self.state.scene,
-                path,
-                edit_kind,
-                text,
-                label,
-            );
-            let inspector_result =
-                InspectorCommandResult::new(EDIT_SET_PROPERTY_COMMAND, result.message());
-            self.state
-                .inspector
-                .set_last_command_result(inspector_result.clone());
-            inspector_result
-        } else {
-            self.state.inspector.commit_inspector_property(
-                &mut self.state.scene,
-                &mut self.state.edit_history,
-                path,
-                edit_kind,
-                text,
-                label,
-            )
-        }
+        self.state.inspector.commit_inspector_property(
+            &mut self.state.scene,
+            &mut self.state.edit_history,
+            Some(adapter),
+            path,
+            edit_kind,
+            text,
+            label,
+        )
     }
 
     pub(crate) fn execute_edit_command(
@@ -240,20 +223,11 @@ impl<'a> EditorSession<'a> {
         adapter: &mut AdapterState,
         command_id: &str,
     ) -> Option<InspectorCommandResult> {
-        if self.state.scene.is_adapter_backed()
-            && let Some(adapter_command) = adapter_command_for_inspector_edit(command_id)
-        {
-            let result = adapter.execute_command_id(adapter_command, &mut self.state.scene)?;
-            let inspector_result = InspectorCommandResult::new(command_id, result.message());
-            self.state
-                .inspector
-                .set_last_command_result(inspector_result.clone());
-            return Some(inspector_result);
-        }
         self.state.inspector.execute_edit_command_id(
             command_id,
             &mut self.state.scene,
             &mut self.state.edit_history,
+            Some(adapter),
         )
     }
 
@@ -563,8 +537,7 @@ mod tests {
             "65",
             "Set Fixture Health",
         );
-        assert!(result.message().contains("confirmed"));
-        assert_eq!(adapter.undo_count(), 1);
-        assert_eq!(session.edit_history.undo_count(), 0);
+        assert!(result.message().contains("Command:"));
+        assert_eq!(session.edit_history.undo_count(), 1);
     }
 }

@@ -1,5 +1,5 @@
 use elcarax_core::Result;
-use elcarax_scene_model::SceneSnapshot;
+use elcarax_scene_model::{PropertyChange, ScenePatch, SceneSnapshot};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -12,8 +12,36 @@ pub enum CommandEffect {
     UiChanged,
 }
 
+/// Optional sink used by remote (adapter-backed) scene mutations.
+pub trait SceneMutationSink {
+    fn confirm_property_change(
+        &mut self,
+        change: &PropertyChange,
+    ) -> std::result::Result<ScenePatch, String>;
+}
+
 pub struct CommandContext<'a> {
     pub scene: &'a mut SceneSnapshot,
+    pub mutation_sink: Option<&'a mut dyn SceneMutationSink>,
+}
+
+impl<'a> CommandContext<'a> {
+    pub fn local(scene: &'a mut SceneSnapshot) -> Self {
+        Self {
+            scene,
+            mutation_sink: None,
+        }
+    }
+
+    pub fn with_sink(
+        scene: &'a mut SceneSnapshot,
+        sink: &'a mut dyn SceneMutationSink,
+    ) -> Self {
+        Self {
+            scene,
+            mutation_sink: Some(sink),
+        }
+    }
 }
 
 pub trait EditorCommand {

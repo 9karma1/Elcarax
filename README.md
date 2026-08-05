@@ -20,9 +20,10 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - real project asset index with project-relative paths, stable path-derived IDs, metadata, diagnostics, refresh, watcher dirty-state, and clickable asset rows
 - scene tree with engine-neutral scene model, reference scene snapshot for adapter/tests, hierarchy display, selection/expand state, and scene commands
 - inspector with schema-driven property rows, grouped sections, selection-driven updates, and typed edit widgets (text, toggle, number stepper, vector field, enum selector)
-- editable inspector undo through command-driven property edits, validation, diagnostics, and undo/redo
+- editable inspector undo through command-driven property edits, validation, diagnostics, and a unified undo/redo history
 - adapter host integration with JSON-line process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
-- adapter property writeback with mock-adapter set-property requests, confirmed scene patches, adapter-backed inspector edits, and adapter undo/redo
+- adapter property writeback with set-property requests, confirmed scene patches, adapter-backed inspector edits, and the same undo/redo path as local edits
+- scene mutation patches for property updates and hierarchy ops (`ObjectAdded` / `ObjectRemoved` / `Reparented` / `Renamed`)
 - viewport preview with adapter RGBA frames, letterboxed layout, camera pan/zoom, actionable empty states, and scene-object picking from normalized viewport coordinates
 - productionized empty runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
 - real project file format, create/open/validate/close, recent-project persistence, native folder picker, and explicit project asset scanning

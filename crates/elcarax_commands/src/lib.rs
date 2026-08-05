@@ -2,16 +2,14 @@
 
 mod command;
 mod history;
-mod property_change;
+mod scene_mutation;
 
 pub use command::{
     CommandAvailability, CommandBindingDiagnostic, CommandBindingRegistry, CommandCategory,
     CommandContext, CommandDescription, CommandEffect, CommandId, CommandInvocation, CommandName,
     CommandPresentation, CommandRegistry, CommandRegistryError, CommandResult, CommandScope,
     CommandShortcut, CommandTitle, CommandToolbarPlacement, EditorCommand, KeyBinding, KeyChord,
-    KeyModifier, RegisteredCommand, built_in_commands,
+    KeyModifier, RegisteredCommand, SceneMutationSink, built_in_commands,
 };
 pub use history::CommandHistory;
-pub use property_change::{
-    RedoCommand, SetScenePropertiesCommand, SetScenePropertyCommand, UndoCommand,
-};
+pub use scene_mutation::{ApplyScenePatchCommand, RedoCommand, UndoCommand};

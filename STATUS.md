@@ -16,9 +16,10 @@ Generated: 2026-07-04
 - Real asset index with project-relative paths, stable path-derived IDs, cheap metadata, diagnostics, explicit scan/refresh, watcher dirty-state, scrollable asset panel rows, selection state, and command-palette asset commands
 - Scene tree with engine-neutral scene model, reference scene snapshot for adapter/tests, scrollable hierarchy panel, selection/expand state, and command-palette scene commands
 - Inspector with schema-driven `InspectorValueWidget` descriptors, grouped property rows, typed edit widgets (text, toggle, number stepper, vector field, enum selector), selection-driven updates, and command-palette inspector commands
-- Editable inspector undo with model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo
+- Editable inspector undo with model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo through a unified `CommandHistory`
 - Adapter host integration with JSON-line protocol, mock process spawning, versioned handshake, request/response correlation, diagnostics/logs, scene snapshot import, status UI, and command-palette adapter commands
-- Adapter property writeback with mock adapter set-property protocol, confirmed scene patches, adapter-backed inspector edits, adapter undo/redo writeback, and diagnostics for rejected writes
+- Adapter property writeback with set-property protocol, confirmed scene patches, adapter-backed inspector edits, and unified undo/redo writeback (no parallel adapter history)
+- Scene hierarchy mutation foundation via `ScenePatch` (`ObjectAdded` / `ObjectRemoved` / `Reparented` / `Renamed`) and snapshot APIs; UI hierarchy drag/drop remains future work
 - Viewport preview with adapter RGBA frame protocol, letterboxed frame layout, camera pan/zoom, actionable empty states, scene-object picking from normalized coordinates, image render primitive, viewport commands, and console adapter viewport proof
 - Productionized normal runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
 - Real project file format, create/open/validate/close, recent-project persistence, native folder picker, default scene on create, and project-root asset scanning
@@ -36,7 +37,7 @@ Generated: 2026-07-04
 ## Not included yet
 
 - Icons, images, and full vector paths beyond adapter viewport RGBA frames
-- Docking, hierarchy drag/drop, component add/remove, hierarchy mutation, asset assignment editing, multi-object editing, user-editable keybinding preferences, multi-stroke chords, command macros, fuzzy scoring, menu bars, full settings UI, recent-projects welcome UI, multi-scene switcher UI, save-on-close dialogs, continuous autosave, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, drag-and-drop asset behavior, asset rename/move/delete, asset dependency graph, asset build/import cache, scene object creation/deletion, continuous viewport frame streaming, adapter viewport pick protocol, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
+- Docking, hierarchy drag/drop, component add/remove, asset assignment editing, multi-object editing, user-editable keybinding preferences, multi-stroke chords, command macros, fuzzy scoring, menu bars, full settings UI, recent-projects welcome UI, multi-scene switcher UI, save-on-close dialogs, continuous autosave, project migration beyond schema version checks, asset thumbnails, asset previews, asset import pipeline, drag-and-drop asset behavior, asset rename/move/delete, asset dependency graph, asset build/import cache, scene object creation/deletion UI (domain patch ops exist), continuous viewport frame streaming, adapter viewport pick protocol, adapter hot reload, marketplace/plugin runtime loading, dynamic library loading, adapter security sandbox, or real engine synchronization
 - Normal runtime automatic fake data loading as user-facing editor behavior
 - Real `AccessKit` adapter integration
 - Real game engine binding
