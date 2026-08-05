@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Component slots on scene objects (`ComponentInstance`, `ComponentAdded` / `ComponentRemoved` patches) with component-scoped property paths and inspector rows
 - Scene file schema version 2 storing per-object components instead of a flat property bag
 - `component_id` on adapter `SetPropertyRequest` / `SetPropertyResponse` and editor property commits
+- Binary adapter framing (`ELCX` header + JSON + optional binary segment) with viewport pixels out of JSON
+- Non-blocking `AdapterHost` worker thread with `submit` / `poll` (sync helpers wait on the worker)
 - Unified scene mutation contract: `ScenePatch` operations for property updates plus hierarchy (`ObjectAdded`, `ObjectRemoved`, `Reparented`, `Renamed`) with invertible hierarchy patches
 - `ApplyScenePatchCommand` and `SceneMutationSink` as the single undoable mutation path through `CommandHistory`
 - `SessionEditService` as the sole edit authority for inspector commits and `edit.undo` / `edit.redo` (local and adapter-backed scenes)
@@ -43,6 +45,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Scene model properties live on components; inspector, patches, edits, and adapter writeback address `(object_id, component_id, path)` instead of dotted paths like `gameplay.health`
 - Reference scene and all in-repo fixtures migrated to component-based schemas
+- Adapter stdio transport replaced JSON-lines with binary frames; `GetViewportFrameResponse` uses `byte_len` + binary payload instead of JSON `pixels`
+- ADR-003 updated for framed transport and worker-hosted adapter I/O
 
 - Route project-bound lifecycle through `EditorSession` instead of `project_effects.rs` (removed)
 - Property edits apply through `ScenePatch` instead of direct property map writes on the command path

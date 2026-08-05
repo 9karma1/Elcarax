@@ -13,6 +13,7 @@ The editor must later fit other engines and software domains. The game engine sh
 - Game-specific names stay out of `elcarax_core`, `elcarax_ui`, and `elcarax_render`.
 - Adapter protocol types live in `elcarax_adapter_api`.
 - Adapter author helpers live in `elcarax_adapter_sdk`.
-- Process spawning, JSON-line transport, request correlation, adapter events, diagnostics, and process failure handling live in `elcarax_adapter_host`.
-- The initial stdio adapter uses one JSON message per line, with mock property writeback through request/response messages and confirmed scene patches.
-- Binary protocol, shared memory, continuous viewport frame streaming, dynamic loading, hot reload, and real engine synchronization remain future work. Project-owned scene persistence is handled in-editor via `*.elcarax.scene.toml` (see [CHANGELOG.md](../../CHANGELOG.md)).
+- Process spawning, binary-framed transport, request correlation, adapter events, diagnostics, and process failure handling live in `elcarax_adapter_host`.
+- Stdio adapters exchange framed messages: `MAGIC("ELCX") | KIND | ID | JSON_LEN | BIN_LEN | JSON | BIN`. Viewport pixel payloads travel in the binary segment; JSON carries `byte_len` only.
+- `AdapterHost` owns a worker thread and exposes `submit` / `poll` for non-blocking I/O, with synchronous request helpers that wait on the worker for handshake, edits, and other request/response ops.
+- Shared memory, continuous viewport frame streaming, dynamic loading, hot reload, and real engine synchronization remain future work. Project-owned scene persistence is handled in-editor via `*.elcarax.scene.toml` (see [CHANGELOG.md](../../CHANGELOG.md)).

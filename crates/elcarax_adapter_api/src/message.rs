@@ -254,40 +254,23 @@ pub enum AdapterLine {
 pub type EditorToAdapter = AdapterRequestMessage;
 pub type AdapterToEditor = AdapterResponseMessage;
 
-pub fn encode_request_line(request: &AdapterRequest) -> Result<String, serde_json::Error> {
-    serde_json::to_string(request)
-}
-
-pub fn decode_request_line(line: &str) -> Result<AdapterRequest, serde_json::Error> {
-    serde_json::from_str(line)
-}
-
-pub fn encode_response_line(response: &AdapterResponse) -> Result<String, serde_json::Error> {
-    serde_json::to_string(&AdapterLine::Response(response.clone()))
-}
-
-pub fn encode_event_line(event: &AdapterEvent) -> Result<String, serde_json::Error> {
-    serde_json::to_string(&AdapterLine::Event(event.clone()))
-}
-
-pub fn decode_adapter_line(line: &str) -> Result<AdapterLine, serde_json::Error> {
-    serde_json::from_str(line)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCapabilities, AdapterId, AdapterName, AdapterVersion};
+    use crate::{
+        AdapterCapabilities, AdapterId, AdapterName, AdapterVersion, decode_adapter_frame,
+        decode_request_frame, encode_event_frame, encode_request_frame, encode_response_frame,
+    };
     use elcarax_scene_model::{ComponentTypeName, components, reference_scene_snapshot};
 
     #[test]
-    fn handshake_request_response_round_trip() -> Result<(), serde_json::Error> {
+    fn handshake_request_response_round_trip() -> Result<(), crate::FrameError> {
         let request = AdapterRequest::new(
             AdapterRequestId::new(7),
             AdapterRequestMessage::Handshake(HandshakeRequest::current("test-editor", None)),
         );
-        let line = encode_request_line(&request)?;
-        assert_eq!(decode_request_line(&line)?, request);
+        let frame = encode_request_frame(&request)?;
+        assert_eq!(decode_request_frame(&frame)?, request);
 
         let response = AdapterResponse::new(
             request.request_id,
@@ -299,27 +282,32 @@ mod tests {
                 capabilities: AdapterCapabilities::stdio_game_adapter(),
             }),
         );
-        let line = encode_response_line(&response)?;
-        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
+        let frame = encode_response_frame(&response)?;
+        assert_eq!(
+            decode_adapter_frame(&frame)?,
+            AdapterLine::Response(response)
+        );
         Ok(())
     }
 
     #[test]
-    fn request_ids_round_trip() -> Result<(), serde_json::Error> {
+    fn request_ids_round_trip() -> Result<(), crate::FrameError> {
         let request = AdapterRequest::new(
             AdapterRequestId::new(42),
             AdapterRequestMessage::GetDiagnostics(GetDiagnosticsRequest),
         );
-        let line = encode_request_line(&request)?;
-        assert_eq!(decode_request_line(&line)?.request_id, AdapterRequestId(42));
+        let frame = encode_request_frame(&request)?;
+        assert_eq!(
+            decode_request_frame(&frame)?.request_id,
+            AdapterRequestId(42)
+        );
         Ok(())
     }
 
     #[test]
-    fn viewport_frame_request_round_trips() -> Result<(), serde_json::Error> {
+    fn viewport_frame_request_round_trips() -> Result<(), crate::FrameError> {
         use crate::{
             AdapterViewportId, GetViewportFrameRequest, ViewportCameraInput, ViewportEditorInput,
-            ViewportFrameResponseStatus,
         };
         use elcarax_core::ViewportFrameFormat;
 
@@ -348,28 +336,30 @@ mod tests {
                 }),
             }),
         );
-        let line = encode_request_line(&request)?;
-        assert_eq!(decode_request_line(&line)?, request);
+        let frame = encode_request_frame(&request)?;
+        assert_eq!(decode_request_frame(&frame)?, request);
 
+        let pixels = vec![255, 0, 0, 255, 0, 255, 0, 255];
         let response = AdapterResponse::new(
             request.request_id,
-            AdapterResponseMessage::GetViewportFrame(GetViewportFrameResponse {
-                viewport_id: AdapterViewportId(1),
-                width: 64,
-                height: 48,
-                format: ViewportFrameFormat::Rgba8Unorm,
-                pixels: vec![255, 0, 0, 255, 0, 255, 0, 255],
-                diagnostics: Vec::new(),
-                status: ViewportFrameResponseStatus::Available,
-            }),
+            AdapterResponseMessage::GetViewportFrame(GetViewportFrameResponse::available(
+                AdapterViewportId(1),
+                64,
+                48,
+                ViewportFrameFormat::Rgba8Unorm,
+                pixels.clone(),
+                Vec::new(),
+            )),
         );
-        let line = encode_response_line(&response)?;
-        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
+        let frame = encode_response_frame(&response)?;
+        assert_eq!(frame.binary, pixels);
+        let decoded = decode_adapter_frame(&frame)?;
+        assert_eq!(decoded, AdapterLine::Response(response));
         Ok(())
     }
 
     #[test]
-    fn failed_viewport_response_round_trips() -> Result<(), serde_json::Error> {
+    fn failed_viewport_response_round_trips() -> Result<(), crate::FrameError> {
         use crate::{AdapterViewportId, GetViewportFrameResponse, ViewportFrameResponseStatus};
 
         let response = AdapterResponse::new(
@@ -380,11 +370,11 @@ mod tests {
                 "width and height must be positive",
             )),
         );
-        let line = encode_response_line(&response)?;
+        let frame = encode_response_frame(&response)?;
         let AdapterLine::Response(AdapterResponse {
             message: AdapterResponseMessage::GetViewportFrame(decoded),
             ..
-        }) = decode_adapter_line(&line)?
+        }) = decode_adapter_frame(&frame)?
         else {
             panic!("decoded response should carry viewport frame");
         };
@@ -394,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn viewport_pick_request_response_round_trips() -> Result<(), serde_json::Error> {
+    fn viewport_pick_request_response_round_trips() -> Result<(), crate::FrameError> {
         use crate::{
             AdapterViewportId, PickViewportObjectRequest, PickViewportObjectResponse,
             ViewportPickResponseStatus,
@@ -409,8 +399,8 @@ mod tests {
                 v: 0.5,
             }),
         );
-        let line = encode_request_line(&request)?;
-        assert_eq!(decode_request_line(&line)?, request);
+        let frame = encode_request_frame(&request)?;
+        assert_eq!(decode_request_frame(&frame)?, request);
 
         let snapshot = reference_scene_snapshot();
         let player = player(&snapshot);
@@ -423,8 +413,11 @@ mod tests {
                 status: ViewportPickResponseStatus::Picked,
             }),
         );
-        let line = encode_response_line(&response)?;
-        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
+        let frame = encode_response_frame(&response)?;
+        assert_eq!(
+            decode_adapter_frame(&frame)?,
+            AdapterLine::Response(response)
+        );
         Ok(())
     }
 
@@ -439,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn scene_snapshot_response_can_carry_reference_scene() -> Result<(), serde_json::Error> {
+    fn scene_snapshot_response_can_carry_reference_scene() -> Result<(), crate::FrameError> {
         let response = AdapterResponse::new(
             AdapterRequestId::new(1),
             AdapterResponseMessage::GetSceneSnapshot(GetSceneSnapshotResponse {
@@ -447,8 +440,8 @@ mod tests {
                 source_label: "mock".to_string(),
             }),
         );
-        let line = encode_response_line(&response)?;
-        let decoded = decode_adapter_line(&line)?;
+        let frame = encode_response_frame(&response)?;
+        let decoded = decode_adapter_frame(&frame)?;
         let AdapterLine::Response(AdapterResponse {
             message: AdapterResponseMessage::GetSceneSnapshot(snapshot_response),
             ..
@@ -461,18 +454,18 @@ mod tests {
     }
 
     #[test]
-    fn diagnostics_round_trip() -> Result<(), serde_json::Error> {
+    fn diagnostics_round_trip() -> Result<(), crate::FrameError> {
         let event = AdapterEvent::Diagnostic(AdapterDiagnostic::info(
             "mock-adapter",
             "diagnostic from adapter",
         ));
-        let line = encode_event_line(&event)?;
-        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Event(event));
+        let frame = encode_event_frame(&event)?;
+        assert_eq!(decode_adapter_frame(&frame)?, AdapterLine::Event(event));
         Ok(())
     }
 
     #[test]
-    fn set_property_request_round_trips() -> Result<(), serde_json::Error> {
+    fn set_property_request_round_trips() -> Result<(), crate::FrameError> {
         let snapshot = reference_scene_snapshot();
         let player = player(&snapshot);
         let gameplay = gameplay_component(player);
@@ -490,13 +483,13 @@ mod tests {
                 edit_source: AdapterEditSource::Inspector,
             }),
         );
-        let line = encode_request_line(&request)?;
-        assert_eq!(decode_request_line(&line)?, request);
+        let frame = encode_request_frame(&request)?;
+        assert_eq!(decode_request_frame(&frame)?, request);
         Ok(())
     }
 
     #[test]
-    fn set_property_response_round_trips() -> Result<(), serde_json::Error> {
+    fn set_property_response_round_trips() -> Result<(), crate::FrameError> {
         let snapshot = reference_scene_snapshot();
         let player = player(&snapshot);
         let gameplay = gameplay_component(player);
@@ -520,29 +513,35 @@ mod tests {
                 diagnostics: Vec::new(),
             }),
         );
-        let line = encode_response_line(&response)?;
-        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
+        let frame = encode_response_frame(&response)?;
+        assert_eq!(
+            decode_adapter_frame(&frame)?,
+            AdapterLine::Response(response)
+        );
         Ok(())
     }
 
     #[test]
-    fn rejected_writeback_response_round_trips() -> Result<(), serde_json::Error> {
+    fn rejected_writeback_response_round_trips() -> Result<(), crate::FrameError> {
         let snapshot = reference_scene_snapshot();
         let response = rejected_response(&snapshot);
-        let line = encode_response_line(&response)?;
-        assert_eq!(decode_adapter_line(&line)?, AdapterLine::Response(response));
+        let frame = encode_response_frame(&response)?;
+        assert_eq!(
+            decode_adapter_frame(&frame)?,
+            AdapterLine::Response(response)
+        );
         Ok(())
     }
 
     #[test]
-    fn diagnostics_round_trip_with_writeback_response() -> Result<(), serde_json::Error> {
+    fn diagnostics_round_trip_with_writeback_response() -> Result<(), crate::FrameError> {
         let snapshot = reference_scene_snapshot();
         let response = rejected_response(&snapshot);
-        let line = encode_response_line(&response)?;
+        let frame = encode_response_frame(&response)?;
         let AdapterLine::Response(AdapterResponse {
             message: AdapterResponseMessage::SetProperty(decoded),
             ..
-        }) = decode_adapter_line(&line)?
+        }) = decode_adapter_frame(&frame)?
         else {
             panic!("decoded response should be set property");
         };

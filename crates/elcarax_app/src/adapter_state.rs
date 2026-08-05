@@ -646,7 +646,7 @@ impl AdapterState {
     }
 
     #[cfg(test)]
-    fn fake_writes(&self) -> &[String] {
+    fn fake_writes(&self) -> &[elcarax_adapter_api::AdapterFrame] {
         match &self.connection {
             AdapterConnection::Fake(session) => session.transport().writes(),
             AdapterConnection::None => {
@@ -737,9 +737,9 @@ mod tests {
     use elcarax_adapter_api::{
         AdapterEvent, AdapterId, AdapterLog, AdapterRequestId, AdapterResponseMessage,
         GetDiagnosticsResponse, GetSceneSnapshotResponse, HandshakeResponse, ProtocolVersion,
-        SetPropertyResponse, SetPropertyStatus, ShutdownResponse, decode_request_line,
+        SetPropertyResponse, SetPropertyStatus, ShutdownResponse, decode_request_frame,
     };
-    use elcarax_adapter_host::{FakeAdapterTransport, event_line, response_line};
+    use elcarax_adapter_host::{FakeAdapterTransport, event_frame, response_frame};
     use elcarax_commands::CommandHistory;
     use elcarax_scene_model::{
         ComponentInstance, ComponentSchema, ComponentTypeName, ObjectSchema, PropertyKind,
@@ -754,7 +754,7 @@ mod tests {
 
     #[test]
     fn fake_transport_handshake_command_changes_status() {
-        let mut state = state_with_lines(vec![response(
+        let mut state = state_with_frames(vec![response(
             AdapterRequestId(1),
             AdapterResponseMessage::Handshake(handshake_response()),
         )]);
@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn adapter_load_scene_updates_scene_snapshot() {
-        let mut state = state_with_lines(vec![response(
+        let mut state = state_with_frames(vec![response(
             AdapterRequestId(1),
             AdapterResponseMessage::GetSceneSnapshot(GetSceneSnapshotResponse {
                 snapshot: fixture_scene().0,
@@ -804,7 +804,7 @@ mod tests {
 
     #[test]
     fn adapter_show_diagnostics_records_diagnostics() {
-        let mut state = state_with_lines(vec![
+        let mut state = state_with_frames(vec![
             event(AdapterEvent::Log(AdapterLog::info("ok"))),
             response(
                 AdapterRequestId(1),
@@ -824,7 +824,7 @@ mod tests {
 
     #[test]
     fn adapter_disconnect_clears_connection() {
-        let mut state = state_with_lines(vec![response(
+        let mut state = state_with_frames(vec![response(
             AdapterRequestId(1),
             AdapterResponseMessage::Shutdown(ShutdownResponse { accepted: true }),
         )]);
@@ -841,7 +841,7 @@ mod tests {
     fn adapter_backed_edit_sends_request_and_updates_scene() {
         let mut scene = adapter_fixture_scene();
         let component_id = fixture_health_component_id(&scene);
-        let mut state = state_with_lines(vec![response(
+        let mut state = state_with_frames(vec![response(
             AdapterRequestId(1),
             accepted_health_response(
                 &scene,
@@ -863,7 +863,7 @@ mod tests {
         assert!(result.is_ok_and(|message| message.contains("65")));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(65));
         let request = match state.fake_writes().first() {
-            Some(line) => match decode_request_line(line) {
+            Some(frame) => match decode_request_frame(frame) {
                 Ok(request) => request,
                 Err(error) => panic!("request should decode: {error}"),
             },
@@ -880,7 +880,7 @@ mod tests {
     fn failed_adapter_edit_records_diagnostic_and_does_not_mutate_value() {
         let mut scene = adapter_fixture_scene();
         let component_id = fixture_health_component_id(&scene);
-        let mut state = state_with_lines(vec![response(
+        let mut state = state_with_frames(vec![response(
             AdapterRequestId(1),
             rejected_health_response(&scene, component_id),
         )]);
@@ -902,7 +902,7 @@ mod tests {
     fn adapter_backed_undo_and_redo_send_writebacks() {
         let mut scene = adapter_fixture_scene();
         let component_id = fixture_health_component_id(&scene);
-        let mut state = state_with_lines(vec![
+        let mut state = state_with_frames(vec![
             response(
                 AdapterRequestId(1),
                 accepted_health_response(
@@ -970,9 +970,9 @@ mod tests {
         assert_eq!(fixture_health(&scene), PropertyValue::I64(100));
     }
 
-    fn state_with_lines(lines: Vec<String>) -> AdapterState {
+    fn state_with_frames(frames: Vec<elcarax_adapter_api::AdapterFrame>) -> AdapterState {
         let mut state =
-            AdapterState::with_fake_session(AdapterSession::new(FakeAdapterTransport::new(lines)));
+            AdapterState::with_fake_session(AdapterSession::new(FakeAdapterTransport::new(frames)));
         state.status = AdapterHostState::Connected;
         state
     }
@@ -1007,9 +1007,12 @@ mod tests {
         }
     }
 
-    fn response(request_id: AdapterRequestId, message: AdapterResponseMessage) -> String {
-        match response_line(request_id, message) {
-            Ok(line) => line,
+    fn response(
+        request_id: AdapterRequestId,
+        message: AdapterResponseMessage,
+    ) -> elcarax_adapter_api::AdapterFrame {
+        match response_frame(request_id, message) {
+            Ok(frame) => frame,
             Err(error) => panic!("response should serialize: {error}"),
         }
     }
@@ -1058,9 +1061,9 @@ mod tests {
         })
     }
 
-    fn event(event: AdapterEvent) -> String {
-        match event_line(event) {
-            Ok(line) => line,
+    fn event(event: AdapterEvent) -> elcarax_adapter_api::AdapterFrame {
+        match event_frame(event) {
+            Ok(frame) => frame,
             Err(error) => panic!("event should serialize: {error}"),
         }
     }

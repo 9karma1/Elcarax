@@ -474,7 +474,7 @@ mod tests {
             AdapterId, AdapterRequestId, AdapterResponseMessage, SetPropertyResponse,
             SetPropertyStatus,
         };
-        use elcarax_adapter_host::{AdapterSession, FakeAdapterTransport, response_line};
+        use elcarax_adapter_host::{AdapterSession, FakeAdapterTransport, response_frame};
         use elcarax_scene_model::{
             ComponentInstance, ComponentSchema, PropertyEditKind, PropertyKind, PropertyPath,
             PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectKind, ScenePatch,
@@ -518,7 +518,7 @@ mod tests {
             .snapshot()
             .map(|value| value.scene_id())
             .unwrap_or_else(|| panic!("adapter fixture scene should be loaded"));
-        let response = match response_line(
+        let response = match response_frame(
             AdapterRequestId(1),
             AdapterResponseMessage::SetProperty(SetPropertyResponse {
                 status: SetPropertyStatus::Accepted,
@@ -537,7 +537,7 @@ mod tests {
                 diagnostics: Vec::new(),
             }),
         ) {
-            Ok(line) => line,
+            Ok(frame) => frame,
             Err(error) => panic!("response should serialize: {error}"),
         };
         let mut adapter = AdapterState::default();

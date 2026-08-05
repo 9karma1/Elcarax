@@ -1,21 +1,23 @@
-//! Adapter process supervision and JSON-line transport for Elcarax.
+//! Adapter process supervision and binary-framed transport for Elcarax.
 
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
-use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use elcarax_adapter_api::{
-    AdapterCapabilities, AdapterDiagnostic, AdapterError, AdapterEvent, AdapterId, AdapterLine,
-    AdapterLog, AdapterName, AdapterRequest, AdapterRequestId, AdapterRequestMessage,
-    AdapterResponse, AdapterResponseMessage, AdapterVersion, ErrorResponse, GetDiagnosticsRequest,
-    GetDiagnosticsResponse, GetSceneSnapshotRequest, GetSceneSnapshotResponse,
-    GetViewportFrameRequest, GetViewportFrameResponse, HandshakeRequest, LoadProjectRequest,
-    LoadProjectResponse, PickViewportObjectRequest, PickViewportObjectResponse, SetPropertyRequest,
-    SetPropertyResponse, ShutdownRequest, ShutdownResponse, decode_adapter_line,
-    encode_request_line,
+    AdapterCapabilities, AdapterDiagnostic, AdapterError, AdapterEvent, AdapterFrame, AdapterId,
+    AdapterLine, AdapterLog, AdapterName, AdapterRequest, AdapterRequestId, AdapterRequestMessage,
+    AdapterResponse, AdapterResponseMessage, AdapterVersion, ErrorResponse, FrameError,
+    GetDiagnosticsRequest, GetDiagnosticsResponse, GetSceneSnapshotRequest,
+    GetSceneSnapshotResponse, GetViewportFrameRequest, GetViewportFrameResponse, HandshakeRequest,
+    LoadProjectRequest, LoadProjectResponse, PickViewportObjectRequest, PickViewportObjectResponse,
+    SetPropertyRequest, SetPropertyResponse, ShutdownRequest, ShutdownResponse,
+    decode_adapter_frame, encode_request_frame, read_frame, write_frame,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +36,7 @@ pub enum AdapterHostError {
     MissingStdout,
     TransportWrite(String),
     TransportRead(String),
-    InvalidJson(String),
+    InvalidFrame(String),
     AdapterExited,
     MismatchedRequestId {
         expected: AdapterRequestId,
@@ -42,6 +44,8 @@ pub enum AdapterHostError {
     },
     UnexpectedResponse(String),
     Adapter(AdapterError),
+    WorkerUnavailable,
+    TimedOut,
 }
 
 impl fmt::Display for AdapterHostError {
@@ -52,7 +56,7 @@ impl fmt::Display for AdapterHostError {
             Self::MissingStdout => write!(formatter, "adapter process stdout was not captured"),
             Self::TransportWrite(message) => write!(formatter, "adapter write failed: {message}"),
             Self::TransportRead(message) => write!(formatter, "adapter read failed: {message}"),
-            Self::InvalidJson(message) => write!(formatter, "invalid adapter JSON: {message}"),
+            Self::InvalidFrame(message) => write!(formatter, "invalid adapter frame: {message}"),
             Self::AdapterExited => write!(formatter, "adapter exited before response"),
             Self::MismatchedRequestId { expected, actual } => write!(
                 formatter,
@@ -63,11 +67,23 @@ impl fmt::Display for AdapterHostError {
                 write!(formatter, "unexpected adapter response: {message}")
             }
             Self::Adapter(error) => write!(formatter, "{error}"),
+            Self::WorkerUnavailable => write!(formatter, "adapter worker is unavailable"),
+            Self::TimedOut => write!(formatter, "timed out waiting for adapter response"),
         }
     }
 }
 
 impl Error for AdapterHostError {}
+
+impl From<FrameError> for AdapterHostError {
+    fn from(error: FrameError) -> Self {
+        match error {
+            FrameError::Io(message) => Self::TransportRead(message),
+            FrameError::UnexpectedEof => Self::AdapterExited,
+            other => Self::InvalidFrame(other.to_string()),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterProcessSpec {
@@ -106,15 +122,15 @@ impl AdapterProcessSpec {
 }
 
 pub trait AdapterTransport {
-    fn write_line(&mut self, line: &str) -> Result<(), AdapterHostError>;
-    fn read_line(&mut self) -> Result<Option<String>, AdapterHostError>;
+    fn send_frame(&mut self, frame: &AdapterFrame) -> Result<(), AdapterHostError>;
+    fn recv_frame(&mut self) -> Result<Option<AdapterFrame>, AdapterHostError>;
     fn shutdown(&mut self) -> Result<(), AdapterHostError>;
 }
 
 pub struct AdapterProcess {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<std::process::ChildStdout>,
+    stdout: ChildStdout,
 }
 
 impl AdapterProcess {
@@ -139,33 +155,24 @@ impl AdapterProcess {
         Ok(Self {
             child,
             stdin,
-            stdout: BufReader::new(stdout),
+            stdout,
         })
     }
 }
 
 impl AdapterTransport for AdapterProcess {
-    fn write_line(&mut self, line: &str) -> Result<(), AdapterHostError> {
-        self.stdin
-            .write_all(line.as_bytes())
-            .and_then(|()| self.stdin.write_all(b"\n"))
-            .and_then(|()| self.stdin.flush())
-            .map_err(|error| AdapterHostError::TransportWrite(error.to_string()))
+    fn send_frame(&mut self, frame: &AdapterFrame) -> Result<(), AdapterHostError> {
+        write_frame(&mut self.stdin, frame).map_err(|error| match error {
+            FrameError::Io(message) => AdapterHostError::TransportWrite(message),
+            other => AdapterHostError::InvalidFrame(other.to_string()),
+        })
     }
 
-    fn read_line(&mut self) -> Result<Option<String>, AdapterHostError> {
+    fn recv_frame(&mut self) -> Result<Option<AdapterFrame>, AdapterHostError> {
         if let Ok(Some(_)) = self.child.try_wait() {
             return Ok(None);
         }
-        let mut line = String::new();
-        let read = self
-            .stdout
-            .read_line(&mut line)
-            .map_err(|error| AdapterHostError::TransportRead(error.to_string()))?;
-        if read == 0 {
-            return Ok(None);
-        }
-        Ok(Some(line.trim_end_matches(['\r', '\n']).to_string()))
+        read_frame(&mut self.stdout).map_err(AdapterHostError::from)
     }
 
     fn shutdown(&mut self) -> Result<(), AdapterHostError> {
@@ -183,18 +190,129 @@ impl AdapterTransport for AdapterProcess {
     }
 }
 
-pub type ProcessAdapterSession = AdapterSession<AdapterProcess>;
+#[derive(Debug, Clone, PartialEq)]
+pub enum AdapterHostPollItem {
+    Event(AdapterEvent),
+    Response {
+        request_id: AdapterRequestId,
+        message: AdapterResponseMessage,
+    },
+    Failed(AdapterHostError),
+    Stopped,
+}
+
+enum WorkerCommand {
+    Submit(AdapterRequest),
+    Shutdown,
+}
+
+enum WorkerEvent {
+    Event(AdapterEvent),
+    Response(AdapterResponse),
+    Failed(AdapterHostError),
+    Stopped,
+}
+
+struct HostWorker {
+    command_tx: Sender<WorkerCommand>,
+    event_rx: Receiver<WorkerEvent>,
+    join: Option<JoinHandle<()>>,
+}
+
+impl HostWorker {
+    fn spawn(process: AdapterProcess) -> Self {
+        let (command_tx, command_rx) = mpsc::channel();
+        let (event_tx, event_rx) = mpsc::channel();
+        let join = thread::spawn(move || {
+            let mut session = AdapterSession::new(process);
+            while let Ok(command) = command_rx.recv() {
+                match command {
+                    WorkerCommand::Submit(request) => match session.send_request(request) {
+                        Ok((events, response)) => {
+                            for event in events {
+                                if event_tx.send(WorkerEvent::Event(event)).is_err() {
+                                    return;
+                                }
+                            }
+                            if event_tx.send(WorkerEvent::Response(response)).is_err() {
+                                return;
+                            }
+                        }
+                        Err(error) => {
+                            let _ = event_tx.send(WorkerEvent::Failed(error));
+                            break;
+                        }
+                    },
+                    WorkerCommand::Shutdown => {
+                        let _ = session.shutdown_request(ShutdownRequest);
+                        let _ = session.shutdown_transport();
+                        let _ = event_tx.send(WorkerEvent::Stopped);
+                        break;
+                    }
+                }
+            }
+        });
+        Self {
+            command_tx,
+            event_rx,
+            join: Some(join),
+        }
+    }
+
+    fn submit(&self, request: AdapterRequest) -> Result<(), AdapterHostError> {
+        self.command_tx
+            .send(WorkerCommand::Submit(request))
+            .map_err(|_| AdapterHostError::WorkerUnavailable)
+    }
+
+    fn request_shutdown(&self) -> Result<(), AdapterHostError> {
+        self.command_tx
+            .send(WorkerCommand::Shutdown)
+            .map_err(|_| AdapterHostError::WorkerUnavailable)
+    }
+
+    fn try_recv(&self) -> Result<Option<WorkerEvent>, AdapterHostError> {
+        match self.event_rx.try_recv() {
+            Ok(event) => Ok(Some(event)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => Err(AdapterHostError::WorkerUnavailable),
+        }
+    }
+
+    fn recv_timeout(&self, timeout: Duration) -> Result<WorkerEvent, AdapterHostError> {
+        match self.event_rx.recv_timeout(timeout) {
+            Ok(event) => Ok(event),
+            Err(RecvTimeoutError::Timeout) => Err(AdapterHostError::TimedOut),
+            Err(RecvTimeoutError::Disconnected) => Err(AdapterHostError::WorkerUnavailable),
+        }
+    }
+}
+
+impl Drop for HostWorker {
+    fn drop(&mut self) {
+        let _ = self.command_tx.send(WorkerCommand::Shutdown);
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
 
 pub struct AdapterHost {
-    session: Option<ProcessAdapterSession>,
+    worker: Option<HostWorker>,
     state: AdapterHostState,
+    next_request_id: u64,
+    pending_events: Vec<AdapterEvent>,
+    info: Option<AdapterSessionInfo>,
 }
 
 impl AdapterHost {
     pub const fn disconnected() -> Self {
         Self {
-            session: None,
+            worker: None,
             state: AdapterHostState::Disconnected,
+            next_request_id: 1,
+            pending_events: Vec::new(),
+            info: None,
         }
     }
 
@@ -204,8 +322,11 @@ impl AdapterHost {
     ) -> Result<Self, AdapterHostError> {
         let process = AdapterProcess::spawn(&spec, current_dir)?;
         Ok(Self {
-            session: Some(AdapterSession::new(process)),
+            worker: Some(HostWorker::spawn(process)),
             state: AdapterHostState::Starting,
+            next_request_id: 1,
+            pending_events: Vec::new(),
+            info: None,
         })
     }
 
@@ -213,86 +334,235 @@ impl AdapterHost {
         self.state
     }
 
-    pub fn session_mut(&mut self) -> Option<&mut ProcessAdapterSession> {
-        self.session.as_mut()
+    pub fn info(&self) -> Option<&AdapterSessionInfo> {
+        self.info.as_ref()
+    }
+
+    pub fn submit(
+        &mut self,
+        message: AdapterRequestMessage,
+    ) -> Result<AdapterRequestId, AdapterHostError> {
+        if self.worker.is_none() {
+            return Err(AdapterHostError::AdapterExited);
+        }
+        if self.state == AdapterHostState::Failed {
+            return Err(AdapterHostError::AdapterExited);
+        }
+        let request_id = self.allocate_request_id();
+        let worker = self
+            .worker
+            .as_ref()
+            .ok_or(AdapterHostError::AdapterExited)?;
+        worker.submit(AdapterRequest::new(request_id, message))?;
+        Ok(request_id)
+    }
+
+    pub fn poll(&mut self) -> Vec<AdapterHostPollItem> {
+        let mut items = Vec::new();
+        loop {
+            let event = {
+                let Some(worker) = self.worker.as_ref() else {
+                    break;
+                };
+                match worker.try_recv() {
+                    Ok(Some(event)) => event,
+                    Ok(None) => break,
+                    Err(error) => {
+                        self.state = AdapterHostState::Failed;
+                        items.push(AdapterHostPollItem::Failed(error));
+                        break;
+                    }
+                }
+            };
+            items.push(self.ingest_worker_event(event));
+        }
+        items
     }
 
     pub fn handshake(
         &mut self,
         request: HandshakeRequest,
     ) -> Result<AdapterSessionInfo, AdapterHostError> {
-        let session = self
-            .session
-            .as_mut()
-            .ok_or(AdapterHostError::AdapterExited)?;
-        match session.handshake(request) {
-            Ok(info) => {
-                self.state = AdapterHostState::Connected;
-                Ok(info)
-            }
-            Err(error) => {
-                self.state = AdapterHostState::Failed;
-                Err(error)
-            }
-        }
+        let response = self.request(AdapterRequestMessage::Handshake(request))?;
+        let AdapterResponseMessage::Handshake(response) = response else {
+            self.state = AdapterHostState::Failed;
+            return Err(AdapterHostError::UnexpectedResponse(
+                "handshake did not return handshake response".to_string(),
+            ));
+        };
+        let info = AdapterSessionInfo {
+            id: response.adapter_id,
+            name: response.adapter_name,
+            version: response.adapter_version,
+            capabilities: response.capabilities,
+        };
+        self.info = Some(info.clone());
+        self.state = AdapterHostState::Connected;
+        Ok(info)
     }
 
     pub fn load_project(
         &mut self,
         request: LoadProjectRequest,
     ) -> Result<LoadProjectResponse, AdapterHostError> {
-        self.session_mut_or_failed()?.load_project(request)
+        match self.request(AdapterRequestMessage::LoadProject(request))? {
+            AdapterResponseMessage::LoadProject(response) => Ok(response),
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
     }
 
     pub fn get_scene_snapshot(
         &mut self,
         request: GetSceneSnapshotRequest,
     ) -> Result<GetSceneSnapshotResponse, AdapterHostError> {
-        self.session_mut_or_failed()?.get_scene_snapshot(request)
+        match self.request(AdapterRequestMessage::GetSceneSnapshot(request))? {
+            AdapterResponseMessage::GetSceneSnapshot(response) => Ok(response),
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
     }
 
     pub fn set_property(
         &mut self,
         request: SetPropertyRequest,
     ) -> Result<SetPropertyResponse, AdapterHostError> {
-        self.session_mut_or_failed()?.set_property(request)
+        match self.request(AdapterRequestMessage::SetProperty(request))? {
+            AdapterResponseMessage::SetProperty(response) => Ok(response),
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
     }
 
     pub fn get_diagnostics(&mut self) -> Result<GetDiagnosticsResponse, AdapterHostError> {
-        self.session_mut_or_failed()?
-            .get_diagnostics(GetDiagnosticsRequest)
+        match self.request(AdapterRequestMessage::GetDiagnostics(GetDiagnosticsRequest))? {
+            AdapterResponseMessage::GetDiagnostics(response) => Ok(response),
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
     }
 
     pub fn get_viewport_frame(
         &mut self,
         request: GetViewportFrameRequest,
     ) -> Result<GetViewportFrameResponse, AdapterHostError> {
-        self.session_mut_or_failed()?.get_viewport_frame(request)
+        match self.request(AdapterRequestMessage::GetViewportFrame(request))? {
+            AdapterResponseMessage::GetViewportFrame(response) => Ok(response),
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
     }
 
     pub fn pick_viewport_object(
         &mut self,
         request: PickViewportObjectRequest,
     ) -> Result<PickViewportObjectResponse, AdapterHostError> {
-        self.session_mut_or_failed()?.pick_viewport_object(request)
+        match self.request(AdapterRequestMessage::PickViewportObject(request))? {
+            AdapterResponseMessage::PickViewportObject(response) => Ok(response),
+            other => Err(AdapterHostError::UnexpectedResponse(format!("{other:?}"))),
+        }
     }
 
     pub fn shutdown(&mut self) -> Result<ShutdownResponse, AdapterHostError> {
-        let Some(session) = self.session.as_mut() else {
+        let Some(worker) = self.worker.take() else {
             self.state = AdapterHostState::Stopped;
             return Ok(ShutdownResponse { accepted: true });
         };
-        let response = session.shutdown_request(ShutdownRequest)?;
-        session.shutdown_transport()?;
+        worker.request_shutdown()?;
+        let mut accepted = true;
+        loop {
+            match worker.recv_timeout(Duration::from_secs(5)) {
+                Ok(WorkerEvent::Stopped) => break,
+                Ok(WorkerEvent::Response(response)) => {
+                    if let AdapterResponseMessage::Shutdown(value) = response.message {
+                        accepted = value.accepted;
+                    }
+                }
+                Ok(WorkerEvent::Event(_)) => {}
+                Ok(WorkerEvent::Failed(error)) => {
+                    self.state = AdapterHostState::Failed;
+                    return Err(error);
+                }
+                Err(AdapterHostError::TimedOut) => break,
+                Err(error) => {
+                    self.state = AdapterHostState::Failed;
+                    return Err(error);
+                }
+            }
+        }
         self.state = AdapterHostState::Stopped;
-        Ok(response)
+        Ok(ShutdownResponse { accepted })
     }
 
-    fn session_mut_or_failed(&mut self) -> Result<&mut ProcessAdapterSession, AdapterHostError> {
-        if self.state == AdapterHostState::Failed {
-            return Err(AdapterHostError::AdapterExited);
+    fn request(
+        &mut self,
+        message: AdapterRequestMessage,
+    ) -> Result<AdapterResponseMessage, AdapterHostError> {
+        let request_id = self.submit(message)?;
+        self.wait_for_response(request_id)
+    }
+
+    fn wait_for_response(
+        &mut self,
+        expected: AdapterRequestId,
+    ) -> Result<AdapterResponseMessage, AdapterHostError> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let timeout = remaining.min(Duration::from_millis(50));
+            let event = {
+                let Some(worker) = self.worker.as_ref() else {
+                    return Err(AdapterHostError::AdapterExited);
+                };
+                match worker.recv_timeout(timeout) {
+                    Ok(event) => event,
+                    Err(AdapterHostError::TimedOut) => continue,
+                    Err(error) => {
+                        self.state = AdapterHostState::Failed;
+                        return Err(error);
+                    }
+                }
+            };
+            match self.ingest_worker_event(event) {
+                AdapterHostPollItem::Response {
+                    request_id,
+                    message,
+                } if request_id == expected => return Ok(message),
+                AdapterHostPollItem::Failed(error) => return Err(error),
+                AdapterHostPollItem::Event(event) => self.pending_events.push(event),
+                AdapterHostPollItem::Stopped => {
+                    self.state = AdapterHostState::Stopped;
+                    return Err(AdapterHostError::AdapterExited);
+                }
+                AdapterHostPollItem::Response { .. } => {}
+            }
         }
-        self.session.as_mut().ok_or(AdapterHostError::AdapterExited)
+        Err(AdapterHostError::TimedOut)
+    }
+
+    fn ingest_worker_event(&mut self, event: WorkerEvent) -> AdapterHostPollItem {
+        match event {
+            WorkerEvent::Event(event) => AdapterHostPollItem::Event(event),
+            WorkerEvent::Response(response) => match response.message {
+                AdapterResponseMessage::Error(ErrorResponse { error }) => {
+                    self.state = AdapterHostState::Failed;
+                    AdapterHostPollItem::Failed(AdapterHostError::Adapter(error))
+                }
+                message => AdapterHostPollItem::Response {
+                    request_id: response.request_id,
+                    message,
+                },
+            },
+            WorkerEvent::Failed(error) => {
+                self.state = AdapterHostState::Failed;
+                AdapterHostPollItem::Failed(error)
+            }
+            WorkerEvent::Stopped => {
+                self.state = AdapterHostState::Stopped;
+                AdapterHostPollItem::Stopped
+            }
+        }
+    }
+
+    fn allocate_request_id(&mut self) -> AdapterRequestId {
+        let id = AdapterRequestId(self.next_request_id);
+        self.next_request_id = self.next_request_id.saturating_add(1);
+        id
     }
 }
 
@@ -469,23 +739,37 @@ where
     ) -> Result<AdapterResponseMessage, AdapterHostError> {
         let request_id = self.next_request_id();
         let request = AdapterRequest::new(request_id, message);
-        let line = encode_request_line(&request)
-            .map_err(|error| AdapterHostError::InvalidJson(error.to_string()))?;
-        self.transport.write_line(&line)?;
+        self.send_request(request)
+            .map(|(_events, response)| response.message)
+    }
+
+    fn send_request(
+        &mut self,
+        request: AdapterRequest,
+    ) -> Result<(Vec<AdapterEvent>, AdapterResponse), AdapterHostError> {
+        let expected = request.request_id;
+        let frame = encode_request_frame(&request)
+            .map_err(|error| AdapterHostError::InvalidFrame(error.to_string()))?;
+        self.transport.send_frame(&frame)?;
+        let mut events = Vec::new();
         loop {
-            let line = match self.transport.read_line()? {
-                Some(line) => line,
+            let frame = match self.transport.recv_frame()? {
+                Some(frame) => frame,
                 None => {
                     self.state = AdapterHostState::Failed;
                     return Err(AdapterHostError::AdapterExited);
                 }
             };
-            let adapter_line = decode_adapter_line(&line)
-                .map_err(|error| AdapterHostError::InvalidJson(error.to_string()))?;
+            let adapter_line = decode_adapter_frame(&frame)
+                .map_err(|error| AdapterHostError::InvalidFrame(error.to_string()))?;
             match adapter_line {
-                AdapterLine::Event(event) => self.record_event(event),
+                AdapterLine::Event(event) => {
+                    self.record_event(event.clone());
+                    events.push(event);
+                }
                 AdapterLine::Response(response) => {
-                    return self.handle_response(request_id, response);
+                    let response = self.handle_response(expected, response)?;
+                    return Ok((events, response));
                 }
             }
         }
@@ -508,7 +792,7 @@ where
         &mut self,
         expected: AdapterRequestId,
         response: AdapterResponse,
-    ) -> Result<AdapterResponseMessage, AdapterHostError> {
+    ) -> Result<AdapterResponse, AdapterHostError> {
         if response.request_id != expected {
             return Err(AdapterHostError::MismatchedRequestId {
                 expected,
@@ -520,20 +804,20 @@ where
                 self.state = AdapterHostState::Failed;
                 Err(AdapterHostError::Adapter(error))
             }
-            other => Ok(other),
+            _ => Ok(response),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct FakeAdapterTransport {
-    responses: VecDeque<String>,
-    writes: Vec<String>,
+    responses: VecDeque<AdapterFrame>,
+    writes: Vec<AdapterFrame>,
     exit_on_read: bool,
 }
 
 impl FakeAdapterTransport {
-    pub fn new(responses: Vec<String>) -> Self {
+    pub fn new(responses: Vec<AdapterFrame>) -> Self {
         Self {
             responses: VecDeque::from(responses),
             writes: Vec::new(),
@@ -549,18 +833,18 @@ impl FakeAdapterTransport {
         }
     }
 
-    pub fn writes(&self) -> &[String] {
+    pub fn writes(&self) -> &[AdapterFrame] {
         self.writes.as_slice()
     }
 }
 
 impl AdapterTransport for FakeAdapterTransport {
-    fn write_line(&mut self, line: &str) -> Result<(), AdapterHostError> {
-        self.writes.push(line.to_string());
+    fn send_frame(&mut self, frame: &AdapterFrame) -> Result<(), AdapterHostError> {
+        self.writes.push(frame.clone());
         Ok(())
     }
 
-    fn read_line(&mut self) -> Result<Option<String>, AdapterHostError> {
+    fn recv_frame(&mut self) -> Result<Option<AdapterFrame>, AdapterHostError> {
         if self.exit_on_read {
             return Ok(None);
         }
@@ -572,15 +856,15 @@ impl AdapterTransport for FakeAdapterTransport {
     }
 }
 
-pub fn response_line(
+pub fn response_frame(
     request_id: AdapterRequestId,
     message: AdapterResponseMessage,
-) -> Result<String, serde_json::Error> {
-    elcarax_adapter_api::encode_response_line(&AdapterResponse::new(request_id, message))
+) -> Result<AdapterFrame, FrameError> {
+    elcarax_adapter_api::encode_response_frame(&AdapterResponse::new(request_id, message))
 }
 
-pub fn event_line(event: AdapterEvent) -> Result<String, serde_json::Error> {
-    elcarax_adapter_api::encode_event_line(&event)
+pub fn event_frame(event: AdapterEvent) -> Result<AdapterFrame, FrameError> {
+    elcarax_adapter_api::encode_event_frame(&event)
 }
 
 #[cfg(test)]
@@ -588,7 +872,7 @@ mod tests {
     use super::*;
     use elcarax_adapter_api::{
         AdapterCapabilities, AdapterEditSource, AdapterId, AdapterName, ProtocolVersion,
-        SetPropertyResponse, SetPropertyStatus, decode_request_line,
+        SetPropertyResponse, SetPropertyStatus, decode_request_frame,
     };
     use elcarax_scene_model::{
         ComponentTypeName, PropertyPath, PropertyValue, ScenePatch, components,
@@ -597,7 +881,7 @@ mod tests {
 
     #[test]
     fn fake_transport_handshake_succeeds() {
-        let response = response_line(
+        let response = response_frame(
             AdapterRequestId(1),
             AdapterResponseMessage::Handshake(elcarax_adapter_api::HandshakeResponse {
                 adapter_id: AdapterId::new("mock"),
@@ -615,7 +899,7 @@ mod tests {
 
     #[test]
     fn fake_transport_load_scene_succeeds() {
-        let response = response_line(
+        let response = response_frame(
             AdapterRequestId(1),
             AdapterResponseMessage::GetSceneSnapshot(GetSceneSnapshotResponse {
                 snapshot: reference_scene_snapshot(),
@@ -640,7 +924,7 @@ mod tests {
             None => panic!("gameplay component should exist"),
         };
         let health_path = path("health");
-        let response = response_line(
+        let response = response_frame(
             AdapterRequestId(1),
             AdapterResponseMessage::SetProperty(SetPropertyResponse {
                 status: SetPropertyStatus::Accepted,
@@ -672,7 +956,7 @@ mod tests {
         }));
         assert_eq!(response.status, SetPropertyStatus::Accepted);
         let request = match session.transport.writes().first() {
-            Some(line) => match decode_request_line(line) {
+            Some(frame) => match decode_request_frame(frame) {
                 Ok(request) => request,
                 Err(error) => panic!("request should decode: {error}"),
             },
@@ -685,15 +969,18 @@ mod tests {
     }
 
     #[test]
-    fn invalid_json_produces_clear_error() {
-        let mut session = AdapterSession::new(FakeAdapterTransport::new(vec![
-            "{not-valid-json".to_string(),
-        ]));
+    fn invalid_frame_json_produces_clear_error() {
+        let mut session = AdapterSession::new(FakeAdapterTransport::new(vec![AdapterFrame {
+            kind: elcarax_adapter_api::FrameKind::Response,
+            id: 1,
+            json: b"{not-valid-json".to_vec(),
+            binary: Vec::new(),
+        }]));
         let error = match session.get_diagnostics(GetDiagnosticsRequest) {
             Ok(_) => panic!("invalid JSON should fail"),
             Err(error) => error,
         };
-        assert!(matches!(error, AdapterHostError::InvalidJson(_)));
+        assert!(matches!(error, AdapterHostError::InvalidFrame(_)));
     }
 
     #[test]
@@ -709,7 +996,7 @@ mod tests {
 
     #[test]
     fn stopping_adapter_transitions_state() {
-        let response = response_line(
+        let response = response_frame(
             AdapterRequestId(1),
             AdapterResponseMessage::Shutdown(ShutdownResponse { accepted: true }),
         );
@@ -727,9 +1014,9 @@ mod tests {
     }
 
     #[test]
-    fn event_lines_are_collected_before_response() {
-        let event = event_line(AdapterEvent::Log(AdapterLog::info("ready")));
-        let response = response_line(
+    fn event_frames_are_collected_before_response() {
+        let event = event_frame(AdapterEvent::Log(AdapterLog::info("ready")));
+        let response = response_frame(
             AdapterRequestId(1),
             AdapterResponseMessage::GetDiagnostics(GetDiagnosticsResponse {
                 diagnostics: vec![AdapterDiagnostic::info("mock", "ok")],
@@ -754,7 +1041,7 @@ mod tests {
             Some(player) => player,
             None => panic!("player should exist"),
         };
-        let response = response_line(
+        let response = response_frame(
             AdapterRequestId(1),
             AdapterResponseMessage::PickViewportObject(PickViewportObjectResponse {
                 viewport_id: AdapterViewportId(1),
@@ -777,7 +1064,7 @@ mod tests {
     fn must<T, E: fmt::Display>(value: Result<T, E>) -> T {
         match value {
             Ok(value) => value,
-            Err(error) => panic!("operation should succeed: {error}"),
+            Err(error) => panic!("expected success: {error}"),
         }
     }
 

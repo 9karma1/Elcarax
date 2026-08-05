@@ -348,7 +348,7 @@ mod tests {
         AdapterCapabilities, AdapterId, AdapterName, AdapterRequestId, AdapterResponseMessage,
         AdapterVersion, HandshakeResponse, ProtocolVersion,
     };
-    use elcarax_adapter_host::{AdapterSession, FakeAdapterTransport, response_line};
+    use elcarax_adapter_host::{AdapterSession, FakeAdapterTransport, response_frame};
     use elcarax_core::{ViewportFrameFormat, ViewportStatus};
 
     #[test]
@@ -409,16 +409,15 @@ mod tests {
     }
 
     fn adapter_with_viewport_response() -> AdapterState {
-        let response = GetViewportFrameResponse {
-            viewport_id: AdapterViewportId(1),
-            width: 2,
-            height: 2,
-            format: ViewportFrameFormat::Rgba8Unorm,
-            pixels: vec![0; 16],
-            diagnostics: Vec::new(),
-            status: ViewportFrameResponseStatus::Available,
-        };
-        let handshake = match response_line(
+        let response = GetViewportFrameResponse::available(
+            AdapterViewportId(1),
+            2,
+            2,
+            ViewportFrameFormat::Rgba8Unorm,
+            vec![0; 16],
+            Vec::new(),
+        );
+        let handshake = match response_frame(
             AdapterRequestId(1),
             AdapterResponseMessage::Handshake(HandshakeResponse {
                 adapter_id: AdapterId::new("fixture-adapter"),
@@ -435,15 +434,15 @@ mod tests {
                 },
             }),
         ) {
-            Ok(line) => line,
-            Err(error) => panic!("handshake line should serialize: {error}"),
+            Ok(frame) => frame,
+            Err(error) => panic!("handshake frame should serialize: {error}"),
         };
-        let frame = match response_line(
+        let frame = match response_frame(
             AdapterRequestId(2),
             AdapterResponseMessage::GetViewportFrame(response),
         ) {
-            Ok(line) => line,
-            Err(error) => panic!("frame line should serialize: {error}"),
+            Ok(frame) => frame,
+            Err(error) => panic!("frame should serialize: {error}"),
         };
         let mut adapter = AdapterState::default();
         adapter.attach_fake_session_for_tests(AdapterSession::new(FakeAdapterTransport::new(

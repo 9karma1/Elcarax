@@ -102,12 +102,36 @@ pub struct GetViewportFrameResponse {
     pub width: u32,
     pub height: u32,
     pub format: ViewportFrameFormat,
+    /// Declared binary payload length; pixel bytes travel in the frame binary segment.
+    pub byte_len: u32,
+    #[serde(skip)]
     pub pixels: Vec<u8>,
     pub diagnostics: Vec<AdapterDiagnostic>,
     pub status: ViewportFrameResponseStatus,
 }
 
 impl GetViewportFrameResponse {
+    pub fn available(
+        viewport_id: AdapterViewportId,
+        width: u32,
+        height: u32,
+        format: ViewportFrameFormat,
+        pixels: Vec<u8>,
+        diagnostics: Vec<AdapterDiagnostic>,
+    ) -> Self {
+        let byte_len = u32::try_from(pixels.len()).unwrap_or(u32::MAX);
+        Self {
+            viewport_id,
+            width,
+            height,
+            format,
+            byte_len,
+            pixels,
+            diagnostics,
+            status: ViewportFrameResponseStatus::Available,
+        }
+    }
+
     pub fn failed(
         viewport_id: AdapterViewportId,
         status: ViewportFrameResponseStatus,
@@ -118,6 +142,7 @@ impl GetViewportFrameResponse {
             width: 0,
             height: 0,
             format: ViewportFrameFormat::Rgba8Unorm,
+            byte_len: 0,
             pixels: Vec::new(),
             diagnostics: vec![AdapterDiagnostic {
                 severity: Severity::Error,

@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use elcarax_adapter_api::{
@@ -8,8 +8,8 @@ use elcarax_adapter_api::{
     GetViewportFrameRequest, GetViewportFrameResponse, HandshakeResponse, LoadProjectResponse,
     PickViewportObjectRequest, PickViewportObjectResponse, ProtocolVersion, SetPropertyRequest,
     SetPropertyResponse, SetPropertyStatus, ShutdownResponse, ViewportCameraInput,
-    ViewportFrameResponseStatus, ViewportPickResponseStatus, decode_request_line,
-    encode_event_line, encode_response_line,
+    ViewportFrameResponseStatus, ViewportPickResponseStatus, decode_request_frame,
+    encode_event_frame, encode_response_frame, read_frame, write_frame,
 };
 use elcarax_core::{ElcaraxError, Result, ViewportCamera, ViewportFrameFormat};
 use elcarax_scene_model::{
@@ -23,21 +23,25 @@ fn main() -> Result<()> {
 
 fn run_stdio_adapter() -> Result<()> {
     let stdin = io::stdin();
+    let mut stdin = stdin.lock();
     let mut stdout = io::stdout();
     let mut adapter = MockAdapter::new();
-    for line in stdin.lock().lines() {
-        let line = line.map_err(|error| ElcaraxError::Adapter(error.to_string()))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let request = match decode_request_line(&line) {
+    loop {
+        let frame = match read_frame(&mut stdin) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => break,
+            Err(error) => {
+                return Err(ElcaraxError::Adapter(error.to_string()));
+            }
+        };
+        let request = match decode_request_frame(&frame) {
             Ok(request) => request,
             Err(error) => {
                 write_event(
                     &mut stdout,
                     AdapterEvent::Diagnostic(AdapterDiagnostic::info(
                         "mock-adapter",
-                        format!("invalid request JSON: {error}"),
+                        format!("invalid request frame: {error}"),
                     )),
                 )?;
                 continue;
@@ -246,18 +250,17 @@ impl MockAdapter {
         let height = request.height;
         let pixels =
             procedural_viewport_rgba(width, height, self.viewport_camera, request.editor_input);
-        GetViewportFrameResponse {
+        GetViewportFrameResponse::available(
             viewport_id,
             width,
             height,
-            format: ViewportFrameFormat::Rgba8Unorm,
+            ViewportFrameFormat::Rgba8Unorm,
             pixels,
-            diagnostics: vec![AdapterDiagnostic::info(
+            vec![AdapterDiagnostic::info(
                 "game-adapter",
                 format!("generated {width}x{height} preview frame"),
             )],
-            status: ViewportFrameResponseStatus::Available,
-        }
+        )
     }
 
     fn pick_viewport_object(
@@ -390,21 +393,15 @@ fn status_for_patch_error(error: &elcarax_scene_model::ScenePatchError) -> SetPr
 }
 
 fn write_response<W: Write>(writer: &mut W, response: AdapterResponse) -> Result<()> {
-    let line = encode_response_line(&response)
+    let frame = encode_response_frame(&response)
         .map_err(|error| ElcaraxError::Adapter(error.to_string()))?;
-    writeln!(writer, "{line}").map_err(|error| ElcaraxError::Adapter(error.to_string()))?;
-    writer
-        .flush()
-        .map_err(|error| ElcaraxError::Adapter(error.to_string()))
+    write_frame(writer, &frame).map_err(|error| ElcaraxError::Adapter(error.to_string()))
 }
 
 fn write_event<W: Write>(writer: &mut W, event: AdapterEvent) -> Result<()> {
-    let line =
-        encode_event_line(&event).map_err(|error| ElcaraxError::Adapter(error.to_string()))?;
-    writeln!(writer, "{line}").map_err(|error| ElcaraxError::Adapter(error.to_string()))?;
-    writer
-        .flush()
-        .map_err(|error| ElcaraxError::Adapter(error.to_string()))
+    let frame =
+        encode_event_frame(&event).map_err(|error| ElcaraxError::Adapter(error.to_string()))?;
+    write_frame(writer, &frame).map_err(|error| ElcaraxError::Adapter(error.to_string()))
 }
 
 #[cfg(test)]
@@ -623,6 +620,9 @@ mod tests {
 
     #[test]
     fn scene_snapshot_after_edit_contains_updated_value() {
+        use elcarax_adapter_api::{AdapterLine, decode_adapter_frame, read_frame};
+        use std::io::Cursor;
+
         let mut adapter = MockAdapter::new();
         let _ = adapter.set_property(request("health", PropertyValue::I64(65)));
         let mut writer = Vec::new();
@@ -633,11 +633,30 @@ mod tests {
         if let Err(error) = adapter.handle_request(adapter_request, &mut writer) {
             panic!("snapshot request should succeed: {error}");
         }
-        let output = match String::from_utf8(writer) {
-            Ok(value) => value,
-            Err(error) => panic!("response should be UTF-8: {error}"),
+        let mut cursor = Cursor::new(writer);
+        let response_frame = loop {
+            let frame = match read_frame(&mut cursor) {
+                Ok(Some(frame)) => frame,
+                Ok(None) => panic!("response frame should be present"),
+                Err(error) => panic!("response frame should decode: {error}"),
+            };
+            match decode_adapter_frame(&frame) {
+                Ok(AdapterLine::Event(_)) => continue,
+                Ok(AdapterLine::Response(response)) => break response,
+                Err(error) => panic!("adapter line should decode: {error}"),
+            }
         };
-        assert!(output.contains("65"));
+        let AdapterResponse {
+            message: AdapterResponseMessage::GetSceneSnapshot(response),
+            ..
+        } = response_frame
+        else {
+            panic!("expected scene snapshot response");
+        };
+        assert_eq!(
+            player_property(&response.snapshot, "health"),
+            PropertyValue::I64(65)
+        );
     }
 
     use elcarax_scene_model::{ComponentTypeName, components};
