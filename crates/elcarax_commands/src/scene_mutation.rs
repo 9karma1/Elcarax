@@ -1,7 +1,5 @@
 use elcarax_core::{ElcaraxError, Result};
-use elcarax_scene_model::{
-    PropertyChange, ScenePatch, ScenePatchError, property_change_patches,
-};
+use elcarax_scene_model::{PropertyChange, ScenePatch, ScenePatchError, property_change_patches};
 
 use crate::{CommandContext, CommandEffect, CommandHistory, EditorCommand};
 
@@ -26,11 +24,7 @@ enum SceneMutationPayload {
 }
 
 impl ApplyScenePatchCommand {
-    pub fn local(
-        forward: ScenePatch,
-        inverse: ScenePatch,
-        label: impl Into<String>,
-    ) -> Self {
+    pub fn local(forward: ScenePatch, inverse: ScenePatch, label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
             payload: SceneMutationPayload::Local { forward, inverse },
@@ -102,7 +96,9 @@ fn apply_remote_property(
     forward: bool,
 ) -> Result<()> {
     let sink = context.mutation_sink.as_mut().ok_or_else(|| {
-        ElcaraxError::Command("remote scene mutation requires an adapter writeback sink".to_string())
+        ElcaraxError::Command(
+            "remote scene mutation requires an adapter writeback sink".to_string(),
+        )
     })?;
     let request = if forward {
         change.clone()
@@ -312,8 +308,7 @@ mod tests {
             &path,
             PropertyValue::Vec3([4.0, 5.0, 6.0]),
         )?;
-        let command =
-            ApplyScenePatchCommand::from_property_change(change, "Set Player Position");
+        let command = ApplyScenePatchCommand::from_property_change(change, "Set Player Position");
         assert_eq!(command.label(), "Set Player Position");
         Ok(())
     }
@@ -348,11 +343,7 @@ mod tests {
             mutation_sink: None,
         };
         history.execute(
-            Box::new(ApplyScenePatchCommand::local(
-                forward,
-                inverse,
-                "Add Child",
-            )),
+            Box::new(ApplyScenePatchCommand::local(forward, inverse, "Add Child")),
             &mut context,
         )?;
         assert!(context.scene.objects().contains_key(&child_id));

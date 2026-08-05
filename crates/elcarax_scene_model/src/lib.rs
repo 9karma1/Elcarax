@@ -428,7 +428,9 @@ mod tests {
             ScenePatch::property_updated(player_id, path("gameplay.mana"), PropertyValue::I64(65));
         assert!(matches!(
             patch.apply(&mut snapshot),
-            Err(ScenePatchError::Property(PropertyEditError::PropertyNotFound { .. }))
+            Err(ScenePatchError::Property(
+                PropertyEditError::PropertyNotFound { .. }
+            ))
         ));
     }
 
@@ -443,7 +445,9 @@ mod tests {
         );
         assert!(matches!(
             patch.apply(&mut snapshot),
-            Err(ScenePatchError::Property(PropertyEditError::TypeMismatch { .. }))
+            Err(ScenePatchError::Property(
+                PropertyEditError::TypeMismatch { .. }
+            ))
         ));
     }
 

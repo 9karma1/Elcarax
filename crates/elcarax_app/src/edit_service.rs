@@ -1,4 +1,4 @@
-﻿//! Unified session edit authority for local and adapter-backed scenes.
+//! Unified session edit authority for local and adapter-backed scenes.
 
 use elcarax_adapter_api::{AdapterEditSource, SetPropertyRequest};
 use elcarax_commands::{
@@ -207,7 +207,7 @@ impl SceneMutationSink for AdapterState {
             path: change.path.clone(),
             expected_old_value: Some(change.old_value.clone()),
             new_value: change.new_value.clone(),
-                transaction_id: format!("edit-{}-{}", change.object_id.get(), change.path),
+            transaction_id: format!("edit-{}-{}", change.object_id.get(), change.path),
             edit_source: AdapterEditSource::Inspector,
         };
         self.confirm_set_property(request)

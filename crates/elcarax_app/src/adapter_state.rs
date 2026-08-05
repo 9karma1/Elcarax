@@ -1,8 +1,8 @@
 #![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 
 use elcarax_adapter_api::{
-    AdapterCapabilities, AdapterDiagnostic, AdapterName, AdapterVersion,
-    SetPropertyRequest, SetPropertyResponse, ViewportFrameResponseStatus,
+    AdapterCapabilities, AdapterDiagnostic, AdapterName, AdapterVersion, SetPropertyRequest,
+    SetPropertyResponse, ViewportFrameResponseStatus,
 };
 #[cfg(any(test, feature = "native-shell"))]
 use elcarax_adapter_api::{

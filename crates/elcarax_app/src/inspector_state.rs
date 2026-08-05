@@ -1,12 +1,12 @@
 #![cfg_attr(not(feature = "native-shell"), allow(dead_code))]
 
 use elcarax_commands::CommandHistory;
+#[cfg(test)]
+use elcarax_scene_model::PropertyValue;
 use elcarax_scene_model::{
     InspectorDiagnostic, PropertyEditKind, PropertyPath, build_inspector_for_selection,
     build_inspector_object, parse_property_text,
 };
-#[cfg(test)]
-use elcarax_scene_model::PropertyValue;
 
 use crate::adapter_state::AdapterState;
 use crate::edit_service::SessionEditService;

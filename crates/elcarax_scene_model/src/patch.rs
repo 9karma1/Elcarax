@@ -168,21 +168,11 @@ pub struct Renamed {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScenePatchError {
     Property(PropertyEditError),
-    ObjectNotFound {
-        object_id: SceneObjectId,
-    },
-    ObjectAlreadyExists {
-        object_id: SceneObjectId,
-    },
-    InvalidHierarchy {
-        reason: String,
-    },
-    CycleDetected {
-        object_id: SceneObjectId,
-    },
-    NotInvertible {
-        reason: String,
-    },
+    ObjectNotFound { object_id: SceneObjectId },
+    ObjectAlreadyExists { object_id: SceneObjectId },
+    InvalidHierarchy { reason: String },
+    CycleDetected { object_id: SceneObjectId },
+    NotInvertible { reason: String },
 }
 
 impl ScenePatchError {
@@ -197,7 +187,10 @@ impl ScenePatchError {
             }
             Self::InvalidHierarchy { reason } => format!("Invalid hierarchy: {reason}"),
             Self::CycleDetected { object_id } => {
-                format!("Reparenting object {} would create a cycle", object_id.get())
+                format!(
+                    "Reparenting object {} would create a cycle",
+                    object_id.get()
+                )
             }
             Self::NotInvertible { reason } => reason.clone(),
         }
@@ -222,12 +215,13 @@ fn apply_property_update(
     snapshot: &mut SceneSnapshot,
     update: &PropertyUpdated,
 ) -> Result<(), ScenePatchError> {
-    let object = snapshot
-        .objects()
-        .get(&update.object_id)
-        .ok_or(ScenePatchError::ObjectNotFound {
-            object_id: update.object_id,
-        })?;
+    let object =
+        snapshot
+            .objects()
+            .get(&update.object_id)
+            .ok_or(ScenePatchError::ObjectNotFound {
+                object_id: update.object_id,
+            })?;
     let kind = property_kind(snapshot, object.type_id, &update.path)?;
     validate_patch_value(&update.path, kind, &update.value)?;
     if object.property(&update.path).is_none() {
@@ -359,12 +353,11 @@ fn apply_renamed(snapshot: &mut SceneSnapshot, renamed: &Renamed) -> Result<(), 
             reason: "object name cannot be empty".to_string(),
         });
     }
-    let object = snapshot
-        .objects_mut()
-        .get_mut(&renamed.object_id)
-        .ok_or(ScenePatchError::ObjectNotFound {
+    let object = snapshot.objects_mut().get_mut(&renamed.object_id).ok_or(
+        ScenePatchError::ObjectNotFound {
             object_id: renamed.object_id,
-        })?;
+        },
+    )?;
     object.display_name = renamed.new_name.clone();
     if let Ok(path) = PropertyPath::parse("general.name")
         && object.properties.contains_key(&path)
@@ -401,12 +394,13 @@ fn sibling_index(
 ) -> Result<usize, ScenePatchError> {
     let siblings = match parent {
         Some(parent_id) => {
-            let parent = snapshot
-                .objects()
-                .get(&parent_id)
-                .ok_or(ScenePatchError::ObjectNotFound {
-                    object_id: parent_id,
-                })?;
+            let parent =
+                snapshot
+                    .objects()
+                    .get(&parent_id)
+                    .ok_or(ScenePatchError::ObjectNotFound {
+                        object_id: parent_id,
+                    })?;
             parent.children.as_slice()
         }
         None => snapshot.root_object_ids(),

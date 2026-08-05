@@ -357,15 +357,14 @@ impl SceneSnapshot {
                     reason: format!("object {} is not a root object", object_id.get()),
                 })?,
         };
-        let patch = crate::ScenePatch::single(crate::ScenePatchOperation::Reparented(
-            crate::Reparented {
+        let patch =
+            crate::ScenePatch::single(crate::ScenePatchOperation::Reparented(crate::Reparented {
                 object_id,
                 old_parent,
                 old_index,
                 new_parent,
                 new_index,
-            },
-        ));
+            }));
         patch.apply(self)?;
         Ok(patch)
     }

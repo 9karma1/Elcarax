@@ -33,10 +33,7 @@ impl<'a> CommandContext<'a> {
         }
     }
 
-    pub fn with_sink(
-        scene: &'a mut SceneSnapshot,
-        sink: &'a mut dyn SceneMutationSink,
-    ) -> Self {
+    pub fn with_sink(scene: &'a mut SceneSnapshot, sink: &'a mut dyn SceneMutationSink) -> Self {
         Self {
             scene,
             mutation_sink: Some(sink),
