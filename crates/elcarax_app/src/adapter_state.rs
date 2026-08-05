@@ -27,9 +27,11 @@ use elcarax_adapter_api::{ViewportCameraInput, ViewportEditorInput};
 #[cfg(any(test, feature = "native-shell"))]
 use elcarax_core::ViewportFrameFormat;
 use elcarax_core::{ViewportError, ViewportFrame};
+#[cfg(test)]
+use elcarax_scene_model::PropertyPath;
 #[cfg(feature = "native-shell")]
 use elcarax_scene_model::SceneObjectId;
-use elcarax_scene_model::{PropertyPath, ScenePatch};
+use elcarax_scene_model::ScenePatch;
 
 use crate::scene_state::{SceneState, UNSAVED_SCENE_MESSAGE};
 

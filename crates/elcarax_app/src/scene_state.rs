@@ -105,10 +105,6 @@ impl SceneState {
         matches!(self.source, SceneSource::Project(_))
     }
 
-    pub(crate) fn is_adapter_backed(&self) -> bool {
-        self.adapter_id().is_some()
-    }
-
     pub(crate) fn mark_document_modified(&mut self) {
         if self.is_project_document() {
             self.document_dirty = true;

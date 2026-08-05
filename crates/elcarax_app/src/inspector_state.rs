@@ -101,11 +101,6 @@ impl InspectorState {
         self.last_command_result = None;
     }
 
-    pub(crate) fn set_last_command_result(&mut self, result: InspectorCommandResult) {
-        self.suppressed = false;
-        self.last_command_result = Some(result);
-    }
-
     pub(crate) fn ui_snapshot(&self, scene: &SceneState) -> InspectorUiSnapshot {
         self.ui_snapshot_at(scene, 0)
     }
