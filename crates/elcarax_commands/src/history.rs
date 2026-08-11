@@ -28,18 +28,32 @@ impl CommandHistory {
         let Some(mut command) = self.undo_stack.pop() else {
             return Ok(None);
         };
-        let effect = command.revert(context)?;
-        self.redo_stack.push(command);
-        Ok(Some(effect))
+        match command.revert(context) {
+            Ok(effect) => {
+                self.redo_stack.push(command);
+                Ok(Some(effect))
+            }
+            Err(error) => {
+                self.undo_stack.push(command);
+                Err(error)
+            }
+        }
     }
 
     pub fn redo(&mut self, context: &mut CommandContext<'_>) -> Result<Option<CommandEffect>> {
         let Some(mut command) = self.redo_stack.pop() else {
             return Ok(None);
         };
-        let effect = command.apply(context)?;
-        self.undo_stack.push(command);
-        Ok(Some(effect))
+        match command.apply(context) {
+            Ok(effect) => {
+                self.undo_stack.push(command);
+                Ok(Some(effect))
+            }
+            Err(error) => {
+                self.redo_stack.push(command);
+                Err(error)
+            }
+        }
     }
 
     pub fn undo_count(&self) -> usize {

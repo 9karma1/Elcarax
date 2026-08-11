@@ -149,10 +149,8 @@ impl SceneFileDocument {
         let objects = objects_from_documents(self.objects)?;
         let schemas = schemas_from_documents(self.schemas)?;
         let snapshot = SceneSnapshot::from_storage(scene_id, name, root_objects, objects, schemas);
-        if snapshot.objects().len() != snapshot.object_count() {
-            return Err(SceneIoError::InvalidDocument(
-                "duplicate scene object ids".to_string(),
-            ));
+        if let Err(reason) = crate::SceneHierarchy::validate_detailed(&snapshot) {
+            return Err(SceneIoError::InvalidDocument(reason));
         }
         Ok(snapshot)
     }
@@ -348,9 +346,12 @@ mod tests {
             type_id,
         );
         let child_id = child.id;
-        snapshot.add_root_object(root);
-        if let Err(error) = snapshot.attach_child(root_id, child) {
-            panic!("attach child should succeed: {error}");
+        let property_types = crate::PropertyTypeRegistry::default();
+        if let Err(error) = snapshot.add_object(None, 0, root, &property_types) {
+            panic!("add root should succeed: {error}");
+        }
+        if let Err(error) = snapshot.add_object(Some(root_id), 0, child, &property_types) {
+            panic!("add child should succeed: {error}");
         }
         let serialized = match SceneFile::from_snapshot(&snapshot).to_toml_string() {
             Ok(value) => value,

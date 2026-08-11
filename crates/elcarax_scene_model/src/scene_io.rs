@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::SceneHierarchy;
 use crate::SceneIoError;
 use crate::scene_file::{
     DEFAULT_SCENE_FILENAME, SceneFile, is_scene_file_name, scene_file_path_in_root,
@@ -12,7 +11,6 @@ pub fn read_scene_file(path: &Path) -> Result<SceneFile, SceneIoError> {
     let content = fs::read_to_string(path)
         .map_err(|error| SceneIoError::Io(format!("failed to read {}: {error}", path.display())))?;
     let file = SceneFile::from_toml_str(&content)?;
-    validate_loaded_snapshot(file.snapshot())?;
     Ok(file)
 }
 
@@ -97,16 +95,6 @@ pub fn load_scene_from_project(
     Ok((file.into_snapshot(), path))
 }
 
-fn validate_loaded_snapshot(snapshot: &SceneSnapshot) -> Result<(), SceneIoError> {
-    if snapshot.name().as_str().trim().is_empty() {
-        return Err(SceneIoError::InvalidDocument(
-            "scene name cannot be empty".to_string(),
-        ));
-    }
-    SceneHierarchy::validate(snapshot)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,15 +110,20 @@ mod tests {
         let _ = fs::create_dir_all(&temp);
         let path = temp.join("roundtrip.elcarax.scene.toml");
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Roundtrip"));
+        let schema = {
+            use crate::ObjectSchema;
+            ObjectSchema::new("World")
+        };
         let object = SceneObject::new(
             "Root",
             SceneObjectKind::new(crate::kind::well_known::WORLD),
-            {
-                use crate::ObjectSchema;
-                ObjectSchema::new("World").type_id
-            },
+            schema.type_id,
         );
-        snapshot.add_root_object(object);
+        snapshot.add_schema(schema);
+        let property_types = crate::PropertyTypeRegistry::default();
+        if let Err(error) = snapshot.add_object(None, 0, object, &property_types) {
+            panic!("add root should succeed: {error}");
+        }
         if let Err(error) = write_scene_file(&path, &snapshot) {
             panic!("write scene should succeed: {error}");
         }

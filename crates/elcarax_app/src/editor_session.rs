@@ -4,26 +4,22 @@ use std::path::PathBuf;
 
 use elcarax_commands::CommandHistory;
 use elcarax_project::save_project_editor_settings;
-use elcarax_scene_model::PropertyEditKind;
+use elcarax_scene_model::PropertyTypeRegistry;
 
-use crate::adapter_state::{ADAPTER_DISCONNECT_COMMAND, AdapterState};
-use crate::asset_state::{ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, AssetState};
-use crate::inspector_state::{InspectorCommandResult, InspectorState};
+use crate::adapter_state::{AdapterCommand, AdapterState};
+use crate::asset_state::{AssetCommand, AssetState};
+use crate::inspector_state::{
+    InspectorCommandResult, InspectorEditCommand, InspectorPropertyCommit, InspectorState,
+};
 use crate::project_config::AppProjectConfig;
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
-    PROJECT_REOPEN_LAST_COMMAND, ProjectCommandResult, ProjectState,
+    PROJECT_REOPEN_LAST_COMMAND, ProjectCommand, ProjectCommandResult, ProjectState,
 };
 use crate::scene_state::{
-    SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND, SceneCommandResult, SceneState, UNSAVED_SCENE_MESSAGE,
+    SCENE_SAVE_COMMAND, SceneCommand, SceneCommandResult, SceneState, UNSAVED_SCENE_MESSAGE,
 };
-use crate::viewport_state::{AppViewportState, VIEWPORT_CLEAR_COMMAND};
-
-pub(crate) const SWITCH_PROJECT_COMMANDS: [&str; 3] = [
-    PROJECT_OPEN_COMMAND,
-    PROJECT_CREATE_COMMAND,
-    PROJECT_REOPEN_LAST_COMMAND,
-];
+use crate::viewport_state::{AppViewportState, ViewportCommand, ViewportFrameRequestSize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct EditorSessionPolicy {
@@ -38,14 +34,14 @@ pub(crate) struct EditorShellContext<'a> {
 impl EditorShellContext<'_> {
     pub(crate) fn release_adapter_session(&mut self, scene: &mut SceneState) {
         if self.adapter.is_connected() {
-            let _ = self
-                .adapter
-                .execute_command_id(ADAPTER_DISCONNECT_COMMAND, scene);
+            let _ = self.adapter.execute(AdapterCommand::Disconnect, scene);
         }
         self.viewport.on_adapter_disconnected();
-        let _ = self
-            .viewport
-            .execute_command_id(VIEWPORT_CLEAR_COMMAND, self.adapter);
+        let _ = self.viewport.execute(
+            ViewportCommand::Clear,
+            self.adapter,
+            ViewportFrameRequestSize::default_editor(),
+        );
     }
 }
 
@@ -55,6 +51,7 @@ pub(crate) struct EditorSessionState {
     pub scene: SceneState,
     pub inspector: InspectorState,
     pub edit_history: CommandHistory,
+    pub property_types: PropertyTypeRegistry,
     policy: EditorSessionPolicy,
 }
 
@@ -66,6 +63,7 @@ impl EditorSessionState {
             scene: SceneState::default(),
             inspector: InspectorState::default(),
             edit_history: CommandHistory::new(),
+            property_types: PropertyTypeRegistry::default(),
             policy: EditorSessionPolicy::default(),
         }
     }
@@ -122,45 +120,54 @@ impl<'a> EditorSession<'a> {
         if !self.can_leave_project() {
             return self.blocked_project_close();
         }
-        let result = match self.state.project.execute_command_id(PROJECT_CLOSE_COMMAND) {
-            Some(result) => result,
-            None => blocked_project_command(PROJECT_CLOSE_COMMAND, "Failed to close project"),
-        };
+        let result = self.state.project.execute(ProjectCommand::Close);
         self.clear_project_dependents(shell);
         result
     }
 
     pub(crate) fn execute_project_command(
         &mut self,
-        command_id: &str,
+        command: ProjectCommand,
         shell: Option<&mut EditorShellContext<'_>>,
-    ) -> Option<ProjectCommandResult> {
-        match command_id {
-            PROJECT_CLOSE_COMMAND => Some(self.close_project(shell)),
-            PROJECT_OPEN_COMMAND => self
+    ) -> ProjectCommandResult {
+        match command {
+            ProjectCommand::Close => self.close_project(shell),
+            ProjectCommand::Open => self
                 .state
                 .project
                 .config()
                 .open_path
                 .clone()
-                .map(|path| self.open_project_at(path, shell)),
-            PROJECT_CREATE_COMMAND => self
+                .map(|path| self.open_project_at(path, shell))
+                .unwrap_or_else(|| {
+                    ProjectCommandResult::blocked(
+                        PROJECT_OPEN_COMMAND,
+                        "Project path is not configured",
+                    )
+                }),
+            ProjectCommand::Create => self
                 .state
                 .project
                 .config()
                 .create_root_or_open_parent()
-                .map(|root| self.create_project_at(root, shell)),
-            PROJECT_REOPEN_LAST_COMMAND => Some(self.reopen_last_project(shell)),
-            _ => {
-                let result = self.state.project.execute_command_id(command_id)?;
-                self.after_non_switch_project_command(command_id, shell);
-                Some(result)
+                .map(|root| self.create_project_at(root, shell))
+                .unwrap_or_else(|| {
+                    ProjectCommandResult::blocked(
+                        PROJECT_CREATE_COMMAND,
+                        "Project root is not configured",
+                    )
+                }),
+            ProjectCommand::ReopenLast => self.reopen_last_project(shell),
+            command => {
+                let result = self.state.project.execute(command);
+                self.after_non_switch_project_command(command, shell);
+                result
             }
         }
     }
 
     pub(crate) fn save_scene(&mut self) -> Option<SceneSaveOutcome> {
-        let result = self.state.scene.execute_command_id(SCENE_SAVE_COMMAND)?;
+        let result = self.state.scene.execute(SceneCommand::Save);
         let manifest_warning = if scene_save_succeeded(&result) {
             self.persist_active_scene_to_manifest()
         } else {
@@ -172,27 +179,24 @@ impl<'a> EditorSession<'a> {
         })
     }
 
-    pub(crate) fn execute_scene_command(
-        &mut self,
-        command_id: &str,
-    ) -> Option<SceneCommandOutcome> {
-        let result = self.state.scene.execute_command_id(command_id)?;
+    pub(crate) fn execute_scene_command(&mut self, command: SceneCommand) -> SceneCommandOutcome {
+        let result = self.state.scene.execute(command);
         let manifest_warning = if scene_save_succeeded(&result) {
             self.persist_active_scene_to_manifest()
         } else {
             None
         };
-        if command_id == SCENE_LOAD_COMMAND {
+        if command == SceneCommand::Load {
             self.state.inspector.on_scene_selection_changed();
         }
-        Some(SceneCommandOutcome {
+        SceneCommandOutcome {
             result,
             manifest_warning,
-        })
+        }
     }
 
-    pub(crate) fn after_asset_command(&mut self, command_id: &str) {
-        if matches!(command_id, ASSET_SCAN_COMMAND | ASSET_REFRESH_COMMAND) {
+    pub(crate) fn after_asset_command(&mut self, command: AssetCommand) {
+        if matches!(command, AssetCommand::Scan | AssetCommand::Refresh) {
             self.state
                 .project
                 .set_scanned_asset_count(self.state.assets.scanned_asset_count());
@@ -202,34 +206,28 @@ impl<'a> EditorSession<'a> {
     pub(crate) fn commit_inspector_property(
         &mut self,
         adapter: &mut AdapterState,
-        component_id: elcarax_scene_model::ComponentInstanceId,
-        path: &str,
-        edit_kind: PropertyEditKind,
-        text: &str,
-        label: &str,
+        request: InspectorPropertyCommit,
     ) -> InspectorCommandResult {
         self.state.inspector.commit_inspector_property(
             &mut self.state.scene,
             &mut self.state.edit_history,
             Some(adapter),
-            component_id,
-            path,
-            edit_kind,
-            text,
-            label,
+            request,
+            &self.state.property_types,
         )
     }
 
     pub(crate) fn execute_edit_command(
         &mut self,
         adapter: &mut AdapterState,
-        command_id: &str,
-    ) -> Option<InspectorCommandResult> {
-        self.state.inspector.execute_edit_command_id(
-            command_id,
+        command: InspectorEditCommand,
+    ) -> InspectorCommandResult {
+        self.state.inspector.execute_edit(
+            command,
             &mut self.state.scene,
             &mut self.state.edit_history,
             Some(adapter),
+            &self.state.property_types,
         )
     }
 
@@ -240,17 +238,7 @@ impl<'a> EditorSession<'a> {
         if !self.can_leave_project() {
             return self.blocked_project_switch(PROJECT_REOPEN_LAST_COMMAND);
         }
-        let result = match self
-            .state
-            .project
-            .execute_command_id(PROJECT_REOPEN_LAST_COMMAND)
-        {
-            Some(result) => result,
-            None => blocked_project_command(
-                PROJECT_REOPEN_LAST_COMMAND,
-                "Failed to reopen last project",
-            ),
-        };
+        let result = self.state.project.execute(ProjectCommand::ReopenLast);
         self.bind_opened_project(shell);
         result
     }
@@ -273,7 +261,7 @@ impl<'a> EditorSession<'a> {
             self.state
                 .scene
                 .on_project_opened(scene_root, self.state.project.active_scene_relative());
-            let _ = self.state.scene.execute_command_id(SCENE_LOAD_COMMAND);
+            let _ = self.state.scene.execute(SceneCommand::Load);
         } else {
             self.state.scene.on_project_closed();
         }
@@ -281,11 +269,8 @@ impl<'a> EditorSession<'a> {
         self.state.project.set_scanned_asset_count(None);
         self.state.edit_history.clear();
         if self.policy.scan_assets_on_open {
-            let _ = self
-                .state
-                .assets
-                .execute_command_id(ASSET_SCAN_COMMAND, true);
-            self.after_asset_command(ASSET_SCAN_COMMAND);
+            let _ = self.state.assets.execute(AssetCommand::Scan, true);
+            self.after_asset_command(AssetCommand::Scan);
         }
     }
 
@@ -301,14 +286,18 @@ impl<'a> EditorSession<'a> {
 
     fn after_non_switch_project_command(
         &mut self,
-        command_id: &str,
+        command: ProjectCommand,
         shell: Option<&mut EditorShellContext<'_>>,
     ) {
-        if command_id == PROJECT_CLOSE_COMMAND {
+        if command == ProjectCommand::Close {
             self.clear_project_dependents(shell);
             return;
         }
-        if SWITCH_PROJECT_COMMANDS.contains(&command_id) && self.state.project.is_project_loaded() {
+        if matches!(
+            command,
+            ProjectCommand::Open | ProjectCommand::Create | ProjectCommand::ReopenLast
+        ) && self.state.project.is_project_loaded()
+        {
             self.bind_opened_project(shell);
         }
     }
@@ -401,7 +390,7 @@ mod tests {
         });
         let _ = session
             .session_mut()
-            .execute_project_command(PROJECT_CREATE_COMMAND, None);
+            .execute_project_command(ProjectCommand::Create, None);
         session.scene.mark_document_modified();
         let close = session.session_mut().close_project(None);
         assert_eq!(close.message(), UNSAVED_SCENE_MESSAGE);
@@ -421,7 +410,7 @@ mod tests {
         let mut session = EditorSessionState::new(config);
         let _ = session
             .session_mut()
-            .execute_project_command(PROJECT_CREATE_COMMAND, None);
+            .execute_project_command(ProjectCommand::Create, None);
         assert!(session.project.is_project_loaded());
         assert_eq!(session.edit_history.undo_count(), 0);
         let _ = std::fs::remove_dir_all(&temp);
@@ -438,7 +427,7 @@ mod tests {
         });
         let _ = session
             .session_mut()
-            .execute_project_command(PROJECT_CREATE_COMMAND, None);
+            .execute_project_command(ProjectCommand::Create, None);
         if let Some(snapshot) = session.scene.snapshot_mut() {
             let schema = ObjectSchema::new("Marker");
             let object = SceneObject::new(
@@ -447,7 +436,12 @@ mod tests {
                 schema.type_id,
             );
             snapshot.add_schema(schema);
-            snapshot.add_root_object(object);
+            let _ = snapshot.add_object(
+                None,
+                0,
+                object,
+                &elcarax_scene_model::PropertyTypeRegistry::default(),
+            );
         }
         let outcome = session.session_mut().save_scene();
         assert!(outcome.is_some_and(|value| value.manifest_warning.is_none()));
@@ -504,7 +498,12 @@ mod tests {
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);
-        snapshot.add_root_object(object);
+        let _ = snapshot.add_object(
+            None,
+            0,
+            object,
+            &elcarax_scene_model::PropertyTypeRegistry::default(),
+        );
         let mut session = EditorSessionState::default();
         session.scene.load_external_snapshot(
             snapshot,
@@ -546,11 +545,14 @@ mod tests {
         )));
         let result = session.session_mut().commit_inspector_property(
             &mut adapter,
-            component_id,
-            "health",
-            PropertyEditKind::Integer,
-            "65",
-            "Set Fixture Health",
+            InspectorPropertyCommit {
+                component_id,
+                path: "health".to_string(),
+                edit_kind: PropertyEditKind::Integer,
+                extension_type_id: None,
+                text: "65".to_string(),
+                label: "Set Fixture Health".to_string(),
+            },
         );
         assert!(result.message().contains("Command:"));
         assert_eq!(session.edit_history.undo_count(), 1);

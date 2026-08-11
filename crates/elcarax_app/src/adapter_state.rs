@@ -98,12 +98,11 @@ impl AdapterState {
         self.config.auto_connect()
     }
 
-    pub(crate) fn execute_command_id(
+    pub(crate) fn execute(
         &mut self,
-        id: &str,
+        command: AdapterCommand,
         scene_state: &mut SceneState,
-    ) -> Option<AdapterCommandResult> {
-        let command = AdapterCommand::from_id(id)?;
+    ) -> AdapterCommandResult {
         let result = match command {
             AdapterCommand::Connect => self.connect(),
             AdapterCommand::Handshake => self.handshake(),
@@ -114,7 +113,7 @@ impl AdapterState {
             AdapterCommand::Disconnect => self.disconnect(),
         };
         self.last_result = Some(result.clone());
-        Some(result)
+        result
     }
 
     pub(crate) fn ui_snapshot(&self) -> AdapterUiSnapshot {
@@ -696,7 +695,7 @@ impl AdapterCommandResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AdapterCommand {
+pub(crate) enum AdapterCommand {
     Connect,
     Handshake,
     LoadProject,
@@ -704,21 +703,6 @@ enum AdapterCommand {
     ShowStatus,
     ShowDiagnostics,
     Disconnect,
-}
-
-impl AdapterCommand {
-    fn from_id(id: &str) -> Option<Self> {
-        match id {
-            ADAPTER_CONNECT_COMMAND => Some(Self::Connect),
-            ADAPTER_HANDSHAKE_COMMAND => Some(Self::Handshake),
-            ADAPTER_LOAD_PROJECT_COMMAND => Some(Self::LoadProject),
-            ADAPTER_LOAD_SCENE_COMMAND => Some(Self::LoadScene),
-            ADAPTER_SHOW_STATUS_COMMAND => Some(Self::ShowStatus),
-            ADAPTER_SHOW_DIAGNOSTICS_COMMAND => Some(Self::ShowDiagnostics),
-            ADAPTER_DISCONNECT_COMMAND => Some(Self::Disconnect),
-            _ => None,
-        }
-    }
 }
 
 fn writeback_failure_message(response: &SetPropertyResponse) -> String {
@@ -743,14 +727,13 @@ mod tests {
     use elcarax_commands::CommandHistory;
     use elcarax_scene_model::{
         ComponentInstance, ComponentSchema, ComponentTypeName, ObjectSchema, PropertyKind,
-        PropertySchema, PropertyValue, SceneName, SceneObject, SceneObjectId, SceneObjectKind,
-        ScenePatch, SceneSnapshot, components, kinds,
+        PropertySchema, PropertyTypeRegistry, PropertyValue, SceneName, SceneObject, SceneObjectId,
+        SceneObjectKind, ScenePatch, SceneSnapshot, components, kinds,
     };
 
-    use crate::edit_service::SessionEditService;
+    use crate::edit_service::{ScenePropertyEdit, SessionEditService};
     use crate::editor_session::EditorSessionState;
     use crate::project_config::AppProjectConfig;
-    use crate::project_state::PROJECT_CREATE_COMMAND;
 
     #[test]
     fn fake_transport_handshake_command_changes_status() {
@@ -759,8 +742,8 @@ mod tests {
             AdapterResponseMessage::Handshake(handshake_response()),
         )]);
         let mut scene = SceneState::default();
-        let result = state.execute_command_id(ADAPTER_HANDSHAKE_COMMAND, &mut scene);
-        assert!(result.is_some());
+        let result = state.execute(AdapterCommand::Handshake, &mut scene);
+        assert!(result.message().contains("handshake"));
         assert_eq!(state.status, AdapterHostState::Connected);
     }
 
@@ -775,11 +758,11 @@ mod tests {
         });
         let _ = editor
             .session_mut()
-            .execute_project_command(PROJECT_CREATE_COMMAND, None);
+            .execute_project_command(crate::project_state::ProjectCommand::Create, None);
         editor.scene.mark_document_modified();
         let mut adapter = AdapterState::default();
-        let result = adapter.execute_command_id(ADAPTER_LOAD_SCENE_COMMAND, &mut editor.scene);
-        assert!(result.is_some_and(|value| value.message().contains("Unsaved")));
+        let result = adapter.execute(AdapterCommand::LoadScene, &mut editor.scene);
+        assert!(result.message().contains("Unsaved"));
         let _ = std::fs::remove_dir_all(&temp);
     }
 
@@ -793,8 +776,8 @@ mod tests {
             }),
         )]);
         let mut scene = SceneState::default();
-        let result = state.execute_command_id(ADAPTER_LOAD_SCENE_COMMAND, &mut scene);
-        assert!(result.is_some());
+        let result = state.execute(AdapterCommand::LoadScene, &mut scene);
+        assert!(result.message().contains("scene"));
         assert_eq!(
             scene.snapshot().map(|snapshot| snapshot.object_count()),
             Some(1)
@@ -814,11 +797,8 @@ mod tests {
             ),
         ]);
         let mut scene = SceneState::default();
-        let result = state.execute_command_id(ADAPTER_SHOW_DIAGNOSTICS_COMMAND, &mut scene);
-        assert_eq!(
-            result.map(|result| result.message().to_string()),
-            Some("1 adapter diagnostic(s)".to_string())
-        );
+        let result = state.execute(AdapterCommand::ShowDiagnostics, &mut scene);
+        assert_eq!(result.message(), "1 adapter diagnostic(s)");
         assert_eq!(state.diagnostics.len(), 1);
     }
 
@@ -829,11 +809,8 @@ mod tests {
             AdapterResponseMessage::Shutdown(ShutdownResponse { accepted: true }),
         )]);
         let mut scene = SceneState::default();
-        let result = state.execute_command_id(ADAPTER_DISCONNECT_COMMAND, &mut scene);
-        assert_eq!(
-            result.map(|result| result.message().to_string()),
-            Some("adapter disconnected".to_string())
-        );
+        let result = state.execute(AdapterCommand::Disconnect, &mut scene);
+        assert_eq!(result.message(), "adapter disconnected");
         assert_eq!(state.status, AdapterHostState::Stopped);
     }
 
@@ -855,10 +832,13 @@ mod tests {
             &mut scene,
             &mut history,
             Some(&mut state),
-            component_id,
-            &path("health"),
-            PropertyValue::I64(65),
-            "Set Fixture Health",
+            ScenePropertyEdit::new(
+                component_id,
+                path("health"),
+                PropertyValue::I64(65),
+                "Set Fixture Health",
+            ),
+            &PropertyTypeRegistry::default(),
         );
         assert!(result.is_ok_and(|message| message.contains("65")));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(65));
@@ -889,10 +869,13 @@ mod tests {
             &mut scene,
             &mut history,
             Some(&mut state),
-            component_id,
-            &path("health"),
-            PropertyValue::I64(65),
-            "Set Fixture Health",
+            ScenePropertyEdit::new(
+                component_id,
+                path("health"),
+                PropertyValue::I64(65),
+                "Set Fixture Health",
+            ),
+            &PropertyTypeRegistry::default(),
         );
         assert!(result.message().contains("Diagnostic:"));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(100));
@@ -936,15 +919,21 @@ mod tests {
             &mut scene,
             &mut history,
             Some(&mut state),
-            component_id,
-            &path("health"),
-            PropertyValue::I64(65),
-            "Set Fixture Health",
+            ScenePropertyEdit::new(
+                component_id,
+                path("health"),
+                PropertyValue::I64(65),
+                "Set Fixture Health",
+            ),
+            &PropertyTypeRegistry::default(),
         );
-        let undo = SessionEditService::undo(&mut scene, &mut history, Some(&mut state));
+        let property_types = PropertyTypeRegistry::default();
+        let undo =
+            SessionEditService::undo(&mut scene, &mut history, Some(&mut state), &property_types);
         assert!(undo.message().contains("edit.undo"));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(100));
-        let redo = SessionEditService::redo(&mut scene, &mut history, Some(&mut state));
+        let redo =
+            SessionEditService::redo(&mut scene, &mut history, Some(&mut state), &property_types);
         assert!(redo.message().contains("edit.redo"));
         assert_eq!(fixture_health(&scene), PropertyValue::I64(65));
         assert_eq!(state.fake_writes().len(), 3);
@@ -960,10 +949,13 @@ mod tests {
             &mut scene,
             &mut history,
             Some(&mut state),
-            component_id,
-            &path("health"),
-            PropertyValue::I64(65),
-            "Set Fixture Health",
+            ScenePropertyEdit::new(
+                component_id,
+                path("health"),
+                PropertyValue::I64(65),
+                "Set Fixture Health",
+            ),
+            &PropertyTypeRegistry::default(),
         );
         assert!(result.message().contains("Diagnostic:"));
         assert!(result.message().contains("adapter not connected"));
@@ -1098,7 +1090,12 @@ mod tests {
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);
-        snapshot.add_root_object(object);
+        let _ = snapshot.add_object(
+            None,
+            0,
+            object,
+            &elcarax_scene_model::PropertyTypeRegistry::default(),
+        );
         (snapshot, object_id, component_id)
     }
 

@@ -6,8 +6,8 @@ use elcarax_commands::{
     UndoCommand,
 };
 use elcarax_scene_model::{
-    InspectorDiagnostic, PropertyChange, PropertyPath, PropertyValue, ScenePatch,
-    prepare_property_change,
+    InspectorDiagnostic, PropertyChange, PropertyPath, PropertyTypeRegistry, PropertyValue,
+    ScenePatch, prepare_property_change,
 };
 
 use crate::adapter_state::AdapterState;
@@ -16,6 +16,29 @@ use crate::inspector_state::{
 };
 use crate::scene_state::SceneState;
 
+pub(crate) struct ScenePropertyEdit {
+    pub(crate) component_id: elcarax_scene_model::ComponentInstanceId,
+    pub(crate) path: PropertyPath,
+    pub(crate) value: PropertyValue,
+    pub(crate) label: String,
+}
+
+impl ScenePropertyEdit {
+    pub(crate) fn new(
+        component_id: elcarax_scene_model::ComponentInstanceId,
+        path: PropertyPath,
+        value: PropertyValue,
+        label: impl Into<String>,
+    ) -> Self {
+        Self {
+            component_id,
+            path,
+            value,
+            label: label.into(),
+        }
+    }
+}
+
 pub(crate) struct SessionEditService;
 
 impl SessionEditService {
@@ -23,10 +46,8 @@ impl SessionEditService {
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
-        component_id: elcarax_scene_model::ComponentInstanceId,
-        path: &PropertyPath,
-        new_value: PropertyValue,
-        label: &str,
+        edit: ScenePropertyEdit,
+        property_types: &PropertyTypeRegistry,
     ) -> Result<String, String> {
         let Some(snapshot) = scene.snapshot() else {
             return Err(InspectorDiagnostic::NoSceneLoaded.message().to_string());
@@ -34,8 +55,15 @@ impl SessionEditService {
         let Some(object_id) = scene.selection().selected() else {
             return Err(InspectorDiagnostic::NoObjectSelected.message().to_string());
         };
-        let change = prepare_property_change(snapshot, object_id, component_id, path, &new_value)
-            .map_err(|error| error.message())?;
+        let change = prepare_property_change(
+            snapshot,
+            object_id,
+            edit.component_id,
+            &edit.path,
+            &edit.value,
+            property_types,
+        )
+        .map_err(|error| error.message())?;
         let old_label = change.old_value.display_label();
         let new_label = change.new_value.display_label();
 
@@ -43,20 +71,31 @@ impl SessionEditService {
             let adapter = adapter.ok_or_else(|| {
                 "adapter-backed scene requires a connected adapter for edits".to_string()
             })?;
-            execute_remote_property(scene, history, adapter, change, label)?;
+            execute_remote_property(
+                scene,
+                history,
+                adapter,
+                change,
+                edit.label.as_str(),
+                property_types,
+            )?;
         } else {
-            execute_local_property(scene, history, change, label)?;
+            execute_local_property(scene, history, change, edit.label.as_str(), property_types)?;
         }
 
-        Ok(format!("Command: {label} | {old_label} -> {new_label}"))
+        Ok(format!(
+            "Command: {} | {old_label} -> {new_label}",
+            edit.label
+        ))
     }
 
     pub(crate) fn undo(
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
+        property_types: &PropertyTypeRegistry,
     ) -> InspectorCommandResult {
-        match execute_history_op(scene, history, adapter, HistoryOp::Undo) {
+        match execute_history_op(scene, history, adapter, HistoryOp::Undo, property_types) {
             Ok(()) => edit_status(scene, EDIT_UNDO_COMMAND, "Command: edit.undo", true),
             Err(message) => edit_status(scene, EDIT_UNDO_COMMAND, message, false),
         }
@@ -66,8 +105,9 @@ impl SessionEditService {
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
+        property_types: &PropertyTypeRegistry,
     ) -> InspectorCommandResult {
-        match execute_history_op(scene, history, adapter, HistoryOp::Redo) {
+        match execute_history_op(scene, history, adapter, HistoryOp::Redo, property_types) {
             Ok(()) => edit_status(scene, EDIT_REDO_COMMAND, "Command: edit.redo", true),
             Err(message) => edit_status(scene, EDIT_REDO_COMMAND, message, false),
         }
@@ -77,20 +117,10 @@ impl SessionEditService {
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
-        component_id: elcarax_scene_model::ComponentInstanceId,
-        path: &PropertyPath,
-        new_value: PropertyValue,
-        label: &str,
+        edit: ScenePropertyEdit,
+        property_types: &PropertyTypeRegistry,
     ) -> InspectorCommandResult {
-        match Self::commit_property(
-            scene,
-            history,
-            adapter,
-            component_id,
-            path,
-            new_value,
-            label,
-        ) {
+        match Self::commit_property(scene, history, adapter, edit, property_types) {
             Ok(message) => edit_status(scene, EDIT_SET_PROPERTY_COMMAND, message, true),
             Err(message) => edit_status(scene, EDIT_SET_PROPERTY_COMMAND, message, false),
         }
@@ -108,11 +138,12 @@ fn execute_local_property(
     history: &mut CommandHistory,
     change: PropertyChange,
     label: &str,
+    property_types: &PropertyTypeRegistry,
 ) -> Result<(), String> {
     let Some(snapshot) = scene.snapshot_mut() else {
         return Err(InspectorDiagnostic::NoSceneLoaded.message().to_string());
     };
-    let mut context = CommandContext::local(snapshot);
+    let mut context = CommandContext::local(snapshot, property_types);
     history
         .execute(
             Box::new(ApplyScenePatchCommand::from_property_change(
@@ -131,11 +162,12 @@ fn execute_remote_property(
     adapter: &mut AdapterState,
     change: PropertyChange,
     label: &str,
+    property_types: &PropertyTypeRegistry,
 ) -> Result<(), String> {
     let Some(snapshot) = scene.snapshot_mut() else {
         return Err(InspectorDiagnostic::NoSceneLoaded.message().to_string());
     };
-    let mut context = CommandContext::with_sink(snapshot, adapter);
+    let mut context = CommandContext::with_sink(snapshot, adapter, property_types);
     history
         .execute(
             Box::new(ApplyScenePatchCommand::remote_property(
@@ -153,6 +185,7 @@ fn execute_history_op(
     history: &mut CommandHistory,
     adapter: Option<&mut AdapterState>,
     op: HistoryOp,
+    property_types: &PropertyTypeRegistry,
 ) -> Result<(), String> {
     let is_adapter = scene.adapter_id().is_some();
     let Some(snapshot) = scene.snapshot_mut() else {
@@ -161,13 +194,13 @@ fn execute_history_op(
     let effect = if is_adapter {
         let adapter = adapter
             .ok_or_else(|| "adapter-backed scene requires a connected adapter".to_string())?;
-        let mut context = CommandContext::with_sink(snapshot, adapter);
+        let mut context = CommandContext::with_sink(snapshot, adapter, property_types);
         match op {
             HistoryOp::Undo => UndoCommand::apply(history, &mut context),
             HistoryOp::Redo => RedoCommand::apply(history, &mut context),
         }
     } else {
-        let mut context = CommandContext::local(snapshot);
+        let mut context = CommandContext::local(snapshot, property_types);
         match op {
             HistoryOp::Undo => UndoCommand::apply(history, &mut context),
             HistoryOp::Redo => RedoCommand::apply(history, &mut context),

@@ -36,8 +36,7 @@ struct SceneProjectBinding {
 }
 
 impl SceneState {
-    pub(crate) fn execute_command_id(&mut self, id: &str) -> Option<SceneCommandResult> {
-        let command = SceneCommand::from_id(id)?;
+    pub(crate) fn execute(&mut self, command: SceneCommand) -> SceneCommandResult {
         let result = match command {
             SceneCommand::Load => self.load(),
             SceneCommand::Save => self.save(),
@@ -45,7 +44,7 @@ impl SceneState {
             SceneCommand::ClearSelection => self.clear_selection(),
         };
         self.last_command_result = Some(result.clone());
-        Some(result)
+        result
     }
 
     #[cfg_attr(not(feature = "native-shell"), allow(dead_code))]
@@ -309,23 +308,11 @@ pub(crate) enum SceneSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SceneCommand {
+pub(crate) enum SceneCommand {
     Load,
     Save,
     Clear,
     ClearSelection,
-}
-
-impl SceneCommand {
-    fn from_id(id: &str) -> Option<Self> {
-        match id {
-            SCENE_LOAD_COMMAND => Some(Self::Load),
-            SCENE_SAVE_COMMAND => Some(Self::Save),
-            SCENE_CLEAR_COMMAND => Some(Self::Clear),
-            SCENE_CLEAR_SELECTION_COMMAND => Some(Self::ClearSelection),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,7 +341,7 @@ impl SceneCommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
+    use elcarax_commands::{CommandId, RegisteredCommand, built_in_commands};
     use elcarax_project::{ProjectCreateRequest, create_project};
     use elcarax_scene_model::{
         ComponentInstance, ComponentSchema, ObjectSchema, PropertyKind, PropertyPath,
@@ -366,11 +353,8 @@ mod tests {
     #[test]
     fn scene_load_reports_no_project_when_unbound() {
         let mut state = SceneState::default();
-        let result = state.execute_command_id(SCENE_LOAD_COMMAND);
-        assert_eq!(
-            result.as_ref().map(SceneCommandResult::message),
-            Some("No project open")
-        );
+        let result = state.execute(SceneCommand::Load);
+        assert_eq!(result.message(), "No project open");
         assert!(state.snapshot().is_none());
     }
 
@@ -388,10 +372,10 @@ mod tests {
             loaded.project.scene_root(),
             loaded.project.editor_settings().active_scene_relative(),
         );
-        let _ = state.execute_command_id(SCENE_LOAD_COMMAND);
+        let _ = state.execute(SceneCommand::Load);
         state.mark_document_modified();
         assert!(state.has_unsaved_changes());
-        let _ = state.execute_command_id(SCENE_SAVE_COMMAND);
+        let _ = state.execute(SceneCommand::Save);
         assert!(!state.has_unsaved_changes());
         let _ = fs::remove_dir_all(&temp);
     }
@@ -410,13 +394,8 @@ mod tests {
             loaded.project.scene_root(),
             loaded.project.editor_settings().active_scene_relative(),
         );
-        let result = state.execute_command_id(SCENE_LOAD_COMMAND);
-        assert!(
-            result
-                .as_ref()
-                .map(SceneCommandResult::message)
-                .is_some_and(|message| message.starts_with("Loaded scene from")),
-        );
+        let result = state.execute(SceneCommand::Load);
+        assert!(result.message().starts_with("Loaded scene from"));
         assert!(state.snapshot().is_some());
         assert!(matches!(state.source, SceneSource::Project(_)));
         let _ = fs::remove_dir_all(&temp);
@@ -436,7 +415,7 @@ mod tests {
             loaded.project.scene_root(),
             loaded.project.editor_settings().active_scene_relative(),
         );
-        let _ = state.execute_command_id(SCENE_LOAD_COMMAND);
+        let _ = state.execute(SceneCommand::Load);
         if let Some(snapshot) = state.snapshot_mut() {
             let schema = ObjectSchema::new("Marker");
             let object = SceneObject::new(
@@ -445,16 +424,17 @@ mod tests {
                 schema.type_id,
             );
             snapshot.add_schema(schema);
-            snapshot.add_root_object(object);
+            let _ = snapshot.add_object(
+                None,
+                0,
+                object,
+                &elcarax_scene_model::PropertyTypeRegistry::default(),
+            );
         }
-        let save = state.execute_command_id(SCENE_SAVE_COMMAND);
-        assert!(
-            save.as_ref()
-                .map(SceneCommandResult::message)
-                .is_some_and(|message| message.starts_with("Saved scene to"))
-        );
-        let reload = state.execute_command_id(SCENE_LOAD_COMMAND);
-        assert!(reload.is_some());
+        let save = state.execute(SceneCommand::Save);
+        assert!(save.message().starts_with("Saved scene to"));
+        let reload = state.execute(SceneCommand::Load);
+        assert!(reload.message().starts_with("Loaded scene from"));
         assert_eq!(state.snapshot().map(|value| value.object_count()), Some(1));
         let _ = fs::remove_dir_all(&temp);
     }
@@ -470,7 +450,7 @@ mod tests {
     fn scene_clear_selection_clears_scene_selection() {
         let (mut state, object_id) = loaded_fixture_scene();
         assert!(state.select_object(object_id));
-        let _ = state.execute_command_id(SCENE_CLEAR_SELECTION_COMMAND);
+        let _ = state.execute(SceneCommand::ClearSelection);
         assert_eq!(state.selection.selected(), None);
     }
 
@@ -500,7 +480,7 @@ mod tests {
                 Ok(id) => id,
                 Err(error) => panic!("scene command ID should be valid: {error}"),
             };
-            assert!(matches!(registry.invoke(&id), CommandResult::Invoked(_)));
+            assert!(registry.get(&id).is_some());
         }
     }
 
@@ -556,7 +536,12 @@ mod tests {
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);
-        snapshot.add_root_object(object);
+        let _ = snapshot.add_object(
+            None,
+            0,
+            object,
+            &elcarax_scene_model::PropertyTypeRegistry::default(),
+        );
         let mut state = SceneState::default();
         state.load_fixture_snapshot(snapshot);
         (state, object_id)

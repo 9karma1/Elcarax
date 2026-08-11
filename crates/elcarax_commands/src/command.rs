@@ -1,5 +1,5 @@
 use elcarax_core::Result;
-use elcarax_scene_model::{PropertyChange, ScenePatch, SceneSnapshot};
+use elcarax_scene_model::{PropertyChange, PropertyTypeRegistry, ScenePatch, SceneSnapshot};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -23,20 +23,27 @@ pub trait SceneMutationSink {
 pub struct CommandContext<'a> {
     pub scene: &'a mut SceneSnapshot,
     pub mutation_sink: Option<&'a mut dyn SceneMutationSink>,
+    pub property_types: &'a PropertyTypeRegistry,
 }
 
 impl<'a> CommandContext<'a> {
-    pub fn local(scene: &'a mut SceneSnapshot) -> Self {
+    pub fn local(scene: &'a mut SceneSnapshot, property_types: &'a PropertyTypeRegistry) -> Self {
         Self {
             scene,
             mutation_sink: None,
+            property_types,
         }
     }
 
-    pub fn with_sink(scene: &'a mut SceneSnapshot, sink: &'a mut dyn SceneMutationSink) -> Self {
+    pub fn with_sink(
+        scene: &'a mut SceneSnapshot,
+        sink: &'a mut dyn SceneMutationSink,
+        property_types: &'a PropertyTypeRegistry,
+    ) -> Self {
         Self {
             scene,
             mutation_sink: Some(sink),
+            property_types,
         }
     }
 }
@@ -444,18 +451,6 @@ impl CommandMetadata {
 pub type RegisteredCommand = CommandMetadata;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandInvocation {
-    pub id: CommandId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CommandResult {
-    Invoked(CommandInvocation),
-    Disabled(CommandId),
-    NotFound(CommandId),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandRegistryError {
     EmptyCommandId,
     EmptyCommandName,
@@ -525,16 +520,6 @@ impl CommandRegistry {
             .into_iter()
             .filter(|command| command_matches(command, &query))
             .collect()
-    }
-
-    pub fn invoke(&self, id: &CommandId) -> CommandResult {
-        let Some(command) = self.commands.get(id) else {
-            return CommandResult::NotFound(id.clone());
-        };
-        if !command.enabled() {
-            return CommandResult::Disabled(id.clone());
-        }
-        CommandResult::Invoked(CommandInvocation { id: id.clone() })
     }
 }
 
@@ -1265,11 +1250,19 @@ mod tests {
     }
 
     #[test]
-    fn disabled_command_does_not_execute() {
+    fn disabled_command_remains_disabled_in_metadata() {
         let mut registry = CommandRegistry::new();
         let disabled = command("elcarax.disabled", "Disabled").disabled("disabled");
         let id = disabled.id().clone();
         assert!(registry.register(disabled).is_ok());
-        assert_eq!(registry.invoke(&id), CommandResult::Disabled(id));
+        let registered = match registry.get(&id) {
+            Some(command) => command,
+            None => panic!("registered command should be discoverable"),
+        };
+        assert!(!registered.enabled());
+        assert_eq!(
+            registered.availability().disabled_reason(),
+            Some("disabled")
+        );
     }
 }

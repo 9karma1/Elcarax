@@ -1,6 +1,6 @@
 use elcarax_scene_model::{
     InspectorDiagnostic, InspectorObject, InspectorValueWidget, PropertyEditKind,
-    build_inspector_for_selection, inspector_value_widget_for,
+    PropertyTypeRegistry, build_inspector_for_selection, inspector_value_widget_for,
 };
 use elcarax_ui::MAX_VISIBLE_INSPECTOR_ROWS;
 
@@ -20,6 +20,7 @@ pub(crate) struct InspectorUiSnapshot {
     pub(crate) row_component_ids:
         [Option<elcarax_scene_model::ComponentInstanceId>; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_edit_kinds: [PropertyEditKind; MAX_VISIBLE_INSPECTOR_ROWS],
+    pub(crate) row_extension_type_ids: [Option<String>; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) row_command_ids: [String; MAX_VISIBLE_INSPECTOR_ROWS],
     pub(crate) property_count: usize,
     pub(crate) scroll_offset: usize,
@@ -33,6 +34,7 @@ pub(crate) fn inspector_ui_snapshot_with_scroll(
     suppressed: bool,
     last_command_message: Option<&str>,
     scroll_offset: usize,
+    property_types: &PropertyTypeRegistry,
 ) -> InspectorUiSnapshot {
     if suppressed {
         let summary = last_command_message
@@ -47,8 +49,10 @@ pub(crate) fn inspector_ui_snapshot_with_scroll(
         return empty_snapshot_with_summary(summary);
     };
     let selected = scene.selection().selected();
-    let mut view = match build_inspector_for_selection(snapshot, selected) {
-        Ok(value) => build_selected_snapshot_with_scroll(value, snapshot, scroll_offset),
+    let mut view = match build_inspector_for_selection(snapshot, selected, property_types) {
+        Ok(value) => {
+            build_selected_snapshot_with_scroll(value, snapshot, scroll_offset, property_types)
+        }
         Err(InspectorDiagnostic::NoObjectSelected) => {
             return empty_snapshot_with_message("No object selected");
         }
@@ -75,6 +79,7 @@ fn build_selected_snapshot_with_scroll(
     inspector: InspectorObject,
     snapshot: &elcarax_scene_model::SceneSnapshot,
     scroll_offset: usize,
+    property_types: &PropertyTypeRegistry,
 ) -> InspectorUiSnapshot {
     let mut row_labels = empty_rows();
     let mut row_values = empty_rows();
@@ -83,8 +88,9 @@ fn build_selected_snapshot_with_scroll(
     let mut row_property_paths = empty_rows();
     let mut row_component_ids = empty_component_ids();
     let mut row_edit_kinds = empty_edit_kinds();
+    let mut row_extension_type_ids = empty_extension_type_ids();
     let mut row_command_ids = empty_rows();
-    let rows = inspector_rows(&inspector, snapshot);
+    let rows = inspector_rows(&inspector, snapshot, property_types);
     let total_rows = rows.len();
     let scroll_offset = clamp_scroll_offset(scroll_offset, total_rows, MAX_VISIBLE_INSPECTOR_ROWS);
     for (index, row) in rows
@@ -100,6 +106,7 @@ fn build_selected_snapshot_with_scroll(
         row_property_paths[index] = row.property_path.clone();
         row_component_ids[index] = row.component_id;
         row_edit_kinds[index] = row.edit_kind;
+        row_extension_type_ids[index] = row.extension_type_id.clone();
         row_command_ids[index] = row.command_id.clone();
     }
     let property_count = inspector.property_count();
@@ -115,6 +122,7 @@ fn build_selected_snapshot_with_scroll(
         row_property_paths,
         row_component_ids,
         row_edit_kinds,
+        row_extension_type_ids,
         row_command_ids,
         property_count,
         scroll_offset,
@@ -133,12 +141,14 @@ struct InspectorDisplayRow {
     property_path: String,
     component_id: Option<elcarax_scene_model::ComponentInstanceId>,
     edit_kind: PropertyEditKind,
+    extension_type_id: Option<String>,
     command_id: String,
 }
 
 fn inspector_rows(
     inspector: &InspectorObject,
     snapshot: &elcarax_scene_model::SceneSnapshot,
+    property_types: &PropertyTypeRegistry,
 ) -> Vec<InspectorDisplayRow> {
     let object = match snapshot.object(inspector.object_id) {
         Ok(value) => value,
@@ -155,10 +165,11 @@ fn inspector_rows(
             property_path: String::new(),
             component_id: None,
             edit_kind: PropertyEditKind::Unsupported,
+            extension_type_id: None,
             command_id: String::new(),
         });
         for row in &section.rows {
-            let widget = widget_for_row(snapshot, object.type_id, row, object);
+            let widget = widget_for_row(snapshot, object.type_id, row, object, property_types);
             rows.push(InspectorDisplayRow {
                 label: row.label.as_str().to_string(),
                 value: if row.editable {
@@ -171,6 +182,7 @@ fn inspector_rows(
                 property_path: row.path.to_string(),
                 component_id: Some(row.component_id),
                 edit_kind: row.edit_kind,
+                extension_type_id: row.extension_type_id.clone(),
                 command_id: inspector_command_for_row(row),
             });
         }
@@ -183,6 +195,7 @@ fn widget_for_row(
     type_id: elcarax_scene_model::ObjectTypeId,
     row: &elcarax_scene_model::InspectorRow,
     object: &elcarax_scene_model::SceneObject,
+    property_types: &PropertyTypeRegistry,
 ) -> InspectorValueWidget {
     if !row.editable {
         return InspectorValueWidget::ReadOnly(read_only_value_label(row));
@@ -199,7 +212,7 @@ fn widget_for_row(
     let Some(value) = component.property(&row.path) else {
         return InspectorValueWidget::Text(row.value.clone());
     };
-    inspector_value_widget_for(property_schema, value)
+    inspector_value_widget_for(property_schema, value, property_types)
 }
 
 fn empty_snapshot_with_message(message: &str) -> InspectorUiSnapshot {
@@ -215,6 +228,7 @@ fn empty_snapshot_with_message(message: &str) -> InspectorUiSnapshot {
         row_property_paths: empty_rows(),
         row_component_ids: empty_component_ids(),
         row_edit_kinds: empty_edit_kinds(),
+        row_extension_type_ids: empty_extension_type_ids(),
         row_command_ids: empty_rows(),
         property_count: 0,
         scroll_offset: 0,
@@ -237,6 +251,7 @@ fn empty_snapshot_with_summary(summary: String) -> InspectorUiSnapshot {
         row_property_paths: empty_rows(),
         row_component_ids: empty_component_ids(),
         row_edit_kinds: empty_edit_kinds(),
+        row_extension_type_ids: empty_extension_type_ids(),
         row_command_ids: empty_rows(),
         property_count: 0,
         scroll_offset: 0,
@@ -271,6 +286,10 @@ fn empty_edit_kinds() -> [PropertyEditKind; MAX_VISIBLE_INSPECTOR_ROWS] {
     [PropertyEditKind::Unsupported; MAX_VISIBLE_INSPECTOR_ROWS]
 }
 
+fn empty_extension_type_ids() -> [Option<String>; MAX_VISIBLE_INSPECTOR_ROWS] {
+    std::array::from_fn(|_| None)
+}
+
 fn read_only_value_label(row: &elcarax_scene_model::InspectorRow) -> String {
     match &row.read_only_reason {
         Some(reason) => format!("{}  [Read-only: {}]", row.value, reason),
@@ -295,7 +314,13 @@ mod tests {
     #[test]
     fn selected_fixture_snapshot_contains_property_labels() {
         let scene = selected_fixture_scene();
-        let snapshot = inspector_ui_snapshot_with_scroll(&scene, false, None, 0);
+        let snapshot = inspector_ui_snapshot_with_scroll(
+            &scene,
+            false,
+            None,
+            0,
+            &PropertyTypeRegistry::default(),
+        );
         assert!(snapshot.has_selection);
         assert_eq!(snapshot.object_name, "Fixture Actor");
         assert!(snapshot.row_labels.iter().any(|label| label == "Health"));
@@ -327,7 +352,12 @@ mod tests {
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);
-        snapshot.add_root_object(object);
+        let _ = snapshot.add_object(
+            None,
+            0,
+            object,
+            &elcarax_scene_model::PropertyTypeRegistry::default(),
+        );
         let mut scene = SceneState::default();
         scene.load_fixture_snapshot(snapshot);
         assert!(scene.select_object(object_id));

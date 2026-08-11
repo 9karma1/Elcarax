@@ -71,25 +71,19 @@ impl VectorFieldState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumFieldState {
     pub selected: String,
-    pub variants: [String; 8],
-    pub variant_count: u8,
+    pub variants: Vec<String>,
 }
 
 impl EnumFieldState {
     pub fn new(selected: impl Into<String>, variants: &[String]) -> Self {
-        let mut state = Self {
+        Self {
             selected: selected.into(),
-            variants: Default::default(),
-            variant_count: variants.len().min(8) as u8,
-        };
-        for (index, variant) in variants.iter().take(8).enumerate() {
-            state.variants[index] = variant.clone();
+            variants: variants.to_vec(),
         }
-        state
     }
 
     pub fn next_variant(&self) -> String {
-        let slice = &self.variants[..self.variant_count as usize];
+        let slice = self.variants.as_slice();
         if slice.is_empty() {
             return self.selected.clone();
         }

@@ -12,6 +12,7 @@ mod patch;
 mod property;
 mod property_display;
 mod property_edit;
+mod property_registry;
 mod reference_scene;
 mod scene_file;
 mod scene_io;
@@ -31,10 +32,7 @@ pub use inspector::{
     InspectorDiagnostic, InspectorObject, InspectorRow, InspectorSection,
     build_inspector_for_selection, build_inspector_object,
 };
-pub use inspector_widget::{
-    EnumVariantList, InspectorValueWidget, inspector_value_widget_for,
-    inspector_value_widget_for_row,
-};
+pub use inspector_widget::{EnumVariantList, InspectorValueWidget, inspector_value_widget_for};
 pub use kind::SceneObjectKind;
 pub use name::{PropertyName, SceneName, SceneObjectName};
 pub use patch::{
@@ -48,8 +46,9 @@ pub use property_display::{
 pub use property_edit::{
     PropertyChange, PropertyChangeValue, PropertyEditError, PropertyEditResult,
     apply_property_change, edit_scene_property, parse_property_text, prepare_property_change,
-    property_change_patches,
+    property_change_patches, validate_property_value,
 };
+pub use property_registry::{PropertyTypeHandler, PropertyTypeRegistry, PropertyTypeRegistryError};
 pub use reference_scene::reference_scene_snapshot;
 pub use scene_file::{
     DEFAULT_SCENE_FILENAME, SCENE_FILE_SUFFIX, SceneFile, SceneFileVersion, is_scene_file_name,
@@ -262,10 +261,11 @@ mod tests {
             Some(object) => object,
             None => panic!("player should exist"),
         };
-        let inspector = match build_inspector_object(&snapshot, player.id) {
-            Ok(value) => value,
-            Err(_) => panic!("player inspector should build"),
-        };
+        let inspector =
+            match build_inspector_object(&snapshot, player.id, &PropertyTypeRegistry::default()) {
+                Ok(value) => value,
+                Err(_) => panic!("player inspector should build"),
+            };
         assert_eq!(inspector.name, "Player");
         assert_eq!(
             inspector.kind,
@@ -295,6 +295,7 @@ mod tests {
             component_id,
             &path,
             PropertyValue::I64(75),
+            &PropertyTypeRegistry::default(),
         )
         .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(change.old_value, PropertyValue::I64(100));
@@ -318,6 +319,7 @@ mod tests {
             component_id,
             &path,
             PropertyValue::F64(8.0),
+            &PropertyTypeRegistry::default(),
         )
         .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(change.old_value, PropertyValue::F64(6.5));
@@ -336,6 +338,7 @@ mod tests {
             component_id,
             &path,
             PropertyValue::String("Hero".to_string()),
+            &PropertyTypeRegistry::default(),
         )
         .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(snapshot.object(player_id)?.display_name, "Hero");
@@ -354,6 +357,7 @@ mod tests {
             component_id,
             &path,
             PropertyValue::Vec3([2.0, 3.0, 4.0]),
+            &PropertyTypeRegistry::default(),
         )
         .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(change.old_value, PropertyValue::Vec3([0.0, 1.0, 0.0]));
@@ -372,6 +376,7 @@ mod tests {
             component_id,
             &path,
             PropertyValue::AssetRef("assets/models/hero.glb".to_string()),
+            &PropertyTypeRegistry::default(),
         );
         let error = match result {
             Ok(_) => panic!("asset refs are read-only"),
@@ -391,6 +396,7 @@ mod tests {
             component_id,
             &path("mana"),
             PropertyValue::I64(10),
+            &PropertyTypeRegistry::default(),
         );
         let error = match result {
             Ok(_) => panic!("missing property should fail"),
@@ -416,6 +422,7 @@ mod tests {
             fake_component,
             &path("health"),
             PropertyValue::I64(75),
+            &PropertyTypeRegistry::default(),
         );
         let error = match result {
             Ok(_) => panic!("missing object should fail"),
@@ -435,6 +442,7 @@ mod tests {
             component_id,
             &path("health"),
             PropertyValue::String("high".to_string()),
+            &PropertyTypeRegistry::default(),
         );
         let error = match result {
             Ok(_) => panic!("wrong value type should fail"),
@@ -456,7 +464,7 @@ mod tests {
             PropertyValue::I64(65),
         );
         patch
-            .apply(&mut snapshot)
+            .apply(&mut snapshot, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(
             snapshot.object(player_id)?.property(component_id, &path),
@@ -483,7 +491,7 @@ mod tests {
             PropertyValue::I64(65),
         );
         assert!(matches!(
-            patch.apply(&mut snapshot),
+            patch.apply(&mut snapshot, &PropertyTypeRegistry::default()),
             Err(ScenePatchError::ObjectNotFound { .. })
         ));
     }
@@ -500,7 +508,7 @@ mod tests {
             PropertyValue::I64(65),
         );
         assert!(matches!(
-            patch.apply(&mut snapshot),
+            patch.apply(&mut snapshot, &PropertyTypeRegistry::default()),
             Err(ScenePatchError::Property(
                 PropertyEditError::PropertyNotFound { .. }
             ))
@@ -519,11 +527,42 @@ mod tests {
             PropertyValue::String("high".to_string()),
         );
         assert!(matches!(
-            patch.apply(&mut snapshot),
+            patch.apply(&mut snapshot, &PropertyTypeRegistry::default()),
             Err(ScenePatchError::Property(
                 PropertyEditError::TypeMismatch { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn multi_operation_patch_is_atomic_on_failure() {
+        let mut snapshot = reference_scene_snapshot();
+        let original = snapshot.clone();
+        let player_id = player_id(&snapshot);
+        let component_id = component_id(&snapshot, player_id, component::well_known::GAMEPLAY);
+        let patch = ScenePatch {
+            operations: vec![
+                ScenePatchOperation::Renamed(Renamed {
+                    object_id: player_id,
+                    old_name: "Player".to_string(),
+                    new_name: "Renamed Player".to_string(),
+                }),
+                ScenePatchOperation::PropertyUpdated(PropertyUpdated {
+                    object_id: player_id,
+                    component_id,
+                    path: path("missing"),
+                    value: PropertyValue::I64(1),
+                }),
+            ],
+        };
+
+        assert!(matches!(
+            patch.apply(&mut snapshot, &PropertyTypeRegistry::default()),
+            Err(ScenePatchError::Property(
+                PropertyEditError::PropertyNotFound { .. }
+            ))
+        ));
+        assert_eq!(snapshot, original);
     }
 
     #[test]
@@ -539,7 +578,7 @@ mod tests {
             PropertyValue::I64(65),
         );
         patch
-            .apply(&mut snapshot)
+            .apply(&mut snapshot, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(
             snapshot.object(player_id)?.property(component_id, &speed),
@@ -560,7 +599,7 @@ mod tests {
             type_id,
         );
         let root_id = root.id;
-        snapshot.add_root_object(root);
+        let _ = snapshot.add_object(None, 0, root, &PropertyTypeRegistry::default());
 
         let child = SceneObject::new(
             "Child",
@@ -569,7 +608,7 @@ mod tests {
         );
         let child_id = child.id;
         let add = snapshot
-            .add_object(Some(root_id), 0, child)
+            .add_object(Some(root_id), 0, child, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert!(snapshot.objects().contains_key(&child_id));
         assert_eq!(snapshot.object(root_id)?.children, vec![child_id]);
@@ -578,11 +617,11 @@ mod tests {
             .invert()
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         remove
-            .apply(&mut snapshot)
+            .apply(&mut snapshot, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert!(!snapshot.objects().contains_key(&child_id));
 
-        add.apply(&mut snapshot)
+        add.apply(&mut snapshot, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         let sibling = SceneObject::new(
             "Sibling",
@@ -591,17 +630,17 @@ mod tests {
         );
         let sibling_id = sibling.id;
         snapshot
-            .add_object(Some(root_id), 1, sibling)
+            .add_object(Some(root_id), 1, sibling, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         let reparent = snapshot
-            .reparent_object(child_id, None, 0)
+            .reparent_object(child_id, None, 0, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(snapshot.object(child_id)?.parent, None);
         assert!(snapshot.root_object_ids().contains(&child_id));
         reparent
             .invert()
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?
-            .apply(&mut snapshot)
+            .apply(&mut snapshot, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(snapshot.object(child_id)?.parent, Some(root_id));
         assert!(snapshot.objects().contains_key(&sibling_id));
@@ -613,13 +652,13 @@ mod tests {
         let mut snapshot = reference_scene_snapshot();
         let player_id = player_id(&snapshot);
         let patch = snapshot
-            .rename_object(player_id, "Hero")
+            .rename_object(player_id, "Hero", &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(snapshot.object(player_id)?.display_name, "Hero");
         patch
             .invert()
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?
-            .apply(&mut snapshot)
+            .apply(&mut snapshot, &PropertyTypeRegistry::default())
             .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))?;
         assert_eq!(snapshot.object(player_id)?.display_name, "Player");
         Ok(())
@@ -638,7 +677,7 @@ mod tests {
         };
         let mut snapshot = snapshot;
         assert!(matches!(
-            snapshot.reparent_object(world, Some(player), 0),
+            snapshot.reparent_object(world, Some(player), 0, &PropertyTypeRegistry::default()),
             Err(ScenePatchError::CycleDetected { .. })
         ));
     }
@@ -651,7 +690,7 @@ mod tests {
             None => panic!("missing test ID should be non-zero"),
         };
         assert_eq!(
-            build_inspector_object(&snapshot, missing),
+            build_inspector_object(&snapshot, missing, &PropertyTypeRegistry::default()),
             Err(InspectorDiagnostic::ObjectNotFound)
         );
     }
@@ -663,10 +702,11 @@ mod tests {
             Some(object) => object,
             None => panic!("player should exist"),
         };
-        let inspector = match build_inspector_object(&snapshot, player.id) {
-            Ok(value) => value,
-            Err(_) => panic!("player inspector should build"),
-        };
+        let inspector =
+            match build_inspector_object(&snapshot, player.id, &PropertyTypeRegistry::default()) {
+                Ok(value) => value,
+                Err(_) => panic!("player inspector should build"),
+            };
         let section_titles: Vec<_> = inspector
             .sections
             .iter()
@@ -688,7 +728,7 @@ mod tests {
     fn no_selection_returns_clear_inspector_diagnostic() {
         let snapshot = reference_scene_snapshot();
         assert_eq!(
-            build_inspector_for_selection(&snapshot, None),
+            build_inspector_for_selection(&snapshot, None, &PropertyTypeRegistry::default()),
             Err(InspectorDiagnostic::NoObjectSelected)
         );
     }

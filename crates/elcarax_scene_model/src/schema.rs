@@ -7,6 +7,12 @@ use crate::component::ComponentTypeName;
 pub enum ObjectTypeMarker {}
 pub type ObjectTypeId = Id<ObjectTypeMarker>;
 
+static OBJECT_TYPE_IDS: IdGenerator<ObjectTypeMarker> = IdGenerator::new();
+
+pub(crate) fn observe_object_type_id(id: ObjectTypeId) {
+    OBJECT_TYPE_IDS.observe(id);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PropertyKind {
     Bool,
@@ -33,6 +39,7 @@ pub enum PropertyEditKind {
     Vec2,
     Vec3,
     Enum,
+    Extension,
     Unsupported,
 }
 
@@ -46,11 +53,11 @@ impl PropertyEditKind {
             PropertyKind::Vec2 => Self::Vec2,
             PropertyKind::Vec3 => Self::Vec3,
             PropertyKind::Enum => Self::Enum,
+            PropertyKind::Extension => Self::Extension,
             PropertyKind::ColorRgba
             | PropertyKind::AssetRef
             | PropertyKind::ObjectRef
-            | PropertyKind::List
-            | PropertyKind::Extension => Self::Unsupported,
+            | PropertyKind::List => Self::Unsupported,
         }
     }
 
@@ -63,6 +70,7 @@ impl PropertyEditKind {
             Self::Vec2 => "vec2",
             Self::Vec3 => "vec3",
             Self::Enum => "enum",
+            Self::Extension => "extension",
             Self::Unsupported => "unsupported",
         }
     }
@@ -179,12 +187,12 @@ impl PropertySchema {
             path,
             display_name: display_name.into(),
             kind: PropertyKind::Extension,
-            editable: false,
-            edit_kind: PropertyEditKind::Unsupported,
+            editable,
+            edit_kind: PropertyEditKind::Extension,
             numeric: None,
             enum_variants: Vec::new(),
             read_only_reason: if editable {
-                Some("Extension property editing requires an adapter-provided editor".to_string())
+                None
             } else {
                 Some("Extension property is read-only".to_string())
             },
@@ -224,9 +232,8 @@ pub struct ObjectSchema {
 
 impl ObjectSchema {
     pub fn new(display_name: impl Into<String>) -> Self {
-        static IDS: IdGenerator<ObjectTypeMarker> = IdGenerator::new();
         Self {
-            type_id: IDS.next_id(),
+            type_id: OBJECT_TYPE_IDS.next_id(),
             display_name: display_name.into(),
             components: Vec::new(),
         }

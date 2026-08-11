@@ -111,6 +111,27 @@ impl<T> IdGenerator<T> {
             None => Id::from_non_zero(NonZeroU64::MIN),
         }
     }
+
+    /// Advances this generator past an identifier loaded from storage.
+    ///
+    /// Persisted identifiers are part of the generator's namespace. Without
+    /// observing them, the next runtime-created value can collide with a
+    /// loaded object even though the storage itself was valid.
+    pub fn observe(&self, id: Id<T>) {
+        let next = id.get().saturating_add(1);
+        let mut current = self.next_value.load(Ordering::Relaxed);
+        while current < next {
+            match self.next_value.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return,
+                Err(observed) => current = observed,
+            }
+        }
+    }
 }
 
 impl<T> Default for IdGenerator<T> {
@@ -131,5 +152,16 @@ mod tests {
         let first = generator.next_id();
         let second = generator.next_id();
         assert!(first < second);
+    }
+
+    #[test]
+    fn observing_loaded_id_reserves_following_values() {
+        let generator = IdGenerator::<TestMarker>::new();
+        let loaded = match Id::new(100) {
+            Some(id) => id,
+            None => panic!("fixture id should be non-zero"),
+        };
+        generator.observe(loaded);
+        assert_eq!(generator.next_id().get(), 101);
     }
 }

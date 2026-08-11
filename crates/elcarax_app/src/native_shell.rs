@@ -2,8 +2,7 @@ use std::time::{Duration, Instant};
 
 use elcarax_adapter_api::ViewportEditorInput;
 use elcarax_commands::{
-    CommandBindingRegistry, CommandId, CommandInvocation, CommandRegistry, CommandResult,
-    CommandScope, KeyChord, KeyModifier, built_in_commands,
+    CommandBindingRegistry, CommandRegistry, CommandScope, KeyChord, KeyModifier, built_in_commands,
 };
 use elcarax_core::{ElcaraxError, Result};
 use elcarax_gpu::{GpuContext, GpuContextSpec, GpuSurface, RenderError, SurfaceSize};
@@ -24,27 +23,28 @@ use crate::adapter_state::{
 };
 use crate::asset_ui::asset_row_index_for_widget;
 use crate::editor_commands::{
-    HELP_COMMANDS_COMMAND, HELP_SHORTCUTS_COMMAND, PALETTE_CLOSE_COMMAND, PALETTE_OPEN_COMMAND,
-    SHOW_READY_STATUS_COMMAND, SHOW_RENDERER_STATS_COMMAND, ToolbarSnapshot, command_availability,
+    EditorCommand, EditorCommandContext, EditorCommandRouter, EditorUiCommand, ToolbarSnapshot,
     command_summary, palette_entries, shortcut_summary, toolbar_snapshot,
 };
 use crate::editor_session::{EditorSessionState, EditorShellContext};
+use crate::inspector_state::InspectorPropertyCommit;
 use crate::inspector_ui::inspector_value_index_for_widget;
 use crate::project_config::AppProjectConfig;
 use crate::project_picker::{
     ProjectPathResolution, resolve_create_project_root, resolve_open_project_path,
 };
-use crate::project_state::{PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND};
+use crate::project_state::ProjectCommand;
 use crate::project_ui::{apply_editor_snapshot, apply_toolbar_snapshot, editor_snapshots};
-use crate::scene_state::SCENE_SAVE_COMMAND;
+use crate::scene_state::SceneCommand;
 use crate::scene_ui::{
     scene_expand_index_for_widget, scene_row_index_for_widget, shell_content_from_editor_state,
 };
 use crate::shell_layout::{
     MIN_PANEL_WIDTH, MIN_VIEWPORT_WIDTH, ShellLayout, default_shell_layout_path,
 };
-use crate::viewport_state::VIEWPORT_REQUEST_FRAME_COMMAND;
-use crate::viewport_state::{AppViewportState, ViewportFrameRequestSize};
+use crate::viewport_state::{
+    AppViewportState, VIEWPORT_REQUEST_FRAME_COMMAND, ViewportFrameRequestSize,
+};
 
 pub fn run_native_shell() -> Result<()> {
     println!("Elcarax native shell: starting");
@@ -312,7 +312,9 @@ fn build_ui_state(
         &editor.project.ui_snapshot(),
         &editor.assets.ui_snapshot(),
         &editor.scene.ui_snapshot(),
-        &editor.inspector.ui_snapshot(&editor.scene),
+        &editor
+            .inspector
+            .ui_snapshot(&editor.scene, &editor.property_types),
         &adapter_state.ui_snapshot(),
         &viewport_state.ui_snapshot(),
     ));
@@ -390,17 +392,16 @@ fn auto_connect_adapter(
         ADAPTER_LOAD_PROJECT_COMMAND,
         ADAPTER_LOAD_SCENE_COMMAND,
     ] {
-        let Some(_result) = adapter_state.execute_command_id(command_id, &mut editor.scene) else {
+        let Some(command) = EditorCommandRouter::parse(command_id) else {
             return;
         };
-        if command_id == ADAPTER_HANDSHAKE_COMMAND
-            && let Some((adapter_id, supports_preview)) = adapter_state.connected_viewport_info()
-        {
-            viewport_state.on_adapter_connected(&adapter_id, supports_preview);
-        }
-        if command_id == ADAPTER_LOAD_SCENE_COMMAND {
-            editor.inspector.on_scene_selection_changed();
-        }
+        let mut context = EditorCommandContext {
+            editor,
+            adapter: adapter_state,
+            viewport: viewport_state,
+            viewport_request_size: ViewportFrameRequestSize::default_editor(),
+        };
+        let _ = EditorCommandRouter::execute(command, &mut context);
     }
 }
 
@@ -414,11 +415,16 @@ fn request_adapter_viewport_frame(ui: &mut UiState) {
         return;
     }
     let request_size = viewport_frame_request_size(ui);
-    let _ = ui.viewport_state.execute_command_id_with_size(
-        VIEWPORT_REQUEST_FRAME_COMMAND,
-        &mut ui.adapter_state,
-        request_size,
-    );
+    let Some(command) = EditorCommandRouter::parse(VIEWPORT_REQUEST_FRAME_COMMAND) else {
+        return;
+    };
+    let mut context = EditorCommandContext {
+        editor: &mut ui.editor,
+        adapter: &mut ui.adapter_state,
+        viewport: &mut ui.viewport_state,
+        viewport_request_size: request_size,
+    };
+    let _ = EditorCommandRouter::execute(command, &mut context);
 }
 
 fn forward_viewport_editor_input(
@@ -823,7 +829,13 @@ fn key_name_for_chord(key: &KeyboardKey) -> Option<&str> {
 }
 
 fn text_focus_allows_shortcut(command_id: &str) -> bool {
-    matches!(command_id, SCENE_SAVE_COMMAND | PALETTE_OPEN_COMMAND)
+    matches!(
+        EditorCommandRouter::parse(command_id),
+        Some(
+            EditorCommand::Scene(SceneCommand::Save)
+                | EditorCommand::Ui(EditorUiCommand::OpenPalette)
+        )
+    )
 }
 
 fn handle_palette_input(
@@ -853,19 +865,6 @@ fn handle_palette_input(
     }
 }
 
-fn open_palette(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
-    let open_id = command_id(PALETTE_OPEN_COMMAND)?;
-    if matches!(
-        ui.command_registry.invoke(&open_id),
-        CommandResult::Invoked(_)
-    ) {
-        refresh_command_surfaces(ui)?;
-        ui.command_palette.open();
-        ui.scene_dirty = true;
-    }
-    Ok(())
-}
-
 fn execute_selected_palette_command(ui: &mut UiState) -> std::result::Result<(), NativeAppError> {
     let Some(entry) = ui.command_palette.selected_entry() else {
         return Ok(());
@@ -879,151 +878,73 @@ fn execute_selected_palette_command(ui: &mut UiState) -> std::result::Result<(),
 }
 
 fn dispatch_command_id(ui: &mut UiState, id: &str) -> std::result::Result<(), NativeAppError> {
-    let availability = command_availability(id, &ui.editor, &ui.adapter_state, &ui.viewport_state);
+    let Some(command) = EditorCommandRouter::parse(id) else {
+        set_status_text(ui, format!("{id}: Command is not routable"))?;
+        return Ok(());
+    };
+    let availability = EditorCommandRouter::availability_for(
+        command,
+        &ui.editor,
+        &ui.adapter_state,
+        &ui.viewport_state,
+    );
     if !availability.is_enabled() {
         let reason = availability.disabled_reason().unwrap_or("Command disabled");
         set_status_text(ui, format!("{id}: {reason}"))?;
         return Ok(());
     }
-    let id = command_id(id)?;
-    if let CommandResult::Invoked(invocation) = ui.command_registry.invoke(&id) {
-        apply_command_invocation(ui, &invocation)?;
-    }
-    Ok(())
-}
-
-fn apply_command_invocation(
-    ui: &mut UiState,
-    invocation: &CommandInvocation,
-) -> std::result::Result<(), NativeAppError> {
-    if invocation.id.as_str() == PROJECT_OPEN_COMMAND {
+    if matches!(command, EditorCommand::Project(ProjectCommand::Open)) {
         execute_project_open(ui)?;
         return Ok(());
     }
-    if invocation.id.as_str() == PROJECT_CREATE_COMMAND {
+    if matches!(command, EditorCommand::Project(ProjectCommand::Create)) {
         execute_project_create(ui)?;
         return Ok(());
     }
-    if invocation.id.as_str() == PROJECT_CLOSE_COMMAND {
-        let adapter = &mut ui.adapter_state;
-        let viewport = &mut ui.viewport_state;
-        let mut shell = EditorShellContext { adapter, viewport };
-        let result = ui.editor.session_mut().close_project(Some(&mut shell));
-        set_status_text(ui, result.message().to_string())?;
-        apply_editor_snapshot_to_ui(ui)?;
-        return Ok(());
-    }
-    let project_result = {
-        let adapter = &mut ui.adapter_state;
-        let viewport = &mut ui.viewport_state;
-        let mut shell = EditorShellContext { adapter, viewport };
-        ui.editor
-            .session_mut()
-            .execute_project_command(invocation.id.as_str(), Some(&mut shell))
+    let request_size = viewport_frame_request_size(ui);
+    let outcome = {
+        let mut context = EditorCommandContext {
+            editor: &mut ui.editor,
+            adapter: &mut ui.adapter_state,
+            viewport: &mut ui.viewport_state,
+            viewport_request_size: request_size,
+        };
+        EditorCommandRouter::execute(command, &mut context)
     };
-    if let Some(result) = project_result {
-        set_status_text(ui, result.message().to_string())?;
-        apply_editor_snapshot_to_ui(ui)?;
-        return Ok(());
+    if let Some(message) = outcome.message {
+        set_status_text(ui, message)?;
     }
-    if ui
-        .editor
-        .assets
-        .execute_command_id(
-            invocation.id.as_str(),
-            ui.editor.project.is_project_loaded(),
-        )
-        .is_some()
-    {
-        ui.editor
-            .session_mut()
-            .after_asset_command(invocation.id.as_str());
-        apply_editor_snapshot_to_ui(ui)?;
-        return Ok(());
-    }
-    if invocation.id.as_str() == SCENE_SAVE_COMMAND {
-        if let Some(outcome) = ui.editor.session_mut().save_scene() {
-            set_status_text(ui, outcome.status_message())?;
-            apply_editor_snapshot_to_ui(ui)?;
+    if let Some(ui_command) = outcome.ui_command {
+        match ui_command {
+            EditorUiCommand::HelpShortcuts => set_status_text(
+                ui,
+                shortcut_summary(&ui.command_registry, &ui.command_bindings),
+            )?,
+            EditorUiCommand::HelpCommands => set_status_text(
+                ui,
+                command_summary(&ui.command_registry, &ui.command_bindings),
+            )?,
+            EditorUiCommand::OpenPalette => {
+                ui.command_palette.open();
+                ui.scene_dirty = true;
+            }
+            EditorUiCommand::ClosePalette => ui.command_palette.close(),
+            EditorUiCommand::ShowRendererStats => {
+                set_status_text(ui, renderer_stats_status(&ui.scene))?
+            }
+            EditorUiCommand::ShowReady => set_status_text(
+                ui,
+                "Ready - open a project or connect an adapter".to_string(),
+            )?,
         }
-        return Ok(());
     }
-    if let Some(outcome) = ui
-        .editor
-        .session_mut()
-        .execute_scene_command(invocation.id.as_str())
-    {
-        set_status_text(ui, outcome.status_message())?;
-        apply_editor_snapshot_to_ui(ui)?;
-        return Ok(());
-    }
-    if ui
-        .editor
-        .inspector
-        .execute_command_id(invocation.id.as_str(), &mut ui.editor.scene)
-        .is_some()
-    {
-        apply_editor_snapshot_to_ui(ui)?;
-        return Ok(());
-    }
-    if execute_editor_edit_command(ui, invocation.id.as_str())? {
-        apply_editor_snapshot_to_ui(ui)?;
-        return Ok(());
-    }
-    if ui
-        .adapter_state
-        .execute_command_id(invocation.id.as_str(), &mut ui.editor.scene)
-        .is_some()
-    {
-        if invocation.id.as_str() == ADAPTER_HANDSHAKE_COMMAND
-            && let Some((adapter_id, supports_preview)) = ui.adapter_state.connected_viewport_info()
-        {
-            ui.viewport_state
-                .on_adapter_connected(&adapter_id, supports_preview);
-        }
-        if invocation.id.as_str() == "adapter.disconnect" {
-            ui.viewport_state.on_adapter_disconnected();
-        }
-        ui.editor.inspector.on_scene_selection_changed();
-        apply_editor_snapshot_to_ui(ui)?;
-        if invocation.id.as_str() == ADAPTER_LOAD_SCENE_COMMAND {
-            request_adapter_viewport_frame(ui);
-            apply_editor_snapshot_to_ui(ui)?;
-        }
-        return Ok(());
-    }
-    if invocation.id.as_str() == VIEWPORT_REQUEST_FRAME_COMMAND {
+    apply_editor_snapshot_to_ui(ui)?;
+    if outcome.request_viewport_frame {
         request_adapter_viewport_frame(ui);
         apply_editor_snapshot_to_ui(ui)?;
-        ui.scene_dirty = true;
-        return Ok(());
     }
-    if ui
-        .viewport_state
-        .execute_command_id(invocation.id.as_str(), &mut ui.adapter_state)
-        .is_some()
-    {
-        apply_editor_snapshot_to_ui(ui)?;
+    if matches!(command, EditorCommand::Viewport(_)) {
         ui.scene_dirty = true;
-        return Ok(());
-    }
-    match invocation.id.as_str() {
-        PALETTE_OPEN_COMMAND => open_palette(ui)?,
-        PALETTE_CLOSE_COMMAND => ui.command_palette.close(),
-        HELP_SHORTCUTS_COMMAND => set_status_text(
-            ui,
-            shortcut_summary(&ui.command_registry, &ui.command_bindings),
-        )?,
-        HELP_COMMANDS_COMMAND => set_status_text(
-            ui,
-            command_summary(&ui.command_registry, &ui.command_bindings),
-        )?,
-        SHOW_RENDERER_STATS_COMMAND => set_status_text(ui, renderer_stats_status(&ui.scene))?,
-        SHOW_READY_STATUS_COMMAND => set_status_text(
-            ui,
-            "Ready - open a project or connect an adapter".to_string(),
-        )?,
-        _ => {}
     }
     Ok(())
 }
@@ -1046,10 +967,6 @@ fn renderer_stats_status(scene: &RenderScene) -> String {
         stats.text_primitive_count,
         stats.glyph_count
     )
-}
-
-fn command_id(id: &str) -> std::result::Result<CommandId, NativeAppError> {
-    CommandId::new(id).map_err(|error| NativeAppError::Window(error.to_string()))
 }
 
 fn platform_to_ui_input(event: PlatformEvent) -> Option<UiInputEvent> {
@@ -1109,10 +1026,11 @@ fn apply_editor_snapshot_to_ui(ui: &mut UiState) -> std::result::Result<(), Nati
     ui.scroll_offsets.asset = assets.scroll_offset;
     let scene = ui.editor.scene.ui_snapshot_at(ui.scroll_offsets.scene);
     ui.scroll_offsets.scene = scene.scroll_offset;
-    let inspector = ui
-        .editor
-        .inspector
-        .ui_snapshot_at(&ui.editor.scene, ui.scroll_offsets.inspector);
+    let inspector = ui.editor.inspector.ui_snapshot_at(
+        &ui.editor.scene,
+        ui.scroll_offsets.inspector,
+        &ui.editor.property_types,
+    );
     ui.scroll_offsets.inspector = inspector.scroll_offset;
     let adapter = ui.adapter_state.ui_snapshot();
     let viewport = ui.viewport_state.ui_snapshot();
@@ -1345,13 +1263,15 @@ fn commit_inspector_row(
     row_index: usize,
     text: String,
 ) -> std::result::Result<(), NativeAppError> {
-    let snapshot = ui
-        .editor
-        .inspector
-        .ui_snapshot_at(&ui.editor.scene, ui.scroll_offsets.inspector);
+    let snapshot = ui.editor.inspector.ui_snapshot_at(
+        &ui.editor.scene,
+        ui.scroll_offsets.inspector,
+        &ui.editor.property_types,
+    );
     let path = snapshot.row_property_paths[row_index].clone();
     let component_id = snapshot.row_component_ids[row_index];
     let edit_kind = snapshot.row_edit_kinds[row_index];
+    let extension_type_id = snapshot.row_extension_type_ids[row_index].as_deref();
     let label = snapshot.row_labels[row_index].clone();
     if path.is_empty() {
         return Ok(());
@@ -1361,26 +1281,18 @@ fn commit_inspector_row(
     };
     let result = ui.editor.session_mut().commit_inspector_property(
         &mut ui.adapter_state,
-        component_id,
-        path.as_str(),
-        edit_kind,
-        text.as_str(),
-        label.as_str(),
+        InspectorPropertyCommit {
+            component_id,
+            path,
+            edit_kind,
+            extension_type_id: extension_type_id.map(ToOwned::to_owned),
+            text,
+            label,
+        },
     );
     set_status_text(ui, result.message().to_string())?;
     apply_editor_snapshot_to_ui(ui)?;
     Ok(())
-}
-
-fn execute_editor_edit_command(
-    ui: &mut UiState,
-    command_id: &str,
-) -> std::result::Result<bool, NativeAppError> {
-    Ok(ui
-        .editor
-        .session_mut()
-        .execute_edit_command(&mut ui.adapter_state, command_id)
-        .is_some())
 }
 
 fn events_affect_paint(events: &[UiEvent]) -> bool {

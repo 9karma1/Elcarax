@@ -59,7 +59,7 @@ impl EditorCommand for ApplyScenePatchCommand {
     fn apply(&mut self, context: &mut CommandContext<'_>) -> Result<CommandEffect> {
         match &self.payload {
             SceneMutationPayload::Local { forward, .. } => {
-                apply_local_patch(context.scene, forward)?;
+                apply_local_patch(context.scene, forward, context.property_types)?;
             }
             SceneMutationPayload::RemoteProperty { change } => {
                 apply_remote_property(context, change, true)?;
@@ -71,7 +71,7 @@ impl EditorCommand for ApplyScenePatchCommand {
     fn revert(&mut self, context: &mut CommandContext<'_>) -> Result<CommandEffect> {
         match &self.payload {
             SceneMutationPayload::Local { inverse, .. } => {
-                apply_local_patch(context.scene, inverse)?;
+                apply_local_patch(context.scene, inverse, context.property_types)?;
             }
             SceneMutationPayload::RemoteProperty { change } => {
                 apply_remote_property(context, change, false)?;
@@ -84,9 +84,10 @@ impl EditorCommand for ApplyScenePatchCommand {
 fn apply_local_patch(
     scene: &mut elcarax_scene_model::SceneSnapshot,
     patch: &ScenePatch,
+    property_types: &elcarax_scene_model::PropertyTypeRegistry,
 ) -> Result<()> {
     patch
-        .apply(scene)
+        .apply(scene, property_types)
         .map_err(|error| ElcaraxError::Command(error.message()))
 }
 
@@ -116,7 +117,7 @@ fn apply_remote_property(
         .confirm_property_change(&request)
         .map_err(ElcaraxError::Command)?;
     patch
-        .apply(context.scene)
+        .apply(context.scene, context.property_types)
         .map_err(|error: ScenePatchError| ElcaraxError::Command(error.message()))?;
     Ok(())
 }
@@ -150,17 +151,19 @@ mod tests {
     use elcarax_core::Result;
     use elcarax_scene_model::{
         ComponentInstance, ComponentSchema, ObjectSchema, PropertyKind, PropertyPath,
-        PropertySchema, PropertyValue, SceneObject, SceneObjectKind, SceneSnapshot, components,
-        kinds, prepare_property_change,
+        PropertySchema, PropertyTypeRegistry, PropertyValue, SceneObject, SceneObjectKind,
+        SceneSnapshot, components, kinds, prepare_property_change,
     };
 
     #[test]
     fn property_change_can_be_undone() -> Result<()> {
         let path = PropertyPath::parse("position")?;
         let (mut scene, object_id, component_id) = scene_with_position(path.clone());
+        let property_types = PropertyTypeRegistry::default();
         let mut context = CommandContext {
             scene: &mut scene,
             mutation_sink: None,
+            property_types: &property_types,
         };
         let mut history = CommandHistory::new();
         let change = prepare_change(
@@ -191,6 +194,7 @@ mod tests {
     fn apply_scene_patch_command_apply_changes_value() -> Result<()> {
         let path = PropertyPath::parse("position")?;
         let (mut scene, object_id, component_id) = scene_with_position(path.clone());
+        let property_types = PropertyTypeRegistry::default();
         let change = prepare_change(
             &scene,
             object_id,
@@ -202,6 +206,7 @@ mod tests {
         let mut context = CommandContext {
             scene: &mut scene,
             mutation_sink: None,
+            property_types: &property_types,
         };
         command.apply(&mut context)?;
         assert_eq!(
@@ -226,9 +231,11 @@ mod tests {
             PropertyValue::Vec3([4.0, 5.0, 6.0]),
         )?;
         let mut command = ApplyScenePatchCommand::from_property_change(change, "Set Position");
+        let property_types = PropertyTypeRegistry::default();
         let mut context = CommandContext {
             scene: &mut scene,
             mutation_sink: None,
+            property_types: &property_types,
         };
         command.apply(&mut context)?;
         command.revert(&mut context)?;
@@ -254,9 +261,11 @@ mod tests {
             PropertyValue::Vec3([4.0, 5.0, 6.0]),
         )?;
         let mut history = CommandHistory::new();
+        let property_types = PropertyTypeRegistry::default();
         let mut context = CommandContext {
             scene: &mut scene,
             mutation_sink: None,
+            property_types: &property_types,
         };
         history.execute(
             Box::new(ApplyScenePatchCommand::from_property_change(
@@ -298,9 +307,11 @@ mod tests {
         )?;
         change.path = PropertyPath::parse("missing")?;
         let mut history = CommandHistory::new();
+        let property_types = PropertyTypeRegistry::default();
         let mut context = CommandContext {
             scene: &mut scene,
             mutation_sink: None,
+            property_types: &property_types,
         };
         assert!(
             history
@@ -341,24 +352,26 @@ mod tests {
         scene.add_schema(schema);
         let root = SceneObject::new("Root", SceneObjectKind::new(kinds::WORLD), type_id);
         let root_id = root.id;
-        scene.add_root_object(root);
+        let property_types = PropertyTypeRegistry::default();
+        let _ = scene.add_object(None, 0, root, &property_types);
 
         let child = SceneObject::new("Child", SceneObjectKind::new(kinds::MESH), type_id);
         let child_id = child.id;
         let forward = scene
-            .add_object(Some(root_id), 0, child)
+            .add_object(Some(root_id), 0, child, &property_types)
             .map_err(|error| ElcaraxError::Command(error.message()))?;
         let inverse = forward
             .invert()
             .map_err(|error| ElcaraxError::Command(error.message()))?;
         inverse
-            .apply(&mut scene)
+            .apply(&mut scene, &property_types)
             .map_err(|error| ElcaraxError::Command(error.message()))?;
 
         let mut history = CommandHistory::new();
         let mut context = CommandContext {
             scene: &mut scene,
             mutation_sink: None,
+            property_types: &property_types,
         };
         history.execute(
             Box::new(ApplyScenePatchCommand::local(forward, inverse, "Add Child")),
@@ -396,7 +409,8 @@ mod tests {
         let object_id = object.id;
         let mut scene = SceneSnapshot::empty();
         scene.add_schema(schema);
-        scene.add_root_object(object);
+        let property_types = PropertyTypeRegistry::default();
+        let _ = scene.add_object(None, 0, object, &property_types);
         (scene, object_id, component_id)
     }
 
@@ -407,7 +421,14 @@ mod tests {
         path: &PropertyPath,
         value: PropertyValue,
     ) -> Result<PropertyChange> {
-        prepare_property_change(scene, object_id, component_id, path, &value)
-            .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))
+        prepare_property_change(
+            scene,
+            object_id,
+            component_id,
+            path,
+            &value,
+            &PropertyTypeRegistry::default(),
+        )
+        .map_err(|error| elcarax_core::ElcaraxError::Command(error.message()))
     }
 }

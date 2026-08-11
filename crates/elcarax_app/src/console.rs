@@ -12,15 +12,17 @@ use elcarax_ui::{PaintContext, Theme, UiContext, build_editor_shell_with_content
 
 use crate::adapter_state::AdapterState;
 use crate::asset_state::{ASSET_REFRESH_COMMAND, ASSET_SCAN_COMMAND, ASSET_SHOW_SELECTED_COMMAND};
-use crate::editor_commands::{command_summary, shortcut_summary, toolbar_snapshot};
+use crate::editor_commands::{
+    EditorCommandContext, EditorCommandRouter, command_summary, shortcut_summary, toolbar_snapshot,
+};
 use crate::editor_session::EditorSessionState;
 use crate::project_config::AppProjectConfig;
 use crate::project_state::{
-    PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND, PROJECT_REOPEN_LAST_COMMAND,
-    PROJECT_SHOW_RECENT_COMMAND, PROJECT_VALIDATE_COMMAND,
+    PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
+    PROJECT_REOPEN_LAST_COMMAND, PROJECT_SHOW_RECENT_COMMAND, PROJECT_VALIDATE_COMMAND,
 };
 use crate::project_ui::editor_snapshots;
-use crate::scene_state::{SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND};
+use crate::scene_state::{SCENE_LOAD_COMMAND, SceneCommand};
 use crate::scene_ui::shell_content_from_editor_state;
 use crate::viewport_state::{
     AppViewportState, VIEWPORT_CLEAR_COMMAND, VIEWPORT_REQUEST_FRAME_COMMAND,
@@ -110,7 +112,9 @@ fn build_startup_summary() -> Result<StartupSummary> {
         &editor.project.ui_snapshot(),
         &editor.assets.ui_snapshot(),
         &editor.scene.ui_snapshot(),
-        &editor.inspector.ui_snapshot(&editor.scene),
+        &editor
+            .inspector
+            .ui_snapshot(&editor.scene, &editor.property_types),
         &adapter_state.ui_snapshot(),
         &viewport_state.ui_snapshot(),
     ));
@@ -208,14 +212,7 @@ fn run_project_proof() -> Result<()> {
     println!("asset.scan: {scan}");
     println!("asset.kinds: {}", session.assets.kind_summary());
     if session.assets.select_row(0) {
-        let selected = session
-            .assets
-            .execute_command_id(
-                ASSET_SHOW_SELECTED_COMMAND,
-                session.project.is_project_loaded(),
-            )
-            .map(|result| result.message().to_string())
-            .unwrap_or_else(|| "missing selected result".to_string());
+        let selected = dispatch_session_command(&mut session, ASSET_SHOW_SELECTED_COMMAND);
         println!("asset.show_selected: {selected}");
     }
 
@@ -229,8 +226,8 @@ fn run_project_proof() -> Result<()> {
     let recent = dispatch_session_command(&mut session, PROJECT_SHOW_RECENT_COMMAND);
     println!("project.show_recent: {recent}");
 
-    let close = session.session_mut().close_project(None);
-    println!("project.close: {}", close.message());
+    let close = dispatch_session_command(&mut session, PROJECT_CLOSE_COMMAND);
+    println!("project.close: {close}");
     assert!(!session.project.is_project_loaded());
     assert!(session.assets.index().is_empty());
     assert!(session.assets.scanned_asset_count().is_none());
@@ -277,30 +274,20 @@ fn command_for_shortcut(
 }
 
 fn dispatch_session_command(session: &mut EditorSessionState, command_id: &str) -> String {
-    if command_id == SCENE_SAVE_COMMAND {
-        return session
-            .session_mut()
-            .save_scene()
-            .map(|outcome| outcome.status_message())
-            .unwrap_or_else(|| "missing scene save result".to_string());
-    }
-    if let Some(result) = session
-        .session_mut()
-        .execute_project_command(command_id, None)
-    {
-        return result.message().to_string();
-    }
-    if let Some(result) = session
-        .assets
-        .execute_command_id(command_id, session.project.is_project_loaded())
-    {
-        session.session_mut().after_asset_command(command_id);
-        return result.message().to_string();
-    }
-    if let Some(outcome) = session.session_mut().execute_scene_command(command_id) {
-        return outcome.status_message();
-    }
-    format!("missing command result: {command_id}")
+    let Some(command) = EditorCommandRouter::parse(command_id) else {
+        return format!("missing command result: {command_id}");
+    };
+    let mut adapter = AdapterState::default();
+    let mut viewport = AppViewportState::default();
+    let mut context = EditorCommandContext {
+        editor: session,
+        adapter: &mut adapter,
+        viewport: &mut viewport,
+        viewport_request_size: crate::viewport_state::ViewportFrameRequestSize::default_editor(),
+    };
+    EditorCommandRouter::execute(command, &mut context)
+        .message
+        .unwrap_or_else(|| format!("{command_id} completed"))
 }
 
 fn prove_scene_document_round_trip(session: &mut EditorSessionState) -> Result<()> {
@@ -314,7 +301,8 @@ fn prove_scene_document_round_trip(session: &mut EditorSessionState) -> Result<(
             schema.type_id,
         );
         snapshot.add_schema(schema);
-        snapshot.add_root_object(object);
+        let property_types = &session.property_types;
+        let _ = snapshot.add_object(None, 0, object, property_types);
     }
     session.scene.mark_document_modified();
     assert!(session.scene.has_unsaved_changes());
@@ -338,9 +326,8 @@ fn prove_scene_document_round_trip(session: &mut EditorSessionState) -> Result<(
     );
     let reload = session
         .session_mut()
-        .execute_scene_command(SCENE_LOAD_COMMAND)
-        .map(|outcome| outcome.status_message())
-        .unwrap_or_else(|| "missing round-trip reload result".to_string());
+        .execute_scene_command(SceneCommand::Load)
+        .status_message();
     println!("scene.round_trip_reload: {reload}");
     assert_eq!(
         session
@@ -377,10 +364,11 @@ fn run_viewport_proof() -> Result<()> {
     println!("viewport_proof: begin");
     assert_eq!(viewport_state.state().status, ViewportStatus::NoSource);
 
-    let without_adapter = viewport_state
-        .execute_command_id(VIEWPORT_REQUEST_FRAME_COMMAND, &mut adapter_state)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing viewport command result".to_string());
+    let without_adapter = dispatch_viewport_command(
+        &mut viewport_state,
+        &mut adapter_state,
+        VIEWPORT_REQUEST_FRAME_COMMAND,
+    );
     println!("viewport.request_frame_without_adapter: {without_adapter}");
     assert!(without_adapter.contains("No adapter connected"));
 
@@ -422,10 +410,11 @@ fn run_viewport_proof() -> Result<()> {
         frame.pixels.rgba.len()
     );
 
-    let clear_result = viewport_state
-        .execute_command_id(VIEWPORT_CLEAR_COMMAND, &mut adapter_state)
-        .map(|result| result.message().to_string())
-        .unwrap_or_else(|| "missing clear result".to_string());
+    let clear_result = dispatch_viewport_command(
+        &mut viewport_state,
+        &mut adapter_state,
+        VIEWPORT_CLEAR_COMMAND,
+    );
     println!("viewport.clear: {clear_result}");
     assert_eq!(
         viewport_state.state().status,
@@ -438,4 +427,24 @@ fn run_viewport_proof() -> Result<()> {
     assert_eq!(viewport_state.state().status, ViewportStatus::NoSource);
     println!("viewport_proof: complete");
     Ok(())
+}
+
+fn dispatch_viewport_command(
+    viewport: &mut AppViewportState,
+    adapter: &mut AdapterState,
+    command_id: &str,
+) -> String {
+    let Some(command) = EditorCommandRouter::parse(command_id) else {
+        return format!("missing viewport command result: {command_id}");
+    };
+    let mut editor = EditorSessionState::default();
+    let mut context = EditorCommandContext {
+        editor: &mut editor,
+        adapter,
+        viewport,
+        viewport_request_size: crate::viewport_state::ViewportFrameRequestSize::default_editor(),
+    };
+    EditorCommandRouter::execute(command, &mut context)
+        .message
+        .unwrap_or_else(|| format!("{command_id} completed"))
 }

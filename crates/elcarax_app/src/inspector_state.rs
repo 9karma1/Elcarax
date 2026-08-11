@@ -4,12 +4,12 @@ use elcarax_commands::CommandHistory;
 #[cfg(test)]
 use elcarax_scene_model::PropertyValue;
 use elcarax_scene_model::{
-    InspectorDiagnostic, PropertyEditKind, PropertyPath, build_inspector_for_selection,
-    build_inspector_object, parse_property_text,
+    InspectorDiagnostic, PropertyEditKind, PropertyPath, PropertyTypeRegistry,
+    build_inspector_for_selection, build_inspector_object, parse_property_text,
 };
 
 use crate::adapter_state::AdapterState;
-use crate::edit_service::SessionEditService;
+use crate::edit_service::{ScenePropertyEdit, SessionEditService};
 use crate::inspector_display::{
     InspectorUiSnapshot, inspector_summary_for_object, inspector_ui_snapshot_with_scroll,
 };
@@ -22,6 +22,16 @@ pub(crate) const EDIT_UNDO_COMMAND: &str = "edit.undo";
 pub(crate) const EDIT_REDO_COMMAND: &str = "edit.redo";
 pub(crate) const EDIT_SET_PROPERTY_COMMAND: &str = "edit.set_property";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InspectorPropertyCommit {
+    pub(crate) component_id: elcarax_scene_model::ComponentInstanceId,
+    pub(crate) path: String,
+    pub(crate) edit_kind: PropertyEditKind,
+    pub(crate) extension_type_id: Option<String>,
+    pub(crate) text: String,
+    pub(crate) label: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct InspectorState {
     suppressed: bool,
@@ -30,51 +40,59 @@ pub(crate) struct InspectorState {
 }
 
 impl InspectorState {
-    pub(crate) fn execute_command_id(
+    pub(crate) fn execute(
         &mut self,
-        id: &str,
+        command: InspectorCommand,
         scene: &mut SceneState,
-    ) -> Option<InspectorCommandResult> {
-        let command = InspectorCommand::from_id(id)?;
+        property_types: &PropertyTypeRegistry,
+    ) -> InspectorCommandResult {
         let result = match command {
-            InspectorCommand::ShowSelected => self.show_selected(scene),
+            InspectorCommand::ShowSelected => self.show_selected(scene, property_types),
             InspectorCommand::Clear => self.clear(),
-            InspectorCommand::ShowPropertyCount => self.show_property_count(scene),
+            InspectorCommand::ShowPropertyCount => self.show_property_count(scene, property_types),
         };
         self.last_command_result = Some(result.clone());
-        Some(result)
+        result
     }
 
-    pub(crate) fn execute_edit_command_id(
+    pub(crate) fn execute_edit(
         &mut self,
-        id: &str,
+        command: InspectorEditCommand,
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
-    ) -> Option<InspectorCommandResult> {
-        let command = InspectorEditCommand::from_id(id)?;
+        property_types: &PropertyTypeRegistry,
+    ) -> InspectorCommandResult {
         let result = match command {
-            InspectorEditCommand::Undo => SessionEditService::undo(scene, history, adapter),
-            InspectorEditCommand::Redo => SessionEditService::redo(scene, history, adapter),
+            InspectorEditCommand::Undo => {
+                SessionEditService::undo(scene, history, adapter, property_types)
+            }
+            InspectorEditCommand::Redo => {
+                SessionEditService::redo(scene, history, adapter, property_types)
+            }
         };
         self.last_command_result = Some(result.clone());
-        Some(result)
+        result
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn commit_inspector_property(
         &mut self,
         scene: &mut SceneState,
         history: &mut CommandHistory,
         adapter: Option<&mut AdapterState>,
-        component_id: elcarax_scene_model::ComponentInstanceId,
-        path: &str,
-        edit_kind: PropertyEditKind,
-        text: &str,
-        label: &str,
+        request: InspectorPropertyCommit,
+        property_types: &PropertyTypeRegistry,
     ) -> InspectorCommandResult {
         self.suppressed = false;
-        let path = match PropertyPath::parse(path) {
+        let InspectorPropertyCommit {
+            component_id,
+            path: raw_path,
+            edit_kind,
+            extension_type_id,
+            text,
+            label,
+        } = request;
+        let path = match PropertyPath::parse(&raw_path) {
             Ok(path) => path,
             Err(error) => {
                 return self.edit_error(
@@ -84,7 +102,13 @@ impl InspectorState {
                 );
             }
         };
-        let value = match parse_property_text(&path, edit_kind, text) {
+        let value = match parse_property_text(
+            &path,
+            edit_kind,
+            extension_type_id.as_deref(),
+            text.as_str(),
+            property_types,
+        ) {
             Ok(value) => value,
             Err(error) => {
                 return self.edit_error(scene, EDIT_SET_PROPERTY_COMMAND, error.message());
@@ -94,10 +118,8 @@ impl InspectorState {
             scene,
             history,
             adapter,
-            component_id,
-            &path,
-            value,
-            label,
+            ScenePropertyEdit::new(component_id, path, value, label),
+            property_types,
         );
         self.last_command_result = Some(result.clone());
         result
@@ -108,14 +130,19 @@ impl InspectorState {
         self.last_command_result = None;
     }
 
-    pub(crate) fn ui_snapshot(&self, scene: &SceneState) -> InspectorUiSnapshot {
-        self.ui_snapshot_at(scene, 0)
+    pub(crate) fn ui_snapshot(
+        &self,
+        scene: &SceneState,
+        property_types: &PropertyTypeRegistry,
+    ) -> InspectorUiSnapshot {
+        self.ui_snapshot_at(scene, 0, property_types)
     }
 
     pub(crate) fn ui_snapshot_at(
         &self,
         scene: &SceneState,
         scroll_offset: usize,
+        property_types: &PropertyTypeRegistry,
     ) -> InspectorUiSnapshot {
         inspector_ui_snapshot_with_scroll(
             scene,
@@ -124,10 +151,15 @@ impl InspectorState {
                 .as_ref()
                 .map(InspectorCommandResult::message),
             scroll_offset,
+            property_types,
         )
     }
 
-    fn show_selected(&mut self, scene: &SceneState) -> InspectorCommandResult {
+    fn show_selected(
+        &mut self,
+        scene: &SceneState,
+        property_types: &PropertyTypeRegistry,
+    ) -> InspectorCommandResult {
         self.suppressed = false;
         let Some(snapshot) = scene.snapshot() else {
             return InspectorCommandResult::new(
@@ -141,7 +173,7 @@ impl InspectorState {
                 InspectorDiagnostic::NoObjectSelected.message(),
             );
         };
-        match build_inspector_object(snapshot, selected) {
+        match build_inspector_object(snapshot, selected, property_types) {
             Ok(inspector) => InspectorCommandResult::new(
                 INSPECTOR_SHOW_SELECTED_COMMAND,
                 inspector_summary_for_object(&inspector),
@@ -163,7 +195,11 @@ impl InspectorState {
         InspectorCommandResult::new(INSPECTOR_CLEAR_COMMAND, "Cleared inspector view")
     }
 
-    fn show_property_count(&mut self, scene: &SceneState) -> InspectorCommandResult {
+    fn show_property_count(
+        &mut self,
+        scene: &SceneState,
+        property_types: &PropertyTypeRegistry,
+    ) -> InspectorCommandResult {
         let Some(snapshot) = scene.snapshot() else {
             return InspectorCommandResult::new(
                 INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND,
@@ -176,7 +212,11 @@ impl InspectorState {
                 "0 properties",
             );
         }
-        let count = match build_inspector_for_selection(snapshot, scene.selection().selected()) {
+        let count = match build_inspector_for_selection(
+            snapshot,
+            scene.selection().selected(),
+            property_types,
+        ) {
             Ok(inspector) => inspector.property_count(),
             Err(_) => 0,
         };
@@ -213,10 +253,8 @@ impl InspectorState {
             scene,
             history,
             None,
-            component_id,
-            &path,
-            new_value,
-            label,
+            ScenePropertyEdit::new(component_id, path, new_value, label),
+            &PropertyTypeRegistry::default(),
         ) {
             Ok(message) => self.edit_success(scene, command_id, message),
             Err(error) => self.edit_error(scene, command_id, error),
@@ -277,37 +315,16 @@ impl InspectorCommandResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InspectorCommand {
+pub(crate) enum InspectorCommand {
     ShowSelected,
     Clear,
     ShowPropertyCount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InspectorEditCommand {
+pub(crate) enum InspectorEditCommand {
     Undo,
     Redo,
-}
-
-impl InspectorCommand {
-    fn from_id(id: &str) -> Option<Self> {
-        match id {
-            INSPECTOR_SHOW_SELECTED_COMMAND => Some(Self::ShowSelected),
-            INSPECTOR_CLEAR_COMMAND => Some(Self::Clear),
-            INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND => Some(Self::ShowPropertyCount),
-            _ => None,
-        }
-    }
-}
-
-impl InspectorEditCommand {
-    fn from_id(id: &str) -> Option<Self> {
-        match id {
-            EDIT_UNDO_COMMAND => Some(Self::Undo),
-            EDIT_REDO_COMMAND => Some(Self::Redo),
-            _ => None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -348,12 +365,14 @@ mod tests {
             PropertyValue::I64(75),
             "Set Health",
         );
-        let result =
-            inspector.execute_edit_command_id(EDIT_UNDO_COMMAND, &mut scene, &mut history, None);
-        assert_eq!(
-            result.map(|result| result.message().to_string()),
-            Some("Command: edit.undo".to_string())
+        let result = inspector.execute_edit(
+            InspectorEditCommand::Undo,
+            &mut scene,
+            &mut history,
+            None,
+            &PropertyTypeRegistry::default(),
         );
+        assert_eq!(result.message(), "Command: edit.undo");
         assert_eq!(health(&scene), PropertyValue::I64(100));
     }
 
@@ -369,21 +388,28 @@ mod tests {
             PropertyValue::I64(75),
             "Set Health",
         );
-        let _ =
-            inspector.execute_edit_command_id(EDIT_UNDO_COMMAND, &mut scene, &mut history, None);
-        let result =
-            inspector.execute_edit_command_id(EDIT_REDO_COMMAND, &mut scene, &mut history, None);
-        assert_eq!(
-            result.map(|result| result.message().to_string()),
-            Some("Command: edit.redo".to_string())
+        let _ = inspector.execute_edit(
+            InspectorEditCommand::Undo,
+            &mut scene,
+            &mut history,
+            None,
+            &PropertyTypeRegistry::default(),
         );
+        let result = inspector.execute_edit(
+            InspectorEditCommand::Redo,
+            &mut scene,
+            &mut history,
+            None,
+            &PropertyTypeRegistry::default(),
+        );
+        assert_eq!(result.message(), "Command: edit.redo");
         assert_eq!(health(&scene), PropertyValue::I64(75));
     }
 
     #[test]
     fn failed_edit_without_selection_does_not_push_undo_entry() {
         let (mut scene, mut history, mut inspector, component_id) = fixture();
-        let _ = scene.execute_command_id(crate::scene_state::SCENE_CLEAR_SELECTION_COMMAND);
+        let _ = scene.execute(crate::scene_state::SceneCommand::ClearSelection);
         let result = inspector.set_fixture_property(
             &mut scene,
             &mut history,
@@ -424,7 +450,12 @@ mod tests {
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::empty();
         snapshot.add_schema(schema);
-        snapshot.add_root_object(object);
+        let _ = snapshot.add_object(
+            None,
+            0,
+            object,
+            &elcarax_scene_model::PropertyTypeRegistry::default(),
+        );
         let mut scene = SceneState::default();
         scene.load_fixture_snapshot(snapshot);
         assert!(scene.select_object(object_id));

@@ -105,32 +105,19 @@ impl AppViewportState {
         self.pending_editor_input = Some(input);
     }
 
-    pub(crate) fn execute_command_id(
+    pub(crate) fn execute(
         &mut self,
-        id: &str,
-        adapter_state: &mut AdapterState,
-    ) -> Option<ViewportCommandResult> {
-        self.execute_command_id_with_size(
-            id,
-            adapter_state,
-            ViewportFrameRequestSize::default_editor(),
-        )
-    }
-
-    pub(crate) fn execute_command_id_with_size(
-        &mut self,
-        id: &str,
+        command: ViewportCommand,
         adapter_state: &mut AdapterState,
         request_size: ViewportFrameRequestSize,
-    ) -> Option<ViewportCommandResult> {
-        let command = ViewportCommand::from_id(id)?;
+    ) -> ViewportCommandResult {
         let result = match command {
             ViewportCommand::RequestFrame => self.request_frame(adapter_state, request_size),
             ViewportCommand::Clear => self.clear(),
             ViewportCommand::ShowStatus => self.show_status(),
         };
         self.last_command_result = Some(result.clone());
-        Some(result)
+        result
     }
 
     pub(crate) fn on_adapter_connected(&mut self, adapter_id: &str, supports_preview: bool) {
@@ -311,21 +298,10 @@ impl ViewportCommandResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ViewportCommand {
+pub(crate) enum ViewportCommand {
     RequestFrame,
     Clear,
     ShowStatus,
-}
-
-impl ViewportCommand {
-    fn from_id(id: &str) -> Option<Self> {
-        match id {
-            VIEWPORT_REQUEST_FRAME_COMMAND => Some(Self::RequestFrame),
-            VIEWPORT_CLEAR_COMMAND => Some(Self::Clear),
-            VIEWPORT_SHOW_STATUS_COMMAND => Some(Self::ShowStatus),
-            _ => None,
-        }
-    }
 }
 
 #[cfg_attr(feature = "native-shell", allow(dead_code))]
@@ -355,11 +331,11 @@ mod tests {
     fn request_frame_without_adapter_fails_clearly() {
         let mut viewport = AppViewportState::default();
         let mut adapter = AdapterState::default();
-        let result = match viewport.execute_command_id(VIEWPORT_REQUEST_FRAME_COMMAND, &mut adapter)
-        {
-            Some(result) => result,
-            None => panic!("command should run"),
-        };
+        let result = viewport.execute(
+            ViewportCommand::RequestFrame,
+            &mut adapter,
+            ViewportFrameRequestSize::default_editor(),
+        );
         assert!(result.message().contains("No adapter connected"));
         assert_eq!(viewport.state().status, ViewportStatus::NoSource);
     }
@@ -369,11 +345,11 @@ mod tests {
         let mut viewport = AppViewportState::default();
         let mut adapter = adapter_with_viewport_response();
         viewport.on_adapter_connected("fixture-adapter", true);
-        let result = match viewport.execute_command_id(VIEWPORT_REQUEST_FRAME_COMMAND, &mut adapter)
-        {
-            Some(result) => result,
-            None => panic!("command should run"),
-        };
+        let result = viewport.execute(
+            ViewportCommand::RequestFrame,
+            &mut adapter,
+            ViewportFrameRequestSize::default_editor(),
+        );
         assert!(result.message().contains("viewport frame"));
         assert_eq!(viewport.state().status, ViewportStatus::FrameAvailable);
     }
@@ -383,8 +359,16 @@ mod tests {
         let mut viewport = AppViewportState::default();
         let mut adapter = adapter_with_viewport_response();
         viewport.on_adapter_connected("fixture-adapter", true);
-        let _ = viewport.execute_command_id(VIEWPORT_REQUEST_FRAME_COMMAND, &mut adapter);
-        let _ = viewport.execute_command_id(VIEWPORT_CLEAR_COMMAND, &mut adapter);
+        let _ = viewport.execute(
+            ViewportCommand::RequestFrame,
+            &mut adapter,
+            ViewportFrameRequestSize::default_editor(),
+        );
+        let _ = viewport.execute(
+            ViewportCommand::Clear,
+            &mut adapter,
+            ViewportFrameRequestSize::default_editor(),
+        );
         assert_eq!(viewport.state().status, ViewportStatus::WaitingForFrame);
         assert!(viewport.state().frame.is_none());
     }

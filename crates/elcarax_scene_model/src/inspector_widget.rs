@@ -1,27 +1,23 @@
 //! Schema-driven inspector value widget descriptors.
 
-use crate::{NumericEditMetadata, PropertyEditKind, PropertyKind, PropertySchema, PropertyValue};
-
-pub const MAX_ENUM_VARIANTS: usize = 8;
+use crate::{
+    NumericEditMetadata, PropertyEditKind, PropertySchema, PropertyTypeRegistry, PropertyValue,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EnumVariantList {
-    pub variants: [String; MAX_ENUM_VARIANTS],
-    pub len: u8,
+    pub variants: Vec<String>,
 }
 
 impl EnumVariantList {
     pub fn from_slice(values: &[String]) -> Self {
-        let mut list = Self::default();
-        for (index, value) in values.iter().take(MAX_ENUM_VARIANTS).enumerate() {
-            list.variants[index] = value.clone();
+        Self {
+            variants: values.to_vec(),
         }
-        list.len = values.len().min(MAX_ENUM_VARIANTS) as u8;
-        list
     }
 
     pub fn as_slice(&self) -> &[String] {
-        &self.variants[..self.len as usize]
+        self.variants.as_slice()
     }
 
     pub fn contains(&self, variant: &str) -> bool {
@@ -67,6 +63,7 @@ pub enum InspectorValueWidget {
 pub fn inspector_value_widget_for(
     schema: &PropertySchema,
     value: &PropertyValue,
+    property_types: &PropertyTypeRegistry,
 ) -> InspectorValueWidget {
     if !schema.editable {
         return InspectorValueWidget::ReadOnly(value.display_label());
@@ -100,45 +97,16 @@ pub fn inspector_value_widget_for(
             selected: enum_display(value),
             variants: EnumVariantList::from_slice(&schema.enum_variants),
         },
+        PropertyEditKind::Extension => {
+            let Some(type_id) = schema.extension_type_id.as_deref() else {
+                return InspectorValueWidget::ReadOnly(value.display_label());
+            };
+            match property_types.display(type_id, value) {
+                Some(display) => InspectorValueWidget::Text(display),
+                None => InspectorValueWidget::ReadOnly(value.display_label()),
+            }
+        }
         PropertyEditKind::Unsupported => InspectorValueWidget::ReadOnly(value.display_label()),
-    }
-}
-
-pub fn inspector_value_widget_for_row(
-    editable: bool,
-    edit_kind: PropertyEditKind,
-    value_text: &str,
-    numeric: Option<NumericEditMetadata>,
-    enum_variants: &[String],
-    value: &PropertyValue,
-) -> InspectorValueWidget {
-    if !editable {
-        return InspectorValueWidget::ReadOnly(value_text.to_string());
-    }
-    let schema = PropertySchema {
-        path: crate::PropertyPath::fixture_from_segments(&["fixture"]),
-        display_name: String::new(),
-        kind: property_kind_for_edit(edit_kind),
-        editable: true,
-        edit_kind,
-        numeric,
-        enum_variants: enum_variants.to_vec(),
-        read_only_reason: None,
-        extension_type_id: None,
-    };
-    inspector_value_widget_for(&schema, value)
-}
-
-fn property_kind_for_edit(edit_kind: PropertyEditKind) -> PropertyKind {
-    match edit_kind {
-        PropertyEditKind::Bool => PropertyKind::Bool,
-        PropertyEditKind::Integer => PropertyKind::I64,
-        PropertyEditKind::Float => PropertyKind::F64,
-        PropertyEditKind::String => PropertyKind::String,
-        PropertyEditKind::Vec2 => PropertyKind::Vec2,
-        PropertyEditKind::Vec3 => PropertyKind::Vec3,
-        PropertyEditKind::Enum => PropertyKind::Enum,
-        PropertyEditKind::Unsupported => PropertyKind::String,
     }
 }
 
@@ -201,7 +169,11 @@ mod tests {
     #[test]
     fn bool_schema_maps_to_toggle_widget() {
         let schema = PropertySchema::editable(path("enabled"), "Enabled", PropertyKind::Bool);
-        let widget = inspector_value_widget_for(&schema, &PropertyValue::Bool(true));
+        let widget = inspector_value_widget_for(
+            &schema,
+            &PropertyValue::Bool(true),
+            &PropertyTypeRegistry::default(),
+        );
         assert_eq!(widget, InspectorValueWidget::Toggle { checked: true });
     }
 
@@ -213,6 +185,7 @@ mod tests {
             &PropertyValue::Enum {
                 variant: "Idle".to_string(),
             },
+            &PropertyTypeRegistry::default(),
         );
         assert!(matches!(widget, InspectorValueWidget::Enum { .. }));
     }

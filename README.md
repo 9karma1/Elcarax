@@ -9,7 +9,7 @@ The project is licensed under Apache-2.0. See [LICENSE](LICENSE).
 This repository contains the v0.1 foundation for the Elcarax editor:
 
 - engine-neutral workspace, scene, schema, property, and command types
-- command metadata registry, default keybindings, conflict diagnostics, and command history with undo/redo proof flow
+- command metadata registry, centralized typed command routing, default keybindings, conflict diagnostics, and command history with undo/redo proof flow
 - adapter API, SDK, host boundary, and stdio reference game adapter
 - `winit` native shell behind the `native-shell` feature
 - `wgpu` surface/context and rectangle primitive rendering
@@ -19,20 +19,20 @@ This repository contains the v0.1 foundation for the Elcarax editor:
 - project-domain model, recent project list, validation diagnostics, and project commands
 - real project asset index with project-relative paths, stable path-derived IDs, metadata, diagnostics, refresh, watcher dirty-state, and clickable asset rows
 - scene tree with engine-neutral scene model, reference scene snapshot for adapter/tests, hierarchy display, selection/expand state, and scene commands
-- inspector with schema-driven property rows, grouped sections, selection-driven updates, and typed edit widgets (text, toggle, number stepper, vector field, enum selector)
+- inspector with schema-driven property rows, grouped sections, selection-driven updates, typed edit widgets (text, toggle, number stepper, vector field, enum selector), and registry-backed extension authoring
 - editable inspector undo through command-driven property edits, validation, diagnostics, and a unified undo/redo history
-- adapter host integration with JSON-line process spawning, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
+- adapter host integration with binary-framed process transport, handshake, diagnostics/logs, scene snapshot import, and adapter command-palette commands
 - adapter property writeback with set-property requests, confirmed scene patches, adapter-backed inspector edits, and the same undo/redo path as local edits
-- scene mutation patches for property updates and hierarchy ops (`ObjectAdded` / `ObjectRemoved` / `Reparented` / `Renamed`)
+- atomic scene mutation patches for property updates and hierarchy ops (`ObjectAdded` / `ObjectRemoved` / `Reparented` / `Renamed`) with strict hierarchy validation and persisted-ID reservation
 - viewport preview with adapter RGBA frames, letterboxed layout, camera pan/zoom, actionable empty states, and scene-object picking from normalized viewport coordinates
 - productionized empty runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
 - real project file format, create/open/validate/close, recent-project persistence, native folder picker, and explicit project asset scanning
 - project-owned scene files (`*.elcarax.scene.toml`), auto-load on project open, `scene.save`, document dirty tracking, unsaved guards, manifest `active_scene` sync, and **Ctrl+S** in the native shell through the keybinding registry
-- `EditorSession` coordinator in `elcarax_app` for unified project open/close/switch, dependent state binding, and undo history reset
+- `EditorSession` coordinator in `elcarax_app` for unified project open/close/switch, dependent state binding, typed command routing, and undo history reset
 - project, asset, accessibility state, and devtools modules
 - architecture decision records; see [CHANGELOG.md](CHANGELOG.md) for release history
 
-This is not a full editor yet. Docking, hierarchy drag/drop, component add/remove, asset assignment editing, multi-object editing, user-editable keybinding preferences, command macros, fuzzy command scoring, menu bars, full settings UI, IME/full caret selection editing, real accessibility integration, hot reload, plugin/marketplace runtime loading, asset import pipeline, asset thumbnails/previews, asset drag/drop, asset rename/move/delete, scene hierarchy mutation, multi-scene switcher UI, save-on-close dialogs, continuous autosave, continuous viewport frame streaming, adapter viewport pick protocol, real engine synchronization, C++ integration, real engine writeback, and real engine binding are intentionally out of scope for the current milestone.
+This is not a full editor yet. Docking, hierarchy drag/drop UI, component add/remove UI, asset assignment editing, multi-object editing, user-editable keybinding preferences, command macros, fuzzy command scoring, menu bars, full settings UI, IME/full caret selection editing, real accessibility integration, hot reload, plugin/marketplace runtime loading, asset import pipeline, asset thumbnails/previews, asset drag/drop, asset rename/move/delete, multi-scene switcher UI, save-on-close dialogs, continuous autosave, continuous viewport frame streaming, adapter viewport pick protocol, real engine synchronization, C++ integration, real engine writeback, and real engine binding are intentionally out of scope for the current milestone.
 
 ## Requirements
 
@@ -122,18 +122,18 @@ Suggested manual flow:
 Elcarax keeps external systems behind crate boundaries:
 
 - `elcarax_core` owns foundational IDs, errors, diagnostics, workspace types, viewport domain state, and viewport camera/layout math
-- `elcarax_scene_model`: engine-neutral scene/property/schema model, `InspectorValueWidget` descriptors, and viewport pick helpers
+- `elcarax_scene_model`: engine-neutral scene/property/schema model, atomic patch kernel, hierarchy validation, persisted-ID observation, property-type registry, `InspectorValueWidget` descriptors, and viewport pick helpers
 - `elcarax_commands`: command metadata, platform-neutral key chords, default keybindings, conflict diagnostics, and undo/redo behavior
 - `elcarax_project`: project model, validation, status, and recent-project domain types
 - `elcarax_assets`: asset index, project-relative scanning, stable path-derived IDs, metadata, diagnostics, selection, extension-based kind detection, and watch service abstraction
 - `elcarax_adapter_api`: stable adapter boundary
-- `elcarax_adapter_host`: adapter process, JSON-line transport, request correlation, events, and failure handling
+- `elcarax_adapter_host`: adapter process, binary-framed transport, request correlation, events, and failure handling
 - `elcarax_platform`: platform event loop and native window integration
 - `elcarax_gpu`: `wgpu` context, surface, and render-pass helpers
 - `elcarax_text`: `cosmic-text` shaping, layout cache, and system-font rasterization
 - `elcarax_render`: editor render primitives, batching, GPU rendering, and render stats
 - `elcarax_ui`: retained UI tree, layout, scroll views, typed property widgets, hit testing, interaction state, command palette/toolbar presentation, dirty flags, styles, and paint output
-- `elcarax_app`: composition layer - `EditorSession`, command availability/dispatch, toolbar snapshots, console proof, and native shell
+- `elcarax_app`: composition layer - `EditorSession`, typed `EditorCommandRouter`, command availability, toolbar snapshots, console proof, and native shell
 
 The game engine may depend on Elcarax adapter SDK types. Elcarax core crates must not depend on the game engine.
 
@@ -142,7 +142,6 @@ The game engine may depend on Elcarax adapter SDK types. Elcarax core crates mus
 - [docs/INSTALL.md](docs/INSTALL.md) — build from source and install the `Elcarax` binary
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development workflow and pull request guidelines
 - [CHANGELOG.md](CHANGELOG.md) — release history
-- [ROADMAP.md](ROADMAP.md) — planned work
 - [STATUS.md](STATUS.md) — current capability snapshot
 - [docs/BUILD_NOTES.md](docs/BUILD_NOTES.md) — console and native-shell behavior
 - [docs/adr/](docs/adr/) — architecture decision records

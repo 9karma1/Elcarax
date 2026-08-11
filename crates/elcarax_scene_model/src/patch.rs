@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::component::{ComponentInstance, ComponentInstanceId};
 use crate::{
-    PropertyEditError, PropertyKind, PropertyPath, PropertyValue, SceneObject, SceneObjectId,
-    SceneSnapshot,
+    PropertyEditError, PropertyPath, PropertyTypeRegistry, PropertyValue, SceneHierarchy,
+    SceneObject, SceneObjectId, SceneSnapshot,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,9 +49,26 @@ impl ScenePatch {
         Ok(Self { operations })
     }
 
-    pub fn apply(&self, snapshot: &mut SceneSnapshot) -> Result<(), ScenePatchError> {
+    pub fn apply(
+        &self,
+        snapshot: &mut SceneSnapshot,
+        property_types: &PropertyTypeRegistry,
+    ) -> Result<(), ScenePatchError> {
+        let mut staged = snapshot.clone();
+        self.apply_in_place(&mut staged, property_types)?;
+        SceneHierarchy::validate_detailed(&staged)
+            .map_err(|reason| ScenePatchError::InvalidHierarchy { reason })?;
+        *snapshot = staged;
+        Ok(())
+    }
+
+    fn apply_in_place(
+        &self,
+        snapshot: &mut SceneSnapshot,
+        property_types: &PropertyTypeRegistry,
+    ) -> Result<(), ScenePatchError> {
         for operation in &self.operations {
-            operation.apply(snapshot)?;
+            operation.apply(snapshot, property_types)?;
         }
         Ok(())
     }
@@ -106,9 +123,15 @@ impl ScenePatchOperation {
         }
     }
 
-    fn apply(&self, snapshot: &mut SceneSnapshot) -> Result<(), ScenePatchError> {
+    fn apply(
+        &self,
+        snapshot: &mut SceneSnapshot,
+        property_types: &PropertyTypeRegistry,
+    ) -> Result<(), ScenePatchError> {
         match self {
-            Self::PropertyUpdated(update) => apply_property_update(snapshot, update),
+            Self::PropertyUpdated(update) => {
+                apply_property_update(snapshot, update, property_types)
+            }
             Self::ComponentAdded(added) => apply_component_added(snapshot, added),
             Self::ComponentRemoved(removed) => apply_component_removed(snapshot, removed),
             Self::ObjectAdded(added) => apply_object_added(snapshot, added),
@@ -280,6 +303,7 @@ impl From<PropertyEditError> for ScenePatchError {
 fn apply_property_update(
     snapshot: &mut SceneSnapshot,
     update: &PropertyUpdated,
+    property_types: &PropertyTypeRegistry,
 ) -> Result<(), ScenePatchError> {
     let object =
         snapshot
@@ -295,14 +319,20 @@ fn apply_property_update(
                 object_id: update.object_id,
                 component_id: update.component_id,
             })?;
-    let kind = property_kind(snapshot, object.type_id, &component.type_name, &update.path)?;
-    validate_patch_value(&update.path, kind, &update.value)?;
     if component.property(&update.path).is_none() {
         return Err(PropertyEditError::PropertyNotFound {
             path: update.path.clone(),
         }
         .into());
     }
+    crate::validate_property_value(
+        snapshot,
+        update.object_id,
+        update.component_id,
+        &update.path,
+        &update.value,
+        property_types,
+    )?;
     snapshot
         .replace_existing_property(
             update.object_id,
@@ -541,35 +571,4 @@ fn would_create_cycle(
             .and_then(|object| object.parent);
     }
     false
-}
-
-fn property_kind(
-    snapshot: &SceneSnapshot,
-    type_id: crate::ObjectTypeId,
-    type_name: &crate::component::ComponentTypeName,
-    path: &PropertyPath,
-) -> Result<PropertyKind, ScenePatchError> {
-    let schema = snapshot
-        .schema(type_id)
-        .ok_or_else(|| PropertyEditError::PropertyNotFound { path: path.clone() })?;
-    schema
-        .property(type_name, path)
-        .map(|property| property.kind)
-        .ok_or_else(|| PropertyEditError::PropertyNotFound { path: path.clone() }.into())
-}
-
-fn validate_patch_value(
-    path: &PropertyPath,
-    kind: PropertyKind,
-    value: &PropertyValue,
-) -> Result<(), ScenePatchError> {
-    if value.matches_kind(kind) {
-        return Ok(());
-    }
-    Err(PropertyEditError::TypeMismatch {
-        path: path.clone(),
-        expected: crate::PropertyEditKind::for_property_kind(kind),
-        actual: value.display_label(),
-    }
-    .into())
 }

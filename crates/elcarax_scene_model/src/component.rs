@@ -9,6 +9,12 @@ use crate::{PropertyPath, PropertyValue};
 pub enum ComponentInstanceMarker {}
 pub type ComponentInstanceId = Id<ComponentInstanceMarker>;
 
+static COMPONENT_IDS: IdGenerator<ComponentInstanceMarker> = IdGenerator::new();
+
+pub(crate) fn observe_component_id(id: ComponentInstanceId) {
+    COMPONENT_IDS.observe(id);
+}
+
 /// Open component type name. Schemas and adapters register component types by string id.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -62,8 +68,7 @@ pub struct ComponentInstance {
 
 impl ComponentInstance {
     pub fn new(type_name: impl Into<ComponentTypeName>, display_name: impl Into<String>) -> Self {
-        static IDS: IdGenerator<ComponentInstanceMarker> = IdGenerator::new();
-        Self::with_id(IDS.next_id(), type_name, display_name)
+        Self::with_id(COMPONENT_IDS.next_id(), type_name, display_name)
     }
 
     pub fn with_stable_id(
@@ -71,6 +76,7 @@ impl ComponentInstance {
         type_name: impl Into<ComponentTypeName>,
         display_name: impl Into<String>,
     ) -> Self {
+        COMPONENT_IDS.observe(id);
         Self::with_id(id, type_name, display_name)
     }
 
@@ -87,16 +93,12 @@ impl ComponentInstance {
         }
     }
 
-    pub fn set_property(&mut self, path: PropertyPath, value: PropertyValue) {
-        self.properties.insert(path, value);
-    }
-
     pub fn property(&self, path: &PropertyPath) -> Option<&PropertyValue> {
         self.properties.get(path)
     }
 
     pub fn with_property(mut self, path: PropertyPath, value: PropertyValue) -> Self {
-        self.set_property(path, value);
+        self.properties.insert(path, value);
         self
     }
 }

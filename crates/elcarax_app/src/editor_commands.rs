@@ -9,29 +9,31 @@ use elcarax_ui::CommandPaletteEntry;
 use crate::adapter_state::{
     ADAPTER_CONNECT_COMMAND, ADAPTER_DISCONNECT_COMMAND, ADAPTER_HANDSHAKE_COMMAND,
     ADAPTER_LOAD_PROJECT_COMMAND, ADAPTER_LOAD_SCENE_COMMAND, ADAPTER_SHOW_DIAGNOSTICS_COMMAND,
-    ADAPTER_SHOW_STATUS_COMMAND, AdapterState,
+    ADAPTER_SHOW_STATUS_COMMAND, AdapterCommand, AdapterState,
 };
 use crate::asset_state::{
     ASSET_CLEAR_SELECTION_COMMAND, ASSET_REFRESH_COMMAND, ASSET_REVEAL_ROOT_COMMAND,
     ASSET_SCAN_COMMAND, ASSET_SHOW_SELECTED_COMMAND, ASSET_START_WATCHING_COMMAND,
-    ASSET_STOP_WATCHING_COMMAND,
+    ASSET_STOP_WATCHING_COMMAND, AssetCommand,
 };
-use crate::editor_session::EditorSessionState;
+use crate::editor_session::{EditorSessionState, EditorShellContext};
 use crate::inspector_state::{
     EDIT_REDO_COMMAND, EDIT_UNDO_COMMAND, INSPECTOR_CLEAR_COMMAND,
-    INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND, INSPECTOR_SHOW_SELECTED_COMMAND,
+    INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND, INSPECTOR_SHOW_SELECTED_COMMAND, InspectorCommand,
+    InspectorEditCommand,
 };
 use crate::project_state::{
     PROJECT_CLOSE_COMMAND, PROJECT_CREATE_COMMAND, PROJECT_OPEN_COMMAND,
     PROJECT_REOPEN_LAST_COMMAND, PROJECT_SHOW_RECENT_COMMAND, PROJECT_VALIDATE_COMMAND,
+    ProjectCommand,
 };
 use crate::scene_state::{
     SCENE_CLEAR_COMMAND, SCENE_CLEAR_SELECTION_COMMAND, SCENE_LOAD_COMMAND, SCENE_SAVE_COMMAND,
-    UNSAVED_SCENE_MESSAGE,
+    SceneCommand, UNSAVED_SCENE_MESSAGE,
 };
 use crate::viewport_state::{
     AppViewportState, VIEWPORT_CLEAR_COMMAND, VIEWPORT_REQUEST_FRAME_COMMAND,
-    VIEWPORT_SHOW_STATUS_COMMAND,
+    VIEWPORT_SHOW_STATUS_COMMAND, ViewportCommand, ViewportFrameRequestSize,
 };
 
 pub(crate) const HELP_SHORTCUTS_COMMAND: &str = "help.shortcuts";
@@ -40,6 +42,324 @@ pub(crate) const PALETTE_OPEN_COMMAND: &str = "elcarax.palette.open";
 pub(crate) const PALETTE_CLOSE_COMMAND: &str = "elcarax.palette.close";
 pub(crate) const SHOW_RENDERER_STATS_COMMAND: &str = "elcarax.status.show_renderer_stats";
 pub(crate) const SHOW_READY_STATUS_COMMAND: &str = "elcarax.status.show_ready";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditorCommand {
+    Project(ProjectCommand),
+    Asset(AssetCommand),
+    Scene(SceneCommand),
+    Inspector(InspectorCommand),
+    Edit(InspectorEditCommand),
+    Adapter(AdapterCommand),
+    Viewport(ViewportCommand),
+    Ui(EditorUiCommand),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditorUiCommand {
+    HelpShortcuts,
+    HelpCommands,
+    OpenPalette,
+    ClosePalette,
+    ShowRendererStats,
+    ShowReady,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EditorCommandOutcome {
+    pub(crate) message: Option<String>,
+    pub(crate) request_viewport_frame: bool,
+    pub(crate) ui_command: Option<EditorUiCommand>,
+}
+
+impl EditorCommandOutcome {
+    fn message(message: impl Into<String>) -> Self {
+        Self {
+            message: Some(message.into()),
+            request_viewport_frame: false,
+            ui_command: None,
+        }
+    }
+
+    fn ui_command(command: EditorUiCommand) -> Self {
+        Self {
+            message: None,
+            request_viewport_frame: false,
+            ui_command: Some(command),
+        }
+    }
+}
+
+pub(crate) struct EditorCommandContext<'a> {
+    pub(crate) editor: &'a mut EditorSessionState,
+    pub(crate) adapter: &'a mut AdapterState,
+    pub(crate) viewport: &'a mut AppViewportState,
+    pub(crate) viewport_request_size: ViewportFrameRequestSize,
+}
+
+pub(crate) struct EditorCommandRouter;
+
+impl EditorCommandRouter {
+    pub(crate) fn parse(id: &str) -> Option<EditorCommand> {
+        Some(match id {
+            PROJECT_CREATE_COMMAND => EditorCommand::Project(ProjectCommand::Create),
+            PROJECT_OPEN_COMMAND => EditorCommand::Project(ProjectCommand::Open),
+            PROJECT_CLOSE_COMMAND => EditorCommand::Project(ProjectCommand::Close),
+            PROJECT_VALIDATE_COMMAND => EditorCommand::Project(ProjectCommand::Validate),
+            PROJECT_SHOW_RECENT_COMMAND => EditorCommand::Project(ProjectCommand::ShowRecent),
+            PROJECT_REOPEN_LAST_COMMAND => EditorCommand::Project(ProjectCommand::ReopenLast),
+            ASSET_SCAN_COMMAND => EditorCommand::Asset(AssetCommand::Scan),
+            ASSET_REFRESH_COMMAND => EditorCommand::Asset(AssetCommand::Refresh),
+            ASSET_START_WATCHING_COMMAND => EditorCommand::Asset(AssetCommand::StartWatching),
+            ASSET_STOP_WATCHING_COMMAND => EditorCommand::Asset(AssetCommand::StopWatching),
+            ASSET_CLEAR_SELECTION_COMMAND => EditorCommand::Asset(AssetCommand::ClearSelection),
+            ASSET_SHOW_SELECTED_COMMAND => EditorCommand::Asset(AssetCommand::ShowSelected),
+            ASSET_REVEAL_ROOT_COMMAND => EditorCommand::Asset(AssetCommand::RevealRoot),
+            SCENE_LOAD_COMMAND => EditorCommand::Scene(SceneCommand::Load),
+            SCENE_SAVE_COMMAND => EditorCommand::Scene(SceneCommand::Save),
+            SCENE_CLEAR_COMMAND => EditorCommand::Scene(SceneCommand::Clear),
+            SCENE_CLEAR_SELECTION_COMMAND => EditorCommand::Scene(SceneCommand::ClearSelection),
+            INSPECTOR_CLEAR_COMMAND => EditorCommand::Inspector(InspectorCommand::Clear),
+            INSPECTOR_SHOW_SELECTED_COMMAND => {
+                EditorCommand::Inspector(InspectorCommand::ShowSelected)
+            }
+            INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND => {
+                EditorCommand::Inspector(InspectorCommand::ShowPropertyCount)
+            }
+            EDIT_UNDO_COMMAND => EditorCommand::Edit(InspectorEditCommand::Undo),
+            EDIT_REDO_COMMAND => EditorCommand::Edit(InspectorEditCommand::Redo),
+            ADAPTER_CONNECT_COMMAND => EditorCommand::Adapter(AdapterCommand::Connect),
+            ADAPTER_HANDSHAKE_COMMAND => EditorCommand::Adapter(AdapterCommand::Handshake),
+            ADAPTER_LOAD_PROJECT_COMMAND => EditorCommand::Adapter(AdapterCommand::LoadProject),
+            ADAPTER_LOAD_SCENE_COMMAND => EditorCommand::Adapter(AdapterCommand::LoadScene),
+            ADAPTER_SHOW_STATUS_COMMAND => EditorCommand::Adapter(AdapterCommand::ShowStatus),
+            ADAPTER_SHOW_DIAGNOSTICS_COMMAND => {
+                EditorCommand::Adapter(AdapterCommand::ShowDiagnostics)
+            }
+            ADAPTER_DISCONNECT_COMMAND => EditorCommand::Adapter(AdapterCommand::Disconnect),
+            VIEWPORT_REQUEST_FRAME_COMMAND => {
+                EditorCommand::Viewport(ViewportCommand::RequestFrame)
+            }
+            VIEWPORT_CLEAR_COMMAND => EditorCommand::Viewport(ViewportCommand::Clear),
+            VIEWPORT_SHOW_STATUS_COMMAND => EditorCommand::Viewport(ViewportCommand::ShowStatus),
+            HELP_SHORTCUTS_COMMAND => EditorCommand::Ui(EditorUiCommand::HelpShortcuts),
+            HELP_COMMANDS_COMMAND => EditorCommand::Ui(EditorUiCommand::HelpCommands),
+            PALETTE_OPEN_COMMAND => EditorCommand::Ui(EditorUiCommand::OpenPalette),
+            PALETTE_CLOSE_COMMAND => EditorCommand::Ui(EditorUiCommand::ClosePalette),
+            SHOW_RENDERER_STATS_COMMAND => EditorCommand::Ui(EditorUiCommand::ShowRendererStats),
+            SHOW_READY_STATUS_COMMAND => EditorCommand::Ui(EditorUiCommand::ShowReady),
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn execute(
+        command: EditorCommand,
+        context: &mut EditorCommandContext<'_>,
+    ) -> EditorCommandOutcome {
+        match command {
+            EditorCommand::Project(command) => {
+                let result = {
+                    let mut shell = EditorShellContext {
+                        adapter: context.adapter,
+                        viewport: context.viewport,
+                    };
+                    context
+                        .editor
+                        .session_mut()
+                        .execute_project_command(command, Some(&mut shell))
+                };
+                EditorCommandOutcome::message(result.message())
+            }
+            EditorCommand::Asset(command) => {
+                let result = context
+                    .editor
+                    .assets
+                    .execute(command, context.editor.project.is_project_loaded());
+                context.editor.session_mut().after_asset_command(command);
+                EditorCommandOutcome::message(result.message())
+            }
+            EditorCommand::Scene(SceneCommand::Save) => context
+                .editor
+                .session_mut()
+                .save_scene()
+                .map(|outcome| EditorCommandOutcome::message(outcome.status_message()))
+                .unwrap_or_else(|| EditorCommandOutcome::message("No scene loaded")),
+            EditorCommand::Scene(command) => {
+                let outcome = context.editor.session_mut().execute_scene_command(command);
+                EditorCommandOutcome::message(outcome.status_message())
+            }
+            EditorCommand::Inspector(command) => {
+                let result = context.editor.inspector.execute(
+                    command,
+                    &mut context.editor.scene,
+                    &context.editor.property_types,
+                );
+                EditorCommandOutcome::message(result.message())
+            }
+            EditorCommand::Edit(command) => {
+                let result = context
+                    .editor
+                    .session_mut()
+                    .execute_edit_command(context.adapter, command);
+                EditorCommandOutcome::message(result.message())
+            }
+            EditorCommand::Adapter(command) => {
+                let result = context.adapter.execute(command, &mut context.editor.scene);
+                #[cfg(feature = "native-shell")]
+                if command == AdapterCommand::Handshake
+                    && let Some((adapter_id, supports_preview)) =
+                        context.adapter.connected_viewport_info()
+                {
+                    context
+                        .viewport
+                        .on_adapter_connected(&adapter_id, supports_preview);
+                }
+                if command == AdapterCommand::Disconnect {
+                    context.viewport.on_adapter_disconnected();
+                }
+                context.editor.inspector.on_scene_selection_changed();
+                let request_viewport_frame = command == AdapterCommand::LoadScene;
+                EditorCommandOutcome {
+                    message: Some(result.message().to_string()),
+                    request_viewport_frame,
+                    ui_command: None,
+                }
+            }
+            EditorCommand::Viewport(command) => {
+                let result = context.viewport.execute(
+                    command,
+                    context.adapter,
+                    context.viewport_request_size,
+                );
+                EditorCommandOutcome::message(result.message())
+            }
+            EditorCommand::Ui(command) => EditorCommandOutcome::ui_command(command),
+        }
+    }
+
+    pub(crate) fn availability_for_id(
+        id: &str,
+        editor: &EditorSessionState,
+        adapter: &AdapterState,
+        viewport: &AppViewportState,
+    ) -> CommandAvailability {
+        let Some(command) = Self::parse(id) else {
+            return CommandAvailability::disabled("Command is not routable");
+        };
+        Self::availability_for(command, editor, adapter, viewport)
+    }
+
+    pub(crate) fn availability_for(
+        command: EditorCommand,
+        editor: &EditorSessionState,
+        adapter: &AdapterState,
+        _viewport: &AppViewportState,
+    ) -> CommandAvailability {
+        match command {
+            EditorCommand::Project(ProjectCommand::Create)
+            | EditorCommand::Project(ProjectCommand::Open)
+            | EditorCommand::Project(ProjectCommand::ReopenLast) => {
+                if editor.scene.has_unsaved_changes() {
+                    CommandAvailability::disabled(UNSAVED_SCENE_MESSAGE)
+                } else {
+                    CommandAvailability::enabled()
+                }
+            }
+            EditorCommand::Project(ProjectCommand::Close) => {
+                if !editor.project.is_project_loaded() {
+                    CommandAvailability::disabled("No project open")
+                } else if editor.scene.has_unsaved_changes() {
+                    CommandAvailability::disabled(UNSAVED_SCENE_MESSAGE)
+                } else {
+                    CommandAvailability::enabled()
+                }
+            }
+            EditorCommand::Project(ProjectCommand::Validate) => {
+                require_project(editor, "No project open")
+            }
+            EditorCommand::Project(ProjectCommand::ShowRecent) => CommandAvailability::enabled(),
+            EditorCommand::Asset(AssetCommand::Scan)
+            | EditorCommand::Asset(AssetCommand::StartWatching)
+            | EditorCommand::Asset(AssetCommand::StopWatching)
+            | EditorCommand::Asset(AssetCommand::ClearSelection)
+            | EditorCommand::Asset(AssetCommand::ShowSelected)
+            | EditorCommand::Asset(AssetCommand::RevealRoot) => {
+                require_project(editor, "No project open")
+            }
+            EditorCommand::Asset(AssetCommand::Refresh) => {
+                if !editor.project.is_project_loaded() {
+                    CommandAvailability::disabled("No project open")
+                } else if editor
+                    .project
+                    .asset_root()
+                    .is_some_and(std::path::Path::is_dir)
+                {
+                    CommandAvailability::enabled()
+                } else {
+                    CommandAvailability::disabled("Asset root unavailable")
+                }
+            }
+            EditorCommand::Scene(SceneCommand::Load) => require_project(editor, "No project open"),
+            EditorCommand::Scene(SceneCommand::Save) => {
+                if editor.scene.snapshot().is_some() && editor.scene.is_project_document() {
+                    CommandAvailability::enabled()
+                } else {
+                    CommandAvailability::disabled("No project scene loaded")
+                }
+            }
+            EditorCommand::Scene(SceneCommand::Clear)
+            | EditorCommand::Scene(SceneCommand::ClearSelection)
+            | EditorCommand::Inspector(InspectorCommand::ShowSelected)
+            | EditorCommand::Inspector(InspectorCommand::ShowPropertyCount) => {
+                if editor.scene.snapshot().is_some() {
+                    CommandAvailability::enabled()
+                } else {
+                    CommandAvailability::disabled("No scene loaded")
+                }
+            }
+            EditorCommand::Inspector(InspectorCommand::Clear) => CommandAvailability::enabled(),
+            EditorCommand::Edit(InspectorEditCommand::Undo) => {
+                if editor.edit_history.undo_count() > 0 {
+                    CommandAvailability::enabled()
+                } else {
+                    CommandAvailability::disabled("Nothing to undo")
+                }
+            }
+            EditorCommand::Edit(InspectorEditCommand::Redo) => {
+                if editor.edit_history.redo_count() > 0 {
+                    CommandAvailability::enabled()
+                } else {
+                    CommandAvailability::disabled("Nothing to redo")
+                }
+            }
+            EditorCommand::Adapter(AdapterCommand::Connect)
+            | EditorCommand::Adapter(AdapterCommand::ShowStatus) => CommandAvailability::enabled(),
+            EditorCommand::Adapter(AdapterCommand::Disconnect)
+            | EditorCommand::Adapter(AdapterCommand::Handshake)
+            | EditorCommand::Adapter(AdapterCommand::LoadProject)
+            | EditorCommand::Adapter(AdapterCommand::LoadScene)
+            | EditorCommand::Adapter(AdapterCommand::ShowDiagnostics) => {
+                if adapter.is_connected() {
+                    CommandAvailability::enabled()
+                } else {
+                    CommandAvailability::disabled("No adapter connected")
+                }
+            }
+            EditorCommand::Viewport(ViewportCommand::RequestFrame) => {
+                if !adapter.is_connected() {
+                    CommandAvailability::disabled("No adapter connected")
+                } else if !adapter.supports_viewport_preview() {
+                    CommandAvailability::disabled("Adapter does not support viewport preview")
+                } else {
+                    CommandAvailability::enabled()
+                }
+            }
+            EditorCommand::Viewport(ViewportCommand::Clear)
+            | EditorCommand::Viewport(ViewportCommand::ShowStatus)
+            | EditorCommand::Ui(_) => CommandAvailability::enabled(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ToolbarSnapshot {
@@ -132,8 +452,12 @@ pub(crate) fn toolbar_snapshot(
         .into_iter()
         .filter_map(|command| {
             let placement = command.presentation().toolbar()?;
-            let availability =
-                command_availability(command.id().as_str(), editor, adapter, viewport);
+            let availability = EditorCommandRouter::availability_for_id(
+                command.id().as_str(),
+                editor,
+                adapter,
+                viewport,
+            );
             Some((
                 placement.section,
                 placement.order,
@@ -166,126 +490,6 @@ pub(crate) fn toolbar_snapshot(
     ToolbarSnapshot {
         sections,
         has_unsaved_scene: editor.scene.has_unsaved_changes(),
-    }
-}
-
-pub(crate) fn command_availability(
-    command_id: &str,
-    editor: &EditorSessionState,
-    adapter: &AdapterState,
-    _viewport: &AppViewportState,
-) -> CommandAvailability {
-    match command_id {
-        PROJECT_CREATE_COMMAND | PROJECT_OPEN_COMMAND | PROJECT_REOPEN_LAST_COMMAND => {
-            if editor.scene.has_unsaved_changes() {
-                CommandAvailability::disabled(UNSAVED_SCENE_MESSAGE)
-            } else {
-                CommandAvailability::enabled()
-            }
-        }
-        PROJECT_CLOSE_COMMAND => {
-            if !editor.project.is_project_loaded() {
-                CommandAvailability::disabled("No project open")
-            } else if editor.scene.has_unsaved_changes() {
-                CommandAvailability::disabled(UNSAVED_SCENE_MESSAGE)
-            } else {
-                CommandAvailability::enabled()
-            }
-        }
-        PROJECT_VALIDATE_COMMAND => require_project(editor, "No project open"),
-        PROJECT_SHOW_RECENT_COMMAND => CommandAvailability::enabled(),
-        ASSET_SCAN_COMMAND
-        | ASSET_START_WATCHING_COMMAND
-        | ASSET_STOP_WATCHING_COMMAND
-        | ASSET_CLEAR_SELECTION_COMMAND
-        | ASSET_SHOW_SELECTED_COMMAND
-        | ASSET_REVEAL_ROOT_COMMAND => require_project(editor, "No project open"),
-        ASSET_REFRESH_COMMAND => {
-            if !editor.project.is_project_loaded() {
-                CommandAvailability::disabled("No project open")
-            } else if editor
-                .project
-                .asset_root()
-                .is_some_and(std::path::Path::is_dir)
-            {
-                CommandAvailability::enabled()
-            } else {
-                CommandAvailability::disabled("Asset root unavailable")
-            }
-        }
-        SCENE_LOAD_COMMAND => require_project(editor, "No project open"),
-        SCENE_SAVE_COMMAND => {
-            if editor.scene.snapshot().is_some() && editor.scene.is_project_document() {
-                CommandAvailability::enabled()
-            } else {
-                CommandAvailability::disabled("No project scene loaded")
-            }
-        }
-        SCENE_CLEAR_COMMAND => {
-            if editor.scene.snapshot().is_some() {
-                CommandAvailability::enabled()
-            } else {
-                CommandAvailability::disabled("No scene loaded")
-            }
-        }
-        SCENE_CLEAR_SELECTION_COMMAND => {
-            if editor.scene.snapshot().is_some() {
-                CommandAvailability::enabled()
-            } else {
-                CommandAvailability::disabled("No scene loaded")
-            }
-        }
-        INSPECTOR_CLEAR_COMMAND => CommandAvailability::enabled(),
-        INSPECTOR_SHOW_SELECTED_COMMAND | INSPECTOR_SHOW_PROPERTY_COUNT_COMMAND => {
-            if editor.scene.snapshot().is_some() {
-                CommandAvailability::enabled()
-            } else {
-                CommandAvailability::disabled("No scene loaded")
-            }
-        }
-        EDIT_UNDO_COMMAND => {
-            if editor.edit_history.undo_count() > 0 {
-                CommandAvailability::enabled()
-            } else {
-                CommandAvailability::disabled("Nothing to undo")
-            }
-        }
-        EDIT_REDO_COMMAND => {
-            if editor.edit_history.redo_count() > 0 {
-                CommandAvailability::enabled()
-            } else {
-                CommandAvailability::disabled("Nothing to redo")
-            }
-        }
-        ADAPTER_CONNECT_COMMAND | ADAPTER_SHOW_STATUS_COMMAND => CommandAvailability::enabled(),
-        ADAPTER_DISCONNECT_COMMAND
-        | ADAPTER_HANDSHAKE_COMMAND
-        | ADAPTER_LOAD_PROJECT_COMMAND
-        | ADAPTER_LOAD_SCENE_COMMAND
-        | ADAPTER_SHOW_DIAGNOSTICS_COMMAND => {
-            if adapter.is_connected() {
-                CommandAvailability::enabled()
-            } else {
-                CommandAvailability::disabled("No adapter connected")
-            }
-        }
-        VIEWPORT_REQUEST_FRAME_COMMAND => {
-            if !adapter.is_connected() {
-                CommandAvailability::disabled("No adapter connected")
-            } else if !adapter.supports_viewport_preview() {
-                CommandAvailability::disabled("Adapter does not support viewport preview")
-            } else {
-                CommandAvailability::enabled()
-            }
-        }
-        VIEWPORT_CLEAR_COMMAND | VIEWPORT_SHOW_STATUS_COMMAND => CommandAvailability::enabled(),
-        HELP_SHORTCUTS_COMMAND
-        | HELP_COMMANDS_COMMAND
-        | PALETTE_OPEN_COMMAND
-        | PALETTE_CLOSE_COMMAND
-        | SHOW_RENDERER_STATS_COMMAND
-        | SHOW_READY_STATUS_COMMAND => CommandAvailability::enabled(),
-        _ => CommandAvailability::enabled(),
     }
 }
 
@@ -349,7 +553,8 @@ fn palette_entry(
     adapter: &AdapterState,
     viewport: &AppViewportState,
 ) -> CommandPaletteEntry {
-    let availability = command_availability(command.id().as_str(), editor, adapter, viewport);
+    let availability =
+        EditorCommandRouter::availability_for_id(command.id().as_str(), editor, adapter, viewport);
     CommandPaletteEntry::new(
         command.id().as_str(),
         command.title().as_str(),
@@ -395,6 +600,8 @@ mod tests {
     use super::*;
     use elcarax_commands::{CommandScope, KeyChord, KeyModifier, built_in_commands};
     use elcarax_scene_model::{ObjectSchema, SceneObject};
+
+    use crate::inspector_state::InspectorPropertyCommit;
 
     fn registry_and_bindings() -> (CommandRegistry, CommandBindingRegistry) {
         let registry = match built_in_commands() {
@@ -459,9 +666,21 @@ mod tests {
     }
 
     #[test]
+    fn every_registered_command_has_one_typed_route() {
+        let (registry, _) = registry_and_bindings();
+        for command in registry.all() {
+            assert!(
+                EditorCommandRouter::parse(command.id().as_str()).is_some(),
+                "missing typed route for {}",
+                command.id().as_str()
+            );
+        }
+    }
+
+    #[test]
     fn disabled_command_reports_reason() {
         let editor = EditorSessionState::default();
-        let availability = command_availability(
+        let availability = EditorCommandRouter::availability_for_id(
             SCENE_SAVE_COMMAND,
             &editor,
             &AdapterState::default(),
@@ -504,7 +723,7 @@ mod tests {
         });
         let _ = editor
             .session_mut()
-            .execute_project_command(PROJECT_CREATE_COMMAND, None);
+            .execute_project_command(ProjectCommand::Create, None);
         let (registry, bindings) = registry_and_bindings();
         let snapshot = toolbar_snapshot(
             &registry,
@@ -530,7 +749,7 @@ mod tests {
         });
         let _ = editor
             .session_mut()
-            .execute_project_command(PROJECT_CREATE_COMMAND, None);
+            .execute_project_command(ProjectCommand::Create, None);
         if let Some(snapshot) = editor.scene.snapshot_mut() {
             let schema = ObjectSchema::new("DirtyMarker");
             let object = SceneObject::new(
@@ -539,7 +758,12 @@ mod tests {
                 schema.type_id,
             );
             snapshot.add_schema(schema);
-            snapshot.add_root_object(object);
+            let _ = snapshot.add_object(
+                None,
+                0,
+                object,
+                &elcarax_scene_model::PropertyTypeRegistry::default(),
+            );
         }
         editor.scene.mark_document_modified();
         let (registry, bindings) = registry_and_bindings();
@@ -599,7 +823,12 @@ mod tests {
         let object_id = object.id;
         let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Fixture Scene"));
         snapshot.add_schema(schema);
-        snapshot.add_root_object(object);
+        let _ = snapshot.add_object(
+            None,
+            0,
+            object,
+            &elcarax_scene_model::PropertyTypeRegistry::default(),
+        );
         let mut editor = EditorSessionState::default();
         editor.scene.load_external_snapshot(
             snapshot,
@@ -641,13 +870,16 @@ mod tests {
         )));
         let _ = editor.session_mut().commit_inspector_property(
             &mut adapter,
-            component_id,
-            "health",
-            PropertyEditKind::Integer,
-            "65",
-            "Set Fixture Health",
+            InspectorPropertyCommit {
+                component_id,
+                path: "health".to_string(),
+                edit_kind: PropertyEditKind::Integer,
+                extension_type_id: None,
+                text: "65".to_string(),
+                label: "Set Fixture Health".to_string(),
+            },
         );
-        let availability = command_availability(
+        let availability = EditorCommandRouter::availability_for_id(
             EDIT_UNDO_COMMAND,
             &editor,
             &adapter,

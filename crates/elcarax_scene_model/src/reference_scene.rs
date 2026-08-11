@@ -3,7 +3,7 @@ use crate::kind::{SceneObjectKind, well_known as kinds};
 use crate::name::SceneName;
 use crate::schema::{ComponentSchema, ObjectSchema};
 use crate::snapshot::{SceneId, SceneObject, SceneObjectId, SceneSnapshot};
-use crate::{PropertyKind, PropertyPath, PropertySchema, PropertyValue};
+use crate::{PropertyKind, PropertyPath, PropertySchema, PropertyTypeRegistry, PropertyValue};
 
 pub fn reference_scene_snapshot() -> SceneSnapshot {
     let mut snapshot = SceneSnapshot::with_name(SceneName::from_unvalidated("Reference Scene"));
@@ -167,19 +167,20 @@ pub fn reference_scene_snapshot() -> SceneSnapshot {
     let ground = object(8, "Ground", kinds::GROUND);
     let trigger_zone = object(10, "Trigger Zone", kinds::TRIGGER);
 
-    snapshot.add_root_object(world);
+    let property_types = PropertyTypeRegistry::default();
+    let _ = snapshot.add_object(None, 0, world, &property_types);
     let world_id = stable_object_id(1);
-    let _ = snapshot.attach_child(world_id, directional_light);
-    let _ = snapshot.attach_child(world_id, main_camera);
-    let _ = snapshot.attach_child(world_id, player);
+    let _ = snapshot.add_object(Some(world_id), 0, directional_light, &property_types);
+    let _ = snapshot.add_object(Some(world_id), 1, main_camera, &property_types);
+    let _ = snapshot.add_object(Some(world_id), 2, player, &property_types);
     let player_id = stable_object_id(4);
-    let _ = snapshot.attach_child(player_id, player_mesh);
-    let _ = snapshot.attach_child(player_id, player_audio);
-    let _ = snapshot.attach_child(world_id, environment);
+    let _ = snapshot.add_object(Some(player_id), 0, player_mesh, &property_types);
+    let _ = snapshot.add_object(Some(player_id), 1, player_audio, &property_types);
+    let _ = snapshot.add_object(Some(world_id), 3, environment, &property_types);
     let environment_id = stable_object_id(7);
-    let _ = snapshot.attach_child(environment_id, ground);
-    let _ = snapshot.attach_child(environment_id, cube);
-    let _ = snapshot.attach_child(environment_id, trigger_zone);
+    let _ = snapshot.add_object(Some(environment_id), 0, ground, &property_types);
+    let _ = snapshot.add_object(Some(environment_id), 1, cube, &property_types);
+    let _ = snapshot.add_object(Some(environment_id), 2, trigger_zone, &property_types);
     snapshot
 }
 
@@ -213,7 +214,12 @@ fn component(
 }
 
 fn object(id: u64, name: &str, kind: &str) -> SceneObject {
-    SceneObject::with_stable_id(stable_object_id(id), name, SceneObjectKind::new(kind))
+    SceneObject::with_stable_id(
+        stable_object_id(id),
+        name,
+        SceneObjectKind::new(kind),
+        stable_id(id.saturating_add(1000)),
+    )
 }
 
 fn stable_scene_id(value: u64) -> SceneId {

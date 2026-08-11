@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Open scene authoring type system: string `SceneObjectKind`, `PropertyValue::Extension`, and public `components` / `kinds` well-known constant modules
+- Atomic scene transaction kernel with strict hierarchy validation, persisted-ID observation, and rollback on failed multi-operation patches
+- Registry-backed property extension authoring with handler-owned parse, validate, and display behavior
+- Typed `EditorCommandRouter` covering every registered executable command for console, toolbar, palette, shortcut, adapter, and viewport dispatch
 - Component slots on scene objects (`ComponentInstance`, `ComponentAdded` / `ComponentRemoved` patches) with component-scoped property paths and inspector rows
 - Scene file schema version 2 storing per-object components instead of a flat property bag
 - `component_id` on adapter `SetPropertyRequest` / `SetPropertyResponse` and editor property commits
@@ -52,10 +55,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Property edits apply through `ScenePatch` instead of direct property map writes on the command path
 - Native-shell adapter `SetProperty` writeback uses `AdapterHost` (no longer test-only)
 - Inspector property commits on adapter-backed scenes confirm through the adapter before updating the local snapshot
-- Console proof covers command binding diagnostics, toolbar snapshot construction, Ctrl+S-equivalent scene save dispatch through the registry path, and scene document save round-trip after project reopen
+- Console proof covers command binding diagnostics, toolbar snapshot construction, Ctrl+S-equivalent scene save dispatch through the typed router, and scene document save round-trip after project reopen
 - Native shell shortcut handling now converts platform input into registry key chords and dispatches toolbar, palette, and shortcut commands through one command execution path
+- Scene construction and inspector commits now use patch-backed request objects; superseded direct root attachment and argument-heavy edit paths were removed
 - Beta cleanup: removed in-memory asset demo index and `examples/demo_project`; renamed `demo_scene_snapshot` to `reference_scene_snapshot`; consolidated adapter capabilities to `AdapterCapabilities::stdio_game_adapter()`
-- Documentation: milestone markdown files replaced by this changelog; README, STATUS, ROADMAP, and BUILD_NOTES updated for scroll views, inspector widgets, viewport camera behavior, toolbar actions, and keybindings
+- Documentation: milestone markdown files replaced by this changelog; README, STATUS, and BUILD_NOTES updated for scroll views, inspector widgets, viewport camera behavior, toolbar actions, and keybindings
 
 ### Removed
 

@@ -70,8 +70,7 @@ impl ProjectState {
         }
     }
 
-    pub(crate) fn execute_command_id(&mut self, id: &str) -> Option<ProjectCommandResult> {
-        let command = ProjectCommand::from_id(id)?;
+    pub(crate) fn execute(&mut self, command: ProjectCommand) -> ProjectCommandResult {
         let result = match command {
             ProjectCommand::Create => self.create_project(),
             ProjectCommand::Open => self.open_project(),
@@ -81,7 +80,7 @@ impl ProjectState {
             ProjectCommand::ReopenLast => self.reopen_last_project(),
         };
         self.last_command_result = Some(result.clone());
-        Some(result)
+        result
     }
 
     pub(crate) fn ui_snapshot(&self) -> ProjectUiSnapshot {
@@ -260,27 +259,13 @@ impl Default for ProjectState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProjectCommand {
+pub(crate) enum ProjectCommand {
     Create,
     Open,
     Close,
     Validate,
     ShowRecent,
     ReopenLast,
-}
-
-impl ProjectCommand {
-    fn from_id(id: &str) -> Option<Self> {
-        match id {
-            PROJECT_CREATE_COMMAND => Some(Self::Create),
-            PROJECT_OPEN_COMMAND => Some(Self::Open),
-            PROJECT_CLOSE_COMMAND => Some(Self::Close),
-            PROJECT_VALIDATE_COMMAND => Some(Self::Validate),
-            PROJECT_SHOW_RECENT_COMMAND => Some(Self::ShowRecent),
-            PROJECT_REOPEN_LAST_COMMAND => Some(Self::ReopenLast),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -321,7 +306,7 @@ fn format_project_error(error: ProjectError) -> String {
 mod tests {
     use super::*;
     use crate::project_display::DiagnosticTone;
-    use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
+    use elcarax_commands::{CommandId, RegisteredCommand, built_in_commands};
     use elcarax_project::{ProjectId, ProjectStatus, ResolvedProjectPaths};
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
     use std::fs;
@@ -338,8 +323,8 @@ mod tests {
             ..AppProjectConfig::default()
         };
         let mut state = ProjectState::new(config);
-        let result = state.execute_command_id(PROJECT_CREATE_COMMAND);
-        assert!(result.is_some_and(|value| value.message().contains("Created project")));
+        let result = state.execute(ProjectCommand::Create);
+        assert!(result.message().contains("Created project"));
         assert!(state.current_project.is_some());
         assert!(elcarax_project::manifest_path_for_root(&temp).is_file());
         let _ = fs::remove_dir_all(&temp);
@@ -355,15 +340,15 @@ mod tests {
             ..AppProjectConfig::default()
         };
         let mut create_state = ProjectState::new(create_config);
-        let _ = create_state.execute_command_id(PROJECT_CREATE_COMMAND);
-        let _ = create_state.execute_command_id(PROJECT_CLOSE_COMMAND);
+        let _ = create_state.execute(ProjectCommand::Create);
+        let _ = create_state.execute(ProjectCommand::Close);
         let open_config = AppProjectConfig {
             open_path: Some(temp.clone()),
             ..AppProjectConfig::default()
         };
         let mut state = ProjectState::new(open_config);
-        let result = state.execute_command_id(PROJECT_OPEN_COMMAND);
-        assert!(result.is_some_and(|value| value.message().contains("Opened project")));
+        let result = state.execute(ProjectCommand::Open);
+        assert!(result.message().contains("Opened project"));
         assert_eq!(
             state
                 .current_project()
@@ -383,12 +368,9 @@ mod tests {
             ..AppProjectConfig::default()
         };
         let mut state = ProjectState::new(config);
-        let _ = state.execute_command_id(PROJECT_CREATE_COMMAND);
-        let result = state.execute_command_id(PROJECT_VALIDATE_COMMAND);
-        assert_eq!(
-            result.as_ref().map(ProjectCommandResult::message),
-            Some("Project validation passed")
-        );
+        let _ = state.execute(ProjectCommand::Create);
+        let result = state.execute(ProjectCommand::Validate);
+        assert_eq!(result.message(), "Project validation passed");
         let _ = fs::remove_dir_all(&temp);
     }
 
@@ -401,8 +383,8 @@ mod tests {
             ..AppProjectConfig::default()
         };
         let mut state = ProjectState::new(config);
-        let _ = state.execute_command_id(PROJECT_CREATE_COMMAND);
-        let _ = state.execute_command_id(PROJECT_CLOSE_COMMAND);
+        let _ = state.execute(ProjectCommand::Create);
+        let _ = state.execute(ProjectCommand::Close);
         assert!(state.current_project.is_none());
         assert_eq!(state.validation.status(), ProjectStatus::NoProject);
         let _ = fs::remove_dir_all(&temp);
@@ -419,22 +401,22 @@ mod tests {
             ..AppProjectConfig::default()
         };
         let mut state = ProjectState::new(config).with_recent_store_path(recent_path.clone());
-        let _ = state.execute_command_id(PROJECT_CREATE_COMMAND);
-        let _ = state.execute_command_id(PROJECT_CLOSE_COMMAND);
+        let _ = state.execute(ProjectCommand::Create);
+        let _ = state.execute(ProjectCommand::Close);
         let mut reopen_state = ProjectState::new(AppProjectConfig {
             recent_store_path: Some(recent_path),
             ..AppProjectConfig::default()
         });
-        let result = reopen_state.execute_command_id(PROJECT_REOPEN_LAST_COMMAND);
-        assert!(result.is_some_and(|value| value.message().contains("Reopened last project")));
+        let result = reopen_state.execute(ProjectCommand::ReopenLast);
+        assert!(result.message().contains("Reopened last project"));
         assert!(reopen_state.current_project.is_some());
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn unknown_command_does_not_mutate_project_state() {
-        let mut state = ProjectState::default();
-        assert_eq!(state.execute_command_id("elcarax.unknown"), None);
+        let state = ProjectState::default();
+        assert!(crate::editor_commands::EditorCommandRouter::parse("elcarax.unknown").is_none());
         assert!(state.current_project.is_none());
         assert!(state.last_command_result.is_none());
     }
@@ -486,12 +468,15 @@ mod tests {
             },
             None => panic!("project command should be selected"),
         };
-        assert!(matches!(
-            registry.invoke(&selected_id),
-            CommandResult::Invoked(_)
-        ));
+        assert!(registry.get(&selected_id).is_some());
         let mut state = ProjectState::default();
-        assert!(state.execute_command_id(selected_id.as_str()).is_some());
+        let command = match crate::editor_commands::EditorCommandRouter::parse(selected_id.as_str())
+        {
+            Some(crate::editor_commands::EditorCommand::Project(command)) => command,
+            _ => panic!("selected command should be a project command"),
+        };
+        let result = state.execute(command);
+        assert!(result.message().contains("Created project"));
     }
 
     fn fixture_project() -> elcarax_project::Project {

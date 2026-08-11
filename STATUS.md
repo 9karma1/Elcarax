@@ -1,13 +1,13 @@
 # Elcarax v0.1 scaffold status
 
-Generated: 2026-07-04
+Generated: 2026-08-11
 
 ## Included
 
 - Rust workspace scaffold targeting Rust 1.96.0 and Edition 2024
 - Engine-neutral scene/property/schema model with project-owned scene files (`*.elcarax.scene.toml`)
 - Command and undo/redo path with history cleared on project open/close through `EditorSession`
-- Platform-neutral command registry with declarative command metadata, categories, default keybindings, keybinding conflict diagnostics, command filtering, and invocation results
+- Platform-neutral command registry with declarative command metadata, categories, default keybindings, keybinding conflict diagnostics, command filtering, and one typed executable router in `elcarax_app`
 - Adapter API, SDK, host boundary, and stdio reference game adapter
 - UI tree and layout foundation for the editor shell with theme tokens, typography scale, and elevation primitives
 - UI input routing, hit testing, hover/focus/pressed state, keyboard focus traversal, scroll views, and basic button clicks
@@ -15,16 +15,16 @@ Generated: 2026-07-04
 - Project system UI with project status, recent project count, validation diagnostics, project panel metadata, and command-palette project commands
 - Real asset index with project-relative paths, stable path-derived IDs, cheap metadata, diagnostics, explicit scan/refresh, watcher dirty-state, scrollable asset panel rows, selection state, and command-palette asset commands
 - Scene tree with engine-neutral scene model, reference scene snapshot for adapter/tests, scrollable hierarchy panel, selection/expand state, and command-palette scene commands
-- Inspector with schema-driven `InspectorValueWidget` descriptors, grouped property rows, typed edit widgets (text, toggle, number stepper, vector field, enum selector), selection-driven updates, and command-palette inspector commands
+- Inspector with schema-driven `InspectorValueWidget` descriptors, grouped property rows, typed edit widgets (text, toggle, number stepper, vector field, enum selector), registry-backed extension authoring, selection-driven updates, and command-palette inspector commands
 - Editable inspector undo with model-owned validation/mutation helpers, command-driven edits, inspector refresh, diagnostics, and undo/redo through a unified `CommandHistory`
-- Adapter host integration with JSON-line protocol, mock process spawning, versioned handshake, request/response correlation, diagnostics/logs, scene snapshot import, status UI, and command-palette adapter commands
+- Adapter host integration with binary-framed protocol, mock process spawning, versioned handshake, request/response correlation, diagnostics/logs, scene snapshot import, status UI, and command-palette adapter commands
 - Adapter property writeback with set-property protocol, confirmed scene patches, adapter-backed inspector edits, and unified undo/redo writeback (no parallel adapter history)
-- Scene hierarchy mutation foundation via `ScenePatch` (`ObjectAdded` / `ObjectRemoved` / `Reparented` / `Renamed`) and snapshot APIs; UI hierarchy drag/drop remains future work
+- Scene hierarchy mutation foundation via an atomic, strictly validated `ScenePatch` kernel (`ObjectAdded` / `ObjectRemoved` / `Reparented` / `Renamed`) and snapshot APIs; UI hierarchy drag/drop remains future work
 - Viewport preview with adapter RGBA frame protocol, letterboxed frame layout, camera pan/zoom, actionable empty states, scene-object picking from normalized coordinates, image render primitive, viewport commands, and console adapter viewport proof
 - Productionized normal runtime startup with no fake project, asset, scene, inspector, adapter, or viewport data loaded automatically
 - Real project file format, create/open/validate/close, recent-project persistence, native folder picker, default scene on create, and project-root asset scanning
 - Scene document persistence: `scene.load`, `scene.save`, dirty tracking, unsaved close guards, manifest `active_scene` sync, Ctrl+S, and unsaved UI affordances
-- Toolbar action model generated from command metadata and current availability; toolbar buttons, palette commands, and shortcuts dispatch through the same app command path
+- Toolbar action model generated from command metadata and current availability; toolbar buttons, palette commands, and shortcuts dispatch through the same typed app command path
 - `EditorSession` / `EditorSessionState` coordinator for unified project-bound lifecycle across console and native shell
 - GPU-backed render primitive pipeline for rectangles, borders, lines, clip metadata, batching, and render stats
 - `cosmic-text` shaping, layout cache, and system-font rasterization through `elcarax_text`
@@ -66,7 +66,7 @@ Feature-gated native shell:
 cargo run -p elcarax_app --features native-shell
 ```
 
-The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, routes platform input into the UI tree and command registry, supports toolbar command buttons, command palette shortcut hints, resizable side panels with persisted widths, scrollable asset/scene/inspector panels, schema-driven inspector widgets, viewport pan/zoom and click-to-select, native folder pickers, Ctrl+S scene save, unsaved indicators, paints into a render scene, renders labels through `elcarax_text`, handles resize/DPI/events, and exits cleanly on close.
+The native shell opens an `Elcarax` window, initializes `wgpu`, builds the UI shell through `elcarax_ui`, resolves platform input through the keybinding registry and typed command router, supports toolbar command buttons, command palette shortcut hints, resizable side panels with persisted widths, scrollable asset/scene/inspector panels, schema-driven inspector widgets, viewport pan/zoom and click-to-select, native folder pickers, Ctrl+S scene save, unsaved indicators, paints into a render scene, renders labels through `elcarax_text`, handles resize/DPI/events, and exits cleanly on close.
 
 ## Validation
 
@@ -80,4 +80,4 @@ cargo test --workspace
 cargo run -p elcarax_app
 ```
 
-Release history: [CHANGELOG.md](CHANGELOG.md). Planned work: [ROADMAP.md](ROADMAP.md).
+Release history: [CHANGELOG.md](CHANGELOG.md).

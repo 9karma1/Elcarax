@@ -2,8 +2,8 @@ use std::fmt;
 
 use crate::component::ComponentInstanceId;
 use crate::{
-    PropertyEditKind, PropertyKind, PropertyPath, PropertySchema, PropertyValue, SceneId,
-    SceneObjectId, SceneSnapshot,
+    PropertyEditKind, PropertyKind, PropertyPath, PropertySchema, PropertyTypeRegistry,
+    PropertyValue, SceneId, SceneObjectId, SceneSnapshot,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +85,7 @@ pub fn prepare_property_change(
     component_id: ComponentInstanceId,
     path: &PropertyPath,
     new_value: &PropertyValue,
+    property_types: &PropertyTypeRegistry,
 ) -> PropertyEditResult {
     let object = snapshot
         .objects()
@@ -93,24 +94,14 @@ pub fn prepare_property_change(
     let component = object
         .component(component_id)
         .ok_or(PropertyEditError::ComponentNotFound { component_id })?;
-    let schema = editable_schema_for(snapshot, object.type_id, &component.type_name, path)?;
-    validate_value_type(path, schema.kind, schema.edit_kind, new_value)?;
-    if schema.kind == PropertyKind::Enum {
-        let PropertyValue::Enum { variant } = new_value else {
-            return Err(PropertyEditError::TypeMismatch {
-                path: path.clone(),
-                expected: schema.edit_kind,
-                actual: new_value.display_label(),
-            });
-        };
-        if !schema.enum_variants.iter().any(|value| value == variant) {
-            return Err(PropertyEditError::TypeMismatch {
-                path: path.clone(),
-                expected: schema.edit_kind,
-                actual: format!("unknown enum variant '{variant}'"),
-            });
-        }
-    }
+    validate_property_value(
+        snapshot,
+        object_id,
+        component_id,
+        path,
+        new_value,
+        property_types,
+    )?;
     let old_value = component
         .property(path)
         .cloned()
@@ -131,16 +122,75 @@ pub fn edit_scene_property(
     component_id: ComponentInstanceId,
     path: &PropertyPath,
     new_value: PropertyValue,
+    property_types: &PropertyTypeRegistry,
 ) -> PropertyEditResult {
-    let change = prepare_property_change(snapshot, object_id, component_id, path, &new_value)?;
-    apply_property_change(snapshot, &change, PropertyChangeValue::New)?;
+    let change = prepare_property_change(
+        snapshot,
+        object_id,
+        component_id,
+        path,
+        &new_value,
+        property_types,
+    )?;
+    apply_property_change(snapshot, &change, PropertyChangeValue::New, property_types)?;
     Ok(change)
+}
+
+pub fn validate_property_value(
+    snapshot: &SceneSnapshot,
+    object_id: SceneObjectId,
+    component_id: ComponentInstanceId,
+    path: &PropertyPath,
+    value: &PropertyValue,
+    property_types: &PropertyTypeRegistry,
+) -> Result<(), PropertyEditError> {
+    let object = snapshot
+        .objects()
+        .get(&object_id)
+        .ok_or(PropertyEditError::ObjectNotFound { object_id })?;
+    let component = object
+        .component(component_id)
+        .ok_or(PropertyEditError::ComponentNotFound { component_id })?;
+    let schema = editable_schema_for(snapshot, object.type_id, &component.type_name, path)?;
+    validate_value_type(path, schema.kind, schema.edit_kind, value)?;
+    if schema.kind == PropertyKind::Enum {
+        let PropertyValue::Enum { variant } = value else {
+            return Err(PropertyEditError::TypeMismatch {
+                path: path.clone(),
+                expected: schema.edit_kind,
+                actual: value.display_label(),
+            });
+        };
+        if !schema
+            .enum_variants
+            .iter()
+            .any(|candidate| candidate == variant)
+        {
+            return Err(PropertyEditError::TypeMismatch {
+                path: path.clone(),
+                expected: schema.edit_kind,
+                actual: format!("unknown enum variant '{variant}'"),
+            });
+        }
+    }
+    if schema.kind == PropertyKind::Extension {
+        let Some(type_id) = schema.extension_type_id.as_deref() else {
+            return Err(PropertyEditError::ReadOnly {
+                path: path.clone(),
+                reason: "Extension property has no registered type id".to_string(),
+            });
+        };
+        property_types.validate(path, type_id, value)?;
+    }
+    Ok(())
 }
 
 pub fn parse_property_text(
     path: &PropertyPath,
     edit_kind: PropertyEditKind,
+    extension_type_id: Option<&str>,
     text: &str,
+    property_types: &PropertyTypeRegistry,
 ) -> Result<PropertyValue, PropertyEditError> {
     let text = text.trim();
     match edit_kind {
@@ -171,6 +221,15 @@ pub fn parse_property_text(
         PropertyEditKind::Enum => Ok(PropertyValue::Enum {
             variant: text.to_string(),
         }),
+        PropertyEditKind::Extension => {
+            let Some(type_id) = extension_type_id else {
+                return Err(PropertyEditError::ReadOnly {
+                    path: path.clone(),
+                    reason: "Extension property has no registered type id".to_string(),
+                });
+            };
+            property_types.parse_text(path, type_id, text)
+        }
         PropertyEditKind::Unsupported => Err(PropertyEditError::ReadOnly {
             path: path.clone(),
             reason: "Property type does not support text entry".to_string(),
@@ -208,6 +267,7 @@ pub fn apply_property_change(
     snapshot: &mut SceneSnapshot,
     change: &PropertyChange,
     value: PropertyChangeValue,
+    property_types: &PropertyTypeRegistry,
 ) -> Result<(), PropertyEditError> {
     let selected_value = match value {
         PropertyChangeValue::Old => &change.old_value,
@@ -219,7 +279,7 @@ pub fn apply_property_change(
         change.path.clone(),
         selected_value.clone(),
     )
-    .apply(snapshot)
+    .apply(snapshot, property_types)
     .map_err(|error| match error {
         crate::ScenePatchError::Property(error) => error,
         crate::ScenePatchError::ObjectNotFound { object_id } => {
@@ -305,15 +365,29 @@ mod tests {
 
     #[test]
     fn parse_property_text_covers_supported_kinds() {
-        let integer =
-            parse_property_text(&path("gameplay.health"), PropertyEditKind::Integer, "42");
+        let property_types = PropertyTypeRegistry::default();
+        let integer = parse_property_text(
+            &path("gameplay.health"),
+            PropertyEditKind::Integer,
+            None,
+            "42",
+            &property_types,
+        );
         assert_eq!(integer.ok(), Some(PropertyValue::I64(42)));
-        let float = parse_property_text(&path("gameplay.speed"), PropertyEditKind::Float, "6.5");
+        let float = parse_property_text(
+            &path("gameplay.speed"),
+            PropertyEditKind::Float,
+            None,
+            "6.5",
+            &property_types,
+        );
         assert_eq!(float.ok(), Some(PropertyValue::F64(6.5)));
         let vec3 = parse_property_text(
             &path("transform.position"),
             PropertyEditKind::Vec3,
+            None,
             "0, 1, 0",
+            &property_types,
         );
         assert_eq!(vec3.ok(), Some(PropertyValue::Vec3([0.0, 1.0, 0.0])));
     }

@@ -33,13 +33,12 @@ pub(crate) struct AssetState {
 }
 
 impl AssetState {
-    pub(crate) fn execute_command_id(
+    pub(crate) fn execute(
         &mut self,
-        id: &str,
+        command: AssetCommand,
         project_loaded: bool,
-    ) -> Option<AssetCommandResult> {
+    ) -> AssetCommandResult {
         self.poll_watch_events();
-        let command = AssetCommand::from_id(id)?;
         let result = match command {
             AssetCommand::Scan => self.scan(project_loaded),
             AssetCommand::Refresh => self.refresh(project_loaded),
@@ -50,7 +49,7 @@ impl AssetState {
             AssetCommand::RevealRoot => self.reveal_root(project_loaded),
         };
         self.last_command_result = Some(result.clone());
-        Some(result)
+        result
     }
 
     pub(crate) fn on_project_opened(&mut self, project_root: &Path, asset_root: &Path) {
@@ -376,7 +375,7 @@ pub(crate) struct AssetUiState<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AssetCommand {
+pub(crate) enum AssetCommand {
     Scan,
     Refresh,
     StartWatching,
@@ -384,21 +383,6 @@ enum AssetCommand {
     ClearSelection,
     ShowSelected,
     RevealRoot,
-}
-
-impl AssetCommand {
-    fn from_id(id: &str) -> Option<Self> {
-        match id {
-            ASSET_SCAN_COMMAND => Some(Self::Scan),
-            ASSET_REFRESH_COMMAND => Some(Self::Refresh),
-            ASSET_START_WATCHING_COMMAND => Some(Self::StartWatching),
-            ASSET_STOP_WATCHING_COMMAND => Some(Self::StopWatching),
-            ASSET_CLEAR_SELECTION_COMMAND => Some(Self::ClearSelection),
-            ASSET_SHOW_SELECTED_COMMAND => Some(Self::ShowSelected),
-            ASSET_REVEAL_ROOT_COMMAND => Some(Self::RevealRoot),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -429,7 +413,7 @@ impl AssetCommandResult {
 mod tests {
     use super::*;
     use elcarax_assets::{AssetKind, AssetRecord, stable_asset_id_from_path};
-    use elcarax_commands::{CommandId, CommandResult, RegisteredCommand, built_in_commands};
+    use elcarax_commands::{CommandId, RegisteredCommand, built_in_commands};
     use elcarax_project::{ProjectCreateRequest, create_project};
     use elcarax_ui::{CommandPaletteAction, CommandPaletteEntry, CommandPaletteState, KeyboardKey};
     use std::fs;
@@ -450,11 +434,8 @@ mod tests {
         let _ = create_project(&ProjectCreateRequest::new(&temp, "Asset Scan"));
         let mut state = AssetState::default();
         state.on_project_opened(&temp, temp.join("assets").as_path());
-        let result = state.execute_command_id(ASSET_SCAN_COMMAND, true);
-        assert_eq!(
-            result.as_ref().map(AssetCommandResult::message),
-            Some("Scanned 0 asset(s)")
-        );
+        let result = state.execute(AssetCommand::Scan, true);
+        assert_eq!(result.message(), "Scanned 0 asset(s)");
         assert_eq!(state.index().len(), 0);
         let _ = fs::remove_dir_all(&temp);
     }
@@ -469,15 +450,12 @@ mod tests {
         assert!(fs::write(assets.join("one.txt"), "one").is_ok());
         let mut state = AssetState::default();
         state.on_project_opened(&temp, assets.as_path());
-        let _ = state.execute_command_id(ASSET_SCAN_COMMAND, true);
+        let _ = state.execute(AssetCommand::Scan, true);
         state.apply_watch_events(&[AssetWatchEvent::synthetic_change(assets.join("two.txt"))]);
         assert!(state.is_dirty());
         assert!(fs::write(assets.join("two.txt"), "two").is_ok());
-        let result = state.execute_command_id(ASSET_REFRESH_COMMAND, true);
-        assert_eq!(
-            result.as_ref().map(AssetCommandResult::message),
-            Some("Refreshed 2 asset(s)")
-        );
+        let result = state.execute(AssetCommand::Refresh, true);
+        assert_eq!(result.message(), "Refreshed 2 asset(s)");
         assert!(!state.is_dirty());
         assert_eq!(state.index().len(), 2);
         let _ = fs::remove_dir_all(&temp);
@@ -486,22 +464,16 @@ mod tests {
     #[test]
     fn asset_scan_without_root_reports_empty_state() {
         let mut state = AssetState::default();
-        let result = state.execute_command_id(ASSET_SCAN_COMMAND, true);
-        assert_eq!(
-            result.as_ref().map(AssetCommandResult::message),
-            Some("No asset root loaded")
-        );
+        let result = state.execute(AssetCommand::Scan, true);
+        assert_eq!(result.message(), "No asset root loaded");
         assert_eq!(state.index().len(), 0);
     }
 
     #[test]
     fn asset_scan_without_project_returns_clear_result() {
         let mut state = AssetState::default();
-        let result = state.execute_command_id(ASSET_SCAN_COMMAND, false);
-        assert_eq!(
-            result.as_ref().map(AssetCommandResult::message),
-            Some("No project open")
-        );
+        let result = state.execute(AssetCommand::Scan, false);
+        assert_eq!(result.message(), "No project open");
         assert!(state.index().is_empty());
     }
 
@@ -522,20 +494,14 @@ mod tests {
         assert!(fs::create_dir_all(&assets).is_ok());
         let mut state = AssetState::default();
         state.on_project_opened(&temp, assets.as_path());
-        let start = state.execute_command_id(ASSET_START_WATCHING_COMMAND, true);
-        assert_eq!(
-            start.as_ref().map(AssetCommandResult::message),
-            Some("Started asset watcher")
-        );
+        let start = state.execute(AssetCommand::StartWatching, true);
+        assert_eq!(start.message(), "Started asset watcher");
         assert!(matches!(
             state.watch_status(),
             AssetWatchStatus::Watching(_)
         ));
-        let stop = state.execute_command_id(ASSET_STOP_WATCHING_COMMAND, true);
-        assert_eq!(
-            stop.as_ref().map(AssetCommandResult::message),
-            Some("Stopped asset watcher")
-        );
+        let stop = state.execute(AssetCommand::StopWatching, true);
+        assert_eq!(stop.message(), "Stopped asset watcher");
         assert_eq!(state.watch_status(), &AssetWatchStatus::Stopped);
         let _ = fs::remove_dir_all(&temp);
     }
@@ -548,7 +514,7 @@ mod tests {
         assert!(fs::create_dir_all(&assets).is_ok());
         let mut state = AssetState::default();
         state.on_project_opened(&temp, assets.as_path());
-        let _ = state.execute_command_id(ASSET_START_WATCHING_COMMAND, true);
+        let _ = state.execute(AssetCommand::StartWatching, true);
         state.on_project_closed();
         assert!(state.index().is_empty());
         assert!(state.scanned_asset_count().is_none());
@@ -566,11 +532,11 @@ mod tests {
         assert!(fs::write(&file, "one").is_ok());
         let mut state = AssetState::default();
         state.on_project_opened(&temp, assets.as_path());
-        let _ = state.execute_command_id(ASSET_SCAN_COMMAND, true);
+        let _ = state.execute(AssetCommand::Scan, true);
         assert!(state.select_row(0));
         let selected = state.selection().selected();
         assert!(fs::write(&file, "two").is_ok());
-        let _ = state.execute_command_id(ASSET_REFRESH_COMMAND, true);
+        let _ = state.execute(AssetCommand::Refresh, true);
         assert_eq!(state.selection().selected(), selected);
         let _ = fs::remove_dir_all(&temp);
     }
@@ -585,10 +551,10 @@ mod tests {
         assert!(fs::write(&file, "one").is_ok());
         let mut state = AssetState::default();
         state.on_project_opened(&temp, assets.as_path());
-        let _ = state.execute_command_id(ASSET_SCAN_COMMAND, true);
+        let _ = state.execute(AssetCommand::Scan, true);
         assert!(state.select_row(0));
         assert!(fs::remove_file(&file).is_ok());
-        let _ = state.execute_command_id(ASSET_REFRESH_COMMAND, true);
+        let _ = state.execute(AssetCommand::Refresh, true);
         assert_eq!(state.selection().selected(), None);
         let _ = fs::remove_dir_all(&temp);
     }
@@ -598,22 +564,16 @@ mod tests {
         let mut state = AssetState::default();
         state.load_fixture_scan(fixture_scan());
         assert!(state.selection.select_first(&state.index));
-        let result = state.execute_command_id(ASSET_SHOW_SELECTED_COMMAND, true);
-        assert_eq!(
-            result.as_ref().map(AssetCommandResult::message),
-            Some("Selected asset: README.md")
-        );
+        let result = state.execute(AssetCommand::ShowSelected, true);
+        assert_eq!(result.message(), "Selected asset: README.md");
     }
 
     #[test]
     fn asset_reveal_root_reports_root() {
         let mut state = AssetState::default();
         state.on_project_opened(Path::new("project"), Path::new("project/assets"));
-        let result = state.execute_command_id(ASSET_REVEAL_ROOT_COMMAND, true);
-        assert_eq!(
-            result.as_ref().map(AssetCommandResult::message),
-            Some("Asset root: project/assets")
-        );
+        let result = state.execute(AssetCommand::RevealRoot, true);
+        assert_eq!(result.message(), "Asset root: project/assets");
     }
 
     #[test]
@@ -621,7 +581,7 @@ mod tests {
         let mut state = AssetState::default();
         state.load_fixture_scan(fixture_scan());
         assert!(state.selection.select_first(&state.index));
-        let _ = state.execute_command_id(ASSET_CLEAR_SELECTION_COMMAND, true);
+        let _ = state.execute(AssetCommand::ClearSelection, true);
         assert_eq!(state.selection().selected(), None);
     }
 
@@ -644,7 +604,7 @@ mod tests {
                 Ok(id) => id,
                 Err(error) => panic!("asset command ID should be valid: {error}"),
             };
-            assert!(matches!(registry.invoke(&id), CommandResult::Invoked(_)));
+            assert!(registry.get(&id).is_some());
         }
     }
 

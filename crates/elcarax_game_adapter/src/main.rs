@@ -13,8 +13,8 @@ use elcarax_adapter_api::{
 };
 use elcarax_core::{ElcaraxError, Result, ViewportCamera, ViewportFrameFormat};
 use elcarax_scene_model::{
-    PropertyEditError, ScenePatch, SceneSnapshot, ViewportPickCoord, pick_object_at,
-    prepare_property_change, reference_scene_snapshot,
+    PropertyEditError, PropertyTypeRegistry, ScenePatch, SceneSnapshot, ViewportPickCoord,
+    pick_object_at, prepare_property_change, reference_scene_snapshot,
 };
 
 fn main() -> Result<()> {
@@ -61,6 +61,7 @@ struct MockAdapter {
     project_loaded: bool,
     diagnostics: Vec<AdapterDiagnostic>,
     viewport_camera: ViewportCamera,
+    property_types: PropertyTypeRegistry,
 }
 
 impl MockAdapter {
@@ -73,6 +74,7 @@ impl MockAdapter {
                 "Reference stdio adapter ready with deterministic scene snapshot",
             )],
             viewport_camera: ViewportCamera::default_editor(),
+            property_types: PropertyTypeRegistry::default(),
         }
     }
 
@@ -167,6 +169,7 @@ impl MockAdapter {
             request.component_id,
             &request.path,
             &request.new_value,
+            &self.property_types,
         );
         let change = match result {
             Ok(change) => change,
@@ -197,7 +200,7 @@ impl MockAdapter {
             path,
             new_value.clone(),
         );
-        if let Err(error) = patch.apply(&mut self.scene) {
+        if let Err(error) = patch.apply(&mut self.scene, &self.property_types) {
             return rejected_property_response(
                 request,
                 status_for_patch_error(&error),

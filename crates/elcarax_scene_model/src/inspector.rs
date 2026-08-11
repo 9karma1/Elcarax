@@ -5,7 +5,10 @@ use crate::kind::SceneObjectKind;
 use crate::name::PropertyName;
 use crate::property::{PropertyPath, PropertyValue};
 use crate::property_display::{PropertyFormatContext, PropertyGroup, format_property_value};
-use crate::schema::{ComponentSchema, ObjectSchema, PropertyEditKind, PropertySchema};
+use crate::property_registry::PropertyTypeRegistry;
+use crate::schema::{
+    ComponentSchema, ObjectSchema, PropertyEditKind, PropertyKind, PropertySchema,
+};
 use crate::snapshot::{SceneObject, SceneObjectId, SceneSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +37,7 @@ pub struct InspectorRow {
     pub editable: bool,
     pub edit_kind: PropertyEditKind,
     pub read_only_reason: Option<String>,
+    pub extension_type_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,12 +63,13 @@ impl InspectorObject {
 pub fn build_inspector_object(
     snapshot: &SceneSnapshot,
     object_id: SceneObjectId,
+    property_types: &PropertyTypeRegistry,
 ) -> Result<InspectorObject, InspectorDiagnostic> {
     let object = snapshot
         .object(object_id)
         .map_err(|_| InspectorDiagnostic::ObjectNotFound)?;
     let schema = snapshot.schema(object.type_id);
-    let sections = build_sections(snapshot, object, schema);
+    let sections = build_sections(snapshot, object, schema, property_types);
     Ok(InspectorObject {
         object_id,
         name: object.display_name.clone(),
@@ -76,17 +81,19 @@ pub fn build_inspector_object(
 pub fn build_inspector_for_selection(
     snapshot: &SceneSnapshot,
     selected: Option<SceneObjectId>,
+    property_types: &PropertyTypeRegistry,
 ) -> Result<InspectorObject, InspectorDiagnostic> {
     let Some(object_id) = selected else {
         return Err(InspectorDiagnostic::NoObjectSelected);
     };
-    build_inspector_object(snapshot, object_id)
+    build_inspector_object(snapshot, object_id, property_types)
 }
 
 fn build_sections(
     snapshot: &SceneSnapshot,
     object: &SceneObject,
     schema: Option<&ObjectSchema>,
+    property_types: &PropertyTypeRegistry,
 ) -> Vec<InspectorSection> {
     let context = PropertyFormatContext { snapshot };
     let mut grouped: BTreeMap<String, Vec<InspectorRow>> = BTreeMap::new();
@@ -97,7 +104,9 @@ fn build_sections(
         for (path, value) in &component.properties {
             let property = component_schema.and_then(|schema| property_schema(schema, path));
             rows.push(match property {
-                Some(property) => inspector_row(component.id, property, value, context),
+                Some(property) => {
+                    inspector_row(component.id, property, value, context, property_types)
+                }
                 None => unschematized_row(component, path, value, context),
             });
         }
@@ -130,15 +139,40 @@ fn inspector_row(
     property: &PropertySchema,
     value: &PropertyValue,
     context: PropertyFormatContext<'_>,
+    property_types: &PropertyTypeRegistry,
 ) -> InspectorRow {
+    let extension_ready = property
+        .extension_type_id
+        .as_deref()
+        .is_some_and(|type_id| property_types.contains(type_id));
+    let editable =
+        property.editable && (property.kind != PropertyKind::Extension || extension_ready);
+    let read_only_reason = if editable {
+        None
+    } else if property.kind == PropertyKind::Extension && property.editable && !extension_ready {
+        Some(
+            property
+                .extension_type_id
+                .as_deref()
+                .map(|type_id| format!("No handler registered for extension type '{type_id}'"))
+                .unwrap_or_else(|| "Extension property has no registered type id".to_string()),
+        )
+    } else {
+        property.read_only_reason.clone()
+    };
     InspectorRow {
         label: PropertyName::from_unvalidated(property.display_name.clone()),
         component_id,
         path: property.path.clone(),
-        value: format_property_value(value, context),
-        editable: property.editable,
+        value: property
+            .extension_type_id
+            .as_deref()
+            .and_then(|type_id| property_types.display(type_id, value))
+            .unwrap_or_else(|| format_property_value(value, context)),
+        editable,
         edit_kind: property.edit_kind,
-        read_only_reason: property.read_only_reason.clone(),
+        read_only_reason,
+        extension_type_id: property.extension_type_id.clone(),
     }
 }
 
@@ -156,6 +190,7 @@ fn unschematized_row(
         editable: false,
         edit_kind: PropertyEditKind::Unsupported,
         read_only_reason: Some("No editable property schema is available".to_string()),
+        extension_type_id: None,
     }
 }
 
